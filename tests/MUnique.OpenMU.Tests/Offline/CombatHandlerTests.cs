@@ -4,6 +4,7 @@
 
 namespace MUnique.OpenMU.Tests.Offline;
 
+using System.Threading;
 using Moq;
 using MUnique.OpenMU.AttributeSystem;
 using MUnique.OpenMU.DataModel.Configuration;
@@ -26,6 +27,14 @@ public class CombatHandlerTests
 {
     private IGameContext _gameContext = null!;
     private readonly Point _origin = new(100, 100);
+
+    /// <summary>
+    /// The next monster number to hand out. <see cref="CombatHandler"/> caches a monster's combat stats
+    /// statically by its number, so the monsters of these tests must not share one - the default 0 is also
+    /// the number of the first monster of the shipped game data, so a test which judges real monsters would
+    /// otherwise decide what these tests see.
+    /// </summary>
+    private static int _nextMonsterNumber = 30500;
 
     /// <summary>
     /// Sets up a fresh game context before each test.
@@ -194,6 +203,7 @@ public class CombatHandlerTests
         var monsterDefinition = new MonsterDefinition
         {
             Id = Guid.NewGuid(),
+            Number = (short)Interlocked.Increment(ref _nextMonsterNumber),
             ObjectKind = NpcObjectKind.Monster,
         };
         monsterDefinition.Attributes.Add(new MonsterAttribute { AttributeDefinition = Stats.Level, Value = level });

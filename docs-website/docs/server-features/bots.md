@@ -147,6 +147,23 @@ spreads over the maps a player of that band would choose between. Every map in
 the draw is one the bot may legally reach, can afford, and which is better than
 where it stands - the draw only decides between improvements.
 
+Ground whose strongest monsters the bot can safely fight are below half its
+level is trivial for it: it still kills something there, but nothing which pays
+the fare or moves its level. Such a map counts as one the bot has to leave, like
+an illegal one - otherwise a high-level bot is content where a level-1 monster
+is the best it sees, which is how level 200 to 300 characters kept farming
+Lorencia (issue #1542). Leaving and escaping are not the same decision, though: an
+escape target must offer more than the ground the bot leaves, because "anything
+safe beats staying" is true for every starter map alike, and the bot would warp
+from Lorencia to Noria, Devias and Elvenland and back on every cooldown. When
+nothing within reach offers better ground the bot does not travel at all - it
+farms what it stands on, because the levels and the loot it earns there are what
+opens the next map, and it re-checks the offer every couple of minutes and
+immediately after each level-up. For an errand which needs a town (potions,
+selling, the buff NPC) the class hometown stays a destination at any level; as an
+escape from bad hunting ground it is refused, since for a high-level bot it is
+the very ground it has to leave.
+
 A map can pass every check and still pay nothing: the monsters the bot may fight
 are a rare kind among ones it must refuse, or other hunters empty the grounds
 first. The bot notices the way a player would, by having landed no hit in

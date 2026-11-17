@@ -34,14 +34,6 @@ internal sealed class BotNavigator : AsyncDisposable
     /// </summary>
     private const int WarpImprovementMargin = 8;
 
-    /// <summary>
-    /// A map whose strongest monster the bot can safely fight is below a 1/<see cref="TrivialMapLevelDivisor"/>
-    /// of its level is trivial ground: it still provides experience and loot, but far too little to be
-    /// worth the hunt. A bot there leaves even while it is killing something - otherwise it would keep
-    /// farming level-1 monsters on Lorencia forever, just because they are the nearest target.
-    /// </summary>
-    private const int TrivialMapLevelDivisor = 2;
-
     /// <summary>Fallback when the server defines no warps: the lowest stock requirement.</summary>
     private const int FallbackMinWarpLevel = 10;
 
@@ -204,6 +196,20 @@ internal sealed class BotNavigator : AsyncDisposable
     private static readonly ConcurrentDictionary<Guid, bool> WalkableSpawnGateCache = new();
 
     /// <summary>
+    /// Cache of which warp gates land on at least one walkable tile, so a bot only pays a fare for a trip
+    /// it can actually take. Keyed by the gate itself - configuration reloads build new gate instances,
+    /// so a reload must not reuse the old verdicts (see <see cref="HasWalkableLanding"/>).
+    /// </summary>
+    private static readonly ConcurrentDictionary<ExitGate, bool> WalkableLandingCache = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>
+    /// How long a bot which found no better ground than the trivial one under its feet waits before it
+    /// reviews that verdict. It farms there in the meantime - which is what earns it the gear, levels and
+    /// Zen to reach better ground - instead of re-scanning every map of the world on every tick.
+    /// </summary>
+    private static readonly TimeSpan EscapeReviewInterval = TimeSpan.FromMinutes(2);
+
+    /// <summary>
     /// How often the bot takes its navigation decisions (where to go, whether to warp, shop, follow).
     /// Same pace as the MU Helper tick: a bot standing next to its leader sets off at most half a second
     /// after him. The errands checked on each decision keep their own, much longer intervals.
@@ -347,6 +353,12 @@ internal sealed class BotNavigator : AsyncDisposable
     private DateTimeOffset _nextFollowWarpSearchUtc = DateTimeOffset.MinValue;
     private Point _lastPosition;
     private DateTime _lastMoveUtc = DateTime.MinValue;
+
+    /// <summary>
+    /// The last "nothing better is reachable" verdict of the map choice, with the state it was made for
+    /// (see <see cref="IsEscapeReviewDeferred"/>).
+    /// </summary>
+    private (int BotLevel, Guid MapId, DateTimeOffset RecheckAtUtc) _escapeReview;
     private DateTime _nextEquipCheckUtc = DateTime.MinValue;
     private IList<PathResultNode>? _travelPath;
     private int _travelPathIndex;
@@ -542,6 +554,35 @@ internal sealed class BotNavigator : AsyncDisposable
             ArrayPool<int>.Shared.Return(distancesFromTarget);
             ArrayPool<int>.Shared.Return(pendingCoordinates);
         }
+    }
+
+    /// <summary>
+    /// Whether the warp's landing area holds at least one walkable tile, so the bot really arrives on the
+    /// map it paid for.
+    /// </summary>
+    /// <param name="warp">The warp to check.</param>
+    /// <returns><c>true</c>, if the bots may land there.</returns>
+    /// <remarks>
+    /// <see cref="Player.WarpToAsync(ExitGate)"/> places the character on a random tile of the gate and
+    /// does not retry; a blocked one is recovered to the map's spawn gate - which for several maps lies on
+    /// a different map entirely (Elvenland recovers to Noria, Icarus to its safezone map). A bot which
+    /// paid for a trip into the field and ended up back in a starter town had taken no step at all: it
+    /// stood in the very level band it tried to leave, and tried again on the next cooldown.
+    /// The verdict is cached per gate for the lifetime of the process - terrain is static configuration,
+    /// like <see cref="HasWalkableSpawnGate"/>, so edited terrain needs a restart.
+    /// </remarks>
+    internal static bool HasWalkableLanding(WarpInfo warp)
+    {
+        if (warp.Gate is not { Map: { } map } gate)
+        {
+            return false;
+        }
+
+        return WalkableLandingCache.GetOrAdd(gate, _ =>
+        {
+            var terrain = new GameMapTerrain(map);
+            return gate.GetPossibleLandingPoints().Any(point => terrain.WalkMap[point.X, point.Y]);
+        });
     }
 
     /// <summary>
@@ -1109,6 +1150,133 @@ internal sealed class BotNavigator : AsyncDisposable
     internal void RegisterMonsterDeath(GameMapDefinition map, Point position)
     {
         this._monsterDeaths.Enqueue((map, position, this._timeProvider.GetUtcNow()));
+    }
+
+    /// <summary>
+    /// Gets the maps worth moving to, each through the entry to its best part, along with the level of the
+    /// strongest monster the bot can safely fight there.
+    /// </summary>
+    /// <param name="escape">Whether the bot has to leave its current map regardless of its strength.</param>
+    /// <param name="minimumMonsterLevel">The lowest monster level worth counting at all.</param>
+    /// <param name="escapeFloor">The lowest monster level an escape target has to offer.</param>
+    /// <returns>The candidate maps, unordered.</returns>
+    /// <remarks>
+    /// Public to the assembly so the map choice can be checked by the bot map tests without running a world.
+    /// </remarks>
+    internal List<(WarpInfo Warp, GameMapDefinition Map, int Level)> GetBetterMapCandidates(bool escape, int minimumMonsterLevel, int escapeFloor)
+    {
+        var current = this._player.CurrentMap?.Definition;
+        var threshold = escape
+            ? Math.Max(1, escapeFloor)
+            : (current is null ? 0 : this.BestSafeLevel(current, minimumMonsterLevel, this.GetCurrentZoneFilter())) + WarpImprovementMargin;
+
+        // Monsters below the threshold can't make a map a candidate, so they don't need to be judged at all.
+        var judgedFrom = Math.Max(minimumMonsterLevel, threshold);
+        var candidates = new List<(WarpInfo Warp, GameMapDefinition Map, int Level)>();
+        foreach (var candidate in this._player.GameContext.Configuration.Maps)
+        {
+            // The whole map is an upper bound for every part of it, and cheap to judge.
+            if (this.BestSafeLevel(candidate, judgedFrom) < threshold
+                || candidate.TryGetRequirementError(this._player, out _)
+                || !HasWalkableSpawnGate(candidate))
+            {
+                continue;
+            }
+
+            // One candidate per map, through the entry to its best part: the ranking in
+            // TryPickBetterMapCore spreads the bots over maps, and several floors of one map must not
+            // crowd the others out of it.
+            (WarpInfo Warp, int Level)? bestEntry = null;
+            foreach (var entry in this.GetHuntingWarps(candidate, judgedFrom))
+            {
+                if (entry.Level >= threshold
+                    && entry.Level > (bestEntry?.Level ?? 0)
+                    && this.CanAffordWarp(entry.Warp)
+                    && HasWalkableLanding(entry.Warp))
+                {
+                    bestEntry = entry;
+                }
+            }
+
+            if (bestEntry is { } chosen)
+            {
+                candidates.Add((chosen.Warp, candidate, chosen.Level));
+            }
+        }
+
+        return candidates;
+    }
+
+    /// <summary>
+    /// Whether the map choice of a bot on trivial ground is deferred because its last review found nothing
+    /// better within reach (see <see cref="DeferEscapeReview"/>). A level-up lifts the deferral at once -
+    /// the verdict was made for the old level.
+    /// </summary>
+    /// <param name="botLevel">The bot's current effective level.</param>
+    /// <param name="currentMap">The bot's current map.</param>
+    /// <returns><c>true</c>, if the review should wait.</returns>
+    /// <remarks>Public to the assembly so the bot map tests can check the deferral by itself.</remarks>
+    internal bool IsEscapeReviewDeferred(int botLevel, GameMapDefinition? currentMap)
+    {
+        var (reviewedLevel, reviewedMapId, recheckAtUtc) = this._escapeReview;
+        return this._timeProvider.GetUtcNow() < recheckAtUtc
+               && reviewedLevel == botLevel
+               && reviewedMapId == (currentMap?.GetId() ?? Guid.Empty);
+    }
+
+    /// <summary>
+    /// Defers the next review of the map choice for <see cref="EscapeReviewInterval"/>, because the bot
+    /// found no ground worth leaving for.
+    /// </summary>
+    /// <param name="botLevel">The bot's current effective level.</param>
+    /// <param name="currentMap">The bot's current map.</param>
+    /// <remarks>Public to the assembly so the bot map tests can check the deferral by itself.</remarks>
+    internal void DeferEscapeReview(int botLevel, GameMapDefinition? currentMap)
+        => this._escapeReview = (botLevel, currentMap?.GetId() ?? Guid.Empty, this._timeProvider.GetUtcNow() + EscapeReviewInterval);
+
+    /// <summary>
+    /// Gets the escape gate to the bot's class hometown, for when it must leave its current map but is
+    /// below every warp requirement (e.g. a freshly reset veteran) - the equivalent of a town scroll.
+    /// </summary>
+    /// <param name="allowTrivialHome">
+    /// Whether going home is acceptable even though the bot would only find trivial monsters there. That is
+    /// the case for an errand which needs a town (shopping, the buff NPC, leaving the market), but not for
+    /// escaping a bad hunting ground: warping a level-250 bot back to Lorencia is the very thing it needs
+    /// to escape from.
+    /// </param>
+    /// <param name="gate">The home map safezone gate.</param>
+    /// <param name="mapDefinition">The home map.</param>
+    /// <param name="monsterLevel">The level of the strongest safe monster there (informational).</param>
+    /// <returns>True, if the bot has a home map it is not already on, which is worth going to.</returns>
+    /// <remarks>Public to the assembly so the bot map tests can check the rule without a trip.</remarks>
+    internal bool TryGetHomeEscapeGate(bool allowTrivialHome, [MaybeNullWhen(false)] out ExitGate gate, [MaybeNullWhen(false)] out GameMapDefinition mapDefinition, out int monsterLevel)
+    {
+        gate = null;
+        mapDefinition = null;
+        monsterLevel = 0;
+
+        var homeMap = this._player.SelectedCharacter?.CharacterClass?.HomeMap;
+        if (homeMap is null
+            || homeMap.Number == this._player.CurrentMap?.Definition.Number
+            || BotFeaturePlugIn.GetConfiguration(this._player.GameContext)?.IsMapForbidden(homeMap) == true
+            || homeMap.GetSafezoneGate() is not { } safezoneGate)
+        {
+            return false;
+        }
+
+        var homeLevel = this.BestSafeLevel(homeMap);
+        if (!allowTrivialHome && MapFit.IsTrivial(homeLevel, this.GetBotLevel()))
+        {
+            // Home is the starter ground this bot has to leave behind, not a destination: it would only
+            // find low-level monsters there, exactly like the reported level 200-300 characters farming
+            // level-1 monsters on Lorencia.
+            return false;
+        }
+
+        gate = safezoneGate;
+        mapDefinition = homeMap;
+        monsterLevel = homeLevel;
+        return true;
     }
 
     /// <summary>
@@ -1858,7 +2026,7 @@ internal sealed class BotNavigator : AsyncDisposable
             // starve the bot's logistics for as long as it stays - no potion restock, no selling, a
             // slowly silting backpack. Like a player pulling a town scroll, it warps to its class
             // hometown and shops there; the better-map logic takes it back hunting afterward.
-            if (this.TryGetHomeEscapeGate(out var homeGate, out var homeMap, out _))
+            if (this.TryGetHomeEscapeGate(allowTrivialHome: true, out var homeGate, out var homeMap, out _))
             {
                 this._travelPath = null;
                 this._hasDestination = false;
@@ -1963,7 +2131,7 @@ internal sealed class BotNavigator : AsyncDisposable
             // No buff NPC lives on this map at all. Like a player pulling a town scroll, the bot warps
             // to its class hometown, where the buff is offered; the better-map logic takes it back
             // hunting afterward.
-            if (this.TryGetHomeEscapeGate(out var homeGate, out var homeMap, out _))
+            if (this.TryGetHomeEscapeGate(allowTrivialHome: true, out var homeGate, out var homeMap, out _))
             {
                 this._travelPath = null;
                 this._hasDestination = false;
@@ -2136,7 +2304,7 @@ internal sealed class BotNavigator : AsyncDisposable
         }
 
         this._leavesMarket = false;
-        if (!this.TryGetHomeEscapeGate(out var homeGate, out var homeMap, out _))
+        if (!this.TryGetHomeEscapeGate(allowTrivialHome: true, out var homeGate, out var homeMap, out _))
         {
             return false;
         }
@@ -2540,11 +2708,26 @@ internal sealed class BotNavigator : AsyncDisposable
         var currentMap = this._player.CurrentMap?.Definition;
         var currentLevel = currentMap is null ? 0 : this.BestSafeLevel(currentMap, 0, this.GetCurrentZoneFilter());
         var mapIsHostile = currentMap is not null && currentLevel == 0;
-        var mapIsTrivial = currentLevel > 0 && currentLevel * TrivialMapLevelDivisor < botLevel;
+        var mapIsTrivial = MapFit.IsTrivial(currentLevel, botLevel);
         var mapIsIllegal = currentMap is not null
                            && !this.TryGetLegalWarp(currentMap, out _)
                            && currentMap.Number != this._player.SelectedCharacter?.CharacterClass?.HomeMap?.Number;
         var mustEscape = mapIsHostile || mapIsTrivial || mapIsIllegal;
+
+        // The ground an escape target has to offer. Leaving is only worth a fare when the destination is
+        // at least as good as what the bot leaves, and the trivial ground which made it leave in the first
+        // place has to be beaten by a real step - see MapFit.EscapeTargetFloor for why.
+        var escapeFloor = MapFit.EscapeTargetFloor(currentLevel, mapIsHostile || mapIsIllegal);
+
+        // A trivial map which offers nothing better within reach is not a reason to travel on, it is a
+        // reason to settle and farm what it has: the level-ups, drops and Zen from it are what opens the
+        // next map. Re-checked periodically (and after every level-up, since the review is keyed on the
+        // bot's level), not on every tick - scanning every map's monsters hundreds of times a second is
+        // exactly the load this population cannot afford.
+        if (mapIsTrivial && !mapIsHostile && !mapIsIllegal && this.IsEscapeReviewDeferred(botLevel, currentMap))
+        {
+            return false;
+        }
 
         // A map can pass every check above and still pay the bot nothing: the safe monsters are a rare
         // kind among ones it must refuse, or stronger bots empty the grounds before it arrives. The bot
@@ -2558,20 +2741,21 @@ internal sealed class BotNavigator : AsyncDisposable
             return false;
         }
 
-        // When escaping, any legal map with something safe to hunt beats staying. A bot which cannot
-        // afford a single warp - or is below every warp requirement, as a freshly reset veteran is -
-        // would otherwise be stranded on ground that pays it nothing, unable to earn the fare out of
-        // it. The map gates are free, like a player taking the road to the next map: a bot which can't
-        // pay the fare walks through one, but only to a map that is really better than where it stands.
-        // Its home map is the last resort - and for a high-level bot it is exactly the starter ground
-        // this is meant to escape from, so the gate comes first.
+        // When escaping, any legal map above the escape floor beats staying. A bot which cannot afford a
+        // single warp - or is below every warp requirement, as a freshly reset veteran is - would
+        // otherwise be stranded on ground that pays it nothing, unable to earn the fare out of it. The
+        // map gates are free, like a player taking the road to the next map: a bot which can't pay the
+        // fare walks through one, but only to a map that is really better than where it stands. Its home
+        // map is the last resort - and for a high-level bot it is exactly the starter ground this is
+        // meant to escape from, so the gate comes first, and going home is only an option when there is
+        // nothing safe to fight where the bot stands.
         WarpInfo? fare = null;
         ExitGate targetGate;
         GameMapDefinition? targetMap;
         int targetLevel;
         var usedGateEscape = false;
         if ((mapIsBarren && this.TryPickEasierMap(out var easierWarp, out targetMap, out targetLevel))
-            || this.TryPickBetterMap(mustEscape, out easierWarp, out targetMap, out targetLevel))
+            || this.TryPickBetterMap(mustEscape, escapeFloor, out easierWarp, out targetMap, out targetLevel))
         {
             fare = easierWarp;
             targetGate = easierWarp.Gate!;
@@ -2584,12 +2768,25 @@ internal sealed class BotNavigator : AsyncDisposable
             usedGateEscape = true;
         }
         else if ((mustEscape || mapIsBarren)
-                 && this.TryGetHomeEscapeGate(out var homeGate, out targetMap, out targetLevel))
+                 && this.TryGetHomeEscapeGate(allowTrivialHome: mapIsHostile, out var homeGate, out targetMap, out targetLevel))
         {
             targetGate = homeGate;
         }
         else
         {
+            // Nowhere better to go. A bot on trivial ground settles for it and earns its way up, instead
+            // of walking to the next equally trivial ground and back on every warp cooldown.
+            if (mapIsTrivial)
+            {
+                this.DeferEscapeReview(botLevel, currentMap);
+                this._player.Logger.LogDebug(
+                    "Bot {Character} (level {Level}) stays on map {Map}: its monsters (~{MonsterLevel}) are trivial, but nothing within reach offers better ground than that.",
+                    this._player.Name,
+                    botLevel,
+                    currentMap?.Name,
+                    currentLevel);
+            }
+
             return false;
         }
 
@@ -2600,14 +2797,17 @@ internal sealed class BotNavigator : AsyncDisposable
         this._hasDestination = false;
         this._travelPath = null;
         this._player.HuntingSpot = null;
+        this._escapeReview = default;
         this._player.Logger.LogDebug(
-            "Bot {Character} (level {Level}) warping to map {Map} through {Warp} (monsters ~{MonsterLevel}, fare {Fare} zen).",
+            "Bot {Character} (level {Level}) warping to map {Map} through {Warp} (monsters ~{MonsterLevel}, fare {Fare} zen, current ground ~{CurrentLevel}: {Reason}).",
             this._player.Name,
             botLevel,
             targetMap!.Name,
             fare?.ToString() ?? (usedGateEscape ? "a map gate" : "its home gate"),
             targetLevel,
-            fare?.Costs ?? 0);
+            fare?.Costs ?? 0,
+            currentLevel,
+            mapIsHostile ? "nothing safe here" : mapIsIllegal ? "may not legally be here" : mapIsTrivial ? "ground too weak" : "barren");
 
         if (fare is not null)
         {
@@ -2977,35 +3177,6 @@ internal sealed class BotNavigator : AsyncDisposable
     private bool CanAffordWarp(WarpInfo warp) => this._player.Money >= warp.Costs;
 
     /// <summary>
-    /// Gets the escape gate to the bot's class hometown, for when it must leave its current map but is
-    /// below every warp requirement (e.g. a freshly reset veteran) - the equivalent of a town scroll.
-    /// </summary>
-    /// <param name="gate">The home map safezone gate.</param>
-    /// <param name="mapDefinition">The home map.</param>
-    /// <param name="monsterLevel">The level of the strongest safe monster there (informational).</param>
-    /// <returns>True, if the bot has a home map it is not already on.</returns>
-    private bool TryGetHomeEscapeGate([MaybeNullWhen(false)] out ExitGate gate, [MaybeNullWhen(false)] out GameMapDefinition mapDefinition, out int monsterLevel)
-    {
-        gate = null;
-        mapDefinition = null;
-        monsterLevel = 0;
-
-        var homeMap = this._player.SelectedCharacter?.CharacterClass?.HomeMap;
-        if (homeMap is null
-            || homeMap.Number == this._player.CurrentMap?.Definition.Number
-            || BotFeaturePlugIn.GetConfiguration(this._player.GameContext)?.IsMapForbidden(homeMap) == true
-            || homeMap.GetSafezoneGate() is not { } safezoneGate)
-        {
-            return false;
-        }
-
-        gate = safezoneGate;
-        mapDefinition = homeMap;
-        monsterLevel = this.BestSafeLevel(homeMap);
-        return true;
-    }
-
-    /// <summary>
     /// The lowest monster level that still earns this bot anything: a master-class character at the
     /// game's maximum level gains master experience only from monsters of at least
     /// <c>GameConfiguration.MinimumMonsterLevelForMasterExperience</c> (the experience path grants it
@@ -3251,73 +3422,55 @@ internal sealed class BotNavigator : AsyncDisposable
     /// Picks the legally warpable map (other than the current one, or another part of it, see
     /// <see cref="GetHuntingWarps"/>) that offers the strongest monsters the bot can still safely handle
     /// if it is meaningfully better than where the bot stands, with its warp gate.
-    /// In escape mode (fleeing a hostile or illegal map) any legal map with something safe to hunt counts,
-    /// no matter how it compares to the current one.
+    /// In escape mode the target only has to reach <paramref name="escapeFloor"/>; that floor is what
+    /// keeps a bot from escaping into ground no better than the ground it leaves (see
+    /// <see cref="MapFit.EscapeTargetFloor"/>).
     /// </summary>
-    private bool TryPickBetterMap(bool escape, out WarpInfo warp, out GameMapDefinition mapDefinition, out int monsterLevel)
+    /// <param name="escape">Whether the bot has to leave its current map regardless of its strength.</param>
+    /// <param name="escapeFloor">The lowest monster level an escape target has to offer.</param>
+    /// <param name="warp">The chosen warp.</param>
+    /// <param name="mapDefinition">The chosen map.</param>
+    /// <param name="monsterLevel">The level of the strongest safe monster there.</param>
+    /// <returns>True, if a target was found.</returns>
+    private bool TryPickBetterMap(bool escape, int escapeFloor, out WarpInfo warp, out GameMapDefinition mapDefinition, out int monsterLevel)
     {
         // A mastered bot earns nothing below the master-experience floor, so it first looks for a map
         // which pays at all. Only when no map within its reach offers monsters above the floor that it
         // can safely fight does it fall back to hunting by safety alone: standing on a map it cannot
         // survive would not earn it master experience either, and its gear still improves meanwhile.
         var floor = this.MasterExperienceFloor();
-        return (floor > 0 && this.TryPickBetterMapCore(escape, floor, out warp, out mapDefinition, out monsterLevel))
-               || this.TryPickBetterMapCore(escape, 0, out warp, out mapDefinition, out monsterLevel);
+        return (floor > 0 && this.TryPickBetterMapCore(escape, floor, escapeFloor, out warp, out mapDefinition, out monsterLevel))
+               || this.TryPickBetterMapCore(escape, 0, escapeFloor, out warp, out mapDefinition, out monsterLevel);
     }
 
     /// <summary>
     /// Picks the best map (see <see cref="TryPickBetterMap"/>), counting only monsters of at least
     /// <paramref name="minimumMonsterLevel"/>.
     /// </summary>
-    private bool TryPickBetterMapCore(bool escape, int minimumMonsterLevel, out WarpInfo warp, out GameMapDefinition mapDefinition, out int monsterLevel)
+    /// <param name="escape">Whether the bot has to leave its current map.</param>
+    /// <param name="minimumMonsterLevel">The lowest monster level worth counting at all.</param>
+    /// <param name="escapeFloor">The lowest monster level an escape target has to offer.</param>
+    /// <param name="warp">The chosen warp.</param>
+    /// <param name="mapDefinition">The chosen map.</param>
+    /// <param name="monsterLevel">The level of the strongest safe monster there.</param>
+    /// <returns>True, if a target was found.</returns>
+    private bool TryPickBetterMapCore(bool escape, int minimumMonsterLevel, int escapeFloor, out WarpInfo warp, out GameMapDefinition mapDefinition, out int monsterLevel)
     {
         warp = default!;
         mapDefinition = default!;
         monsterLevel = 0;
-
-        var current = this._player.CurrentMap?.Definition;
-        var threshold = escape ? 1 : (current is null ? 0 : this.BestSafeLevel(current, minimumMonsterLevel, this.GetCurrentZoneFilter())) + WarpImprovementMargin;
-
-        var candidates = new List<(WarpInfo Warp, GameMapDefinition Map, int Level)>();
-        foreach (var candidate in this._player.GameContext.Configuration.Maps)
-        {
-            // The whole map is an upper bound for every part of it, and cheap to judge.
-            if (this.BestSafeLevel(candidate, minimumMonsterLevel) < threshold
-                || candidate.TryGetRequirementError(this._player, out _)
-                || !HasWalkableSpawnGate(candidate))
-            {
-                continue;
-            }
-
-            // One candidate per map, through the entry to its best part: the ranking below spreads the
-            // bots over maps, and several floors of one map must not crowd the others out of it.
-            (WarpInfo Warp, int Level)? bestEntry = null;
-            foreach (var entry in this.GetHuntingWarps(candidate, minimumMonsterLevel))
-            {
-                if (entry.Level >= threshold
-                    && entry.Level > (bestEntry?.Level ?? 0)
-                    && this.CanAffordWarp(entry.Warp))
-                {
-                    bestEntry = entry;
-                }
-            }
-
-            if (bestEntry is { } chosen)
-            {
-                candidates.Add((chosen.Warp, candidate, chosen.Level));
-            }
-        }
-
-        if (candidates.Count == 0)
-        {
-            return false;
-        }
 
         // Always taking the single strongest map emptied the world: the maps of a level band differ by a
         // few monster levels, so one of them is every bot's answer, and the rest stand deserted - hundreds
         // of bots on Vulcanus while Tarkan, Karutan and Kanturu, which their level opens, see nobody. The
         // strongest map still wins most of the picks (see BestCandidateShare); the runners-up share the
         // rest, so the population spreads over the maps a player of that band would choose between.
+        var candidates = this.GetBetterMapCandidates(escape, minimumMonsterLevel, escapeFloor);
+        if (candidates.Count == 0)
+        {
+            return false;
+        }
+
         var ranked = candidates.OrderByDescending(c => c.Level).ToList();
         var picked = ranked[PickByRank(ranked.Count)];
         warp = picked.Warp;
