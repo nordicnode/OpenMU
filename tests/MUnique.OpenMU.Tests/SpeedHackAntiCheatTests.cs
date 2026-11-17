@@ -43,6 +43,12 @@ public class SpeedHackAntiCheatTests
     /// </summary>
     private const double RejectOnFirstViolationThreshold = 0.5;
 
+    /// <summary>
+    /// A movement speed factor low enough that a walk waits minutes for every step after the first one,
+    /// so it can't move the server position while a test checks an offset against it.
+    /// </summary>
+    private const float StationaryMovementSpeedFactor = 0.0001f;
+
     private static readonly Point StartPoint = new(100, 100);
 
     /// <summary>
@@ -153,27 +159,49 @@ public class SpeedHackAntiCheatTests
     /// </summary>
     /// <param name="offset">The distance between the reported start and the server position.</param>
     /// <param name="isAccepted">A value indicating whether the reported start is taken over.</param>
+    /// <remarks>
+    /// The test waits for the only step the walk takes, so the server position the offset is measured
+    /// against is known and stays put. Without that it was a race: the walker performs the first step of its
+    /// first walk at once and then waits a whole step delay, so the step usually happened between the request
+    /// and the server-side check and halved the offset - the case which expects a refusal then saw an
+    /// accepted walk - while on a busy machine it happened late and the same case passed. The character is
+    /// slowed down, so the step which is waited for is the only one, and the position is moved through the
+    /// movement itself, because the allowance for a client which is ahead of the server grows with the time
+    /// since the last position change.
+    /// </remarks>
     [TestCase(4, true)]
     [TestCase(5, true)]
     [TestCase(6, false)]
     public async Task TestNextWalkPartAheadOfRunningWalkIsBoundedByWalkStartOffsetAsync(int offset, bool isAccepted)
     {
         var player = await CreatePlayerWithSpeedAttributesAsync().ConfigureAwait(false);
-        player.Position = StartPoint;
+        var objectMovedPlugIn = Mock.Get<IObjectMovedPlugIn>(player.ViewPlugIns.GetPlugIn<IObjectMovedPlugIn>()!);
+        player.Attributes![Stats.MovementSpeedFactor] = StationaryMovementSpeedFactor;
+        await player.MoveAsync(StartPoint).ConfigureAwait(false);
+        objectMovedPlugIn.Invocations.Clear();
 
         Point P(int step) => new((byte)(StartPoint.X + step), StartPoint.Y);
         WalkingStep[] steps = Enumerable.Range(0, 12).Select(i => new WalkingStep { From = P(i), To = P(i + 1), Direction = Direction.East }).ToArray();
         await player.WalkToAsync(P(12), steps).ConfigureAwait(false);
         Assert.That(player.IsWalking, Is.True);
 
-        WalkingStep[] next = [new() { From = P(offset), To = P(offset + 1), Direction = Direction.East }];
-        await player.WalkToAsync(P(offset + 1), next).ConfigureAwait(false);
+        for (var attempt = 0; attempt < 200 && player.Position == StartPoint; attempt++)
+        {
+            await Task.Delay(5).ConfigureAwait(false);
+        }
 
-        var objectMovedPlugIn = Mock.Get<IObjectMovedPlugIn>(player.ViewPlugIns.GetPlugIn<IObjectMovedPlugIn>()!);
+        Assert.That(player.Position, Is.Not.EqualTo(StartPoint), "the walk must have performed its step before the next part is sent");
+
+        // The next part starts a few tiles ahead of where the server has the player by now.
+        var serverStep = player.Position.X - StartPoint.X;
+        var reportedStart = P(serverStep + offset);
+        WalkingStep[] next = [new() { From = reportedStart, To = P(serverStep + offset + 1), Direction = Direction.East }];
+        await player.WalkToAsync(P(serverStep + offset + 1), next).ConfigureAwait(false);
+
         Assert.Multiple(() =>
         {
             Assert.That(player.IsWalking, Is.EqualTo(isAccepted));
-            Assert.That(player.Position.X, isAccepted ? Is.GreaterThanOrEqualTo(P(offset).X) : Is.LessThan(P(offset).X));
+            Assert.That(player.Position.X, isAccepted ? Is.GreaterThanOrEqualTo(reportedStart.X) : Is.LessThan(reportedStart.X));
         });
         objectMovedPlugIn.Verify(m => m.ObjectMovedAsync(player, MoveType.Instant), isAccepted ? Times.Never() : Times.Once());
     }
