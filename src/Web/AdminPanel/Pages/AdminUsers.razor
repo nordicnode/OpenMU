@@ -1,0 +1,91 @@
+@page "/users"
+@using MUnique.OpenMU.Persistence.AdminAuth
+@using MUnique.OpenMU.Web.AdminPanel.Properties
+@attribute [Authorize(Policy = AdminPolicies.Administrator)]
+
+@{
+    var title = Resources.AdminUsers;
+}
+<PageTitle>OpenMU: @title</PageTitle>
+<Breadcrumb IsFirstFromRoot="true" Caption="@title" />
+<h3 class="admin-page-heading">@title</h3>
+
+@if (this._isLoading)
+{
+    <p>@Resources.Loading</p>
+}
+else
+{
+    <div class="admin-table-page">
+        <table class="table table-hover">
+            <thead>
+            <tr>
+                <th class="col-3">@Resources.LoginName</th>
+                <th class="col-2">@Resources.Role</th>
+                <th class="col-2">@Resources.TwoFactor</th>
+                <th class="col-2">@Resources.LastLogin</th>
+                <th class="col-2 text-end">@Resources.Actions</th>
+            </tr>
+            </thead>
+            <tbody>
+            @foreach (var user in this._users)
+            {
+                <tr>
+                    <td>@user.LoginName</td>
+                    <td>
+                        <select class="form-select form-select-sm" value="@user.Roles"
+                                aria-label="@Resources.Role"
+                                @onchange="@(args => this.OnRoleChangedAsync(user, args.Value?.ToString()))">
+                            @foreach (var role in AdminRoles.All)
+                            {
+                                <option value="@role">@MUnique.OpenMU.Web.AdminPanel.Auth.RoleCaption.Get(role)</option>
+                            }
+                        </select>
+                    </td>
+                    <td>
+                        @if (user.IsTwoFactorEnabled)
+                        {
+                            <span class="badge text-bg-success">@Resources.Enabled</span>
+                        }
+                        else
+                        {
+                            <span class="badge text-bg-secondary">@Resources.Disabled</span>
+                        }
+                    </td>
+                    <td>@(user.LastLoginAt?.ToString("yyyy-MM-dd HH:mm") ?? "-")</td>
+                    <td>
+                        <div class="admin-table-actions">
+                            <button type="button" class="btn admin-table-action admin-table-icon-action admin-table-action--primary"
+                                    title="@Resources.ChangePassword" aria-label="@Resources.ChangePassword"
+                                    @onclick="@(() => this.OnChangePasswordAsync(user))">
+                                <span class="oi oi-key" aria-hidden="true"></span>
+                            </button>
+                            @if (user.IsTwoFactorEnabled)
+                            {
+                                <button type="button" class="btn admin-table-action admin-table-icon-action admin-table-action--warning"
+                                        title="@Resources.ResetTwoFactor" aria-label="@Resources.ResetTwoFactor"
+                                        @onclick="@(() => this.OnResetTwoFactorAsync(user))">
+                                    <span class="oi oi-reload" aria-hidden="true"></span>
+                                </button>
+                            }
+                            @if (this._users.Count > 1)
+                            {
+                                <button type="button" class="btn admin-table-action admin-table-icon-action admin-table-action--danger"
+                                        title="@Resources.Delete" aria-label="@Resources.Delete"
+                                        @onclick="@(() => this.OnDeleteAsync(user))">
+                                    <span class="oi oi-trash" aria-hidden="true"></span>
+                                </button>
+                            }
+                        </div>
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+        <div class="admin-table-footer">
+            <button type="button" class="btn admin-table-action admin-table-action--primary" @onclick="@this.OnCreateNewAsync">
+                <span class="oi oi-plus" aria-hidden="true"></span> @Resources.CreateUser
+            </button>
+        </div>
+    </div>
+}

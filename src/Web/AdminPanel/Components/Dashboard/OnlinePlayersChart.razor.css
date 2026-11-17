@@ -1,0 +1,33 @@
+.online-chart {
+    display: block;
+    width: 100%;
+    height: 13rem;
+}
+
+.online-chart-grid {
+    stroke: var(--omu-border);
+    stroke-width: 1;
+    stroke-dasharray: 3 4;
+}
+
+.online-chart-area {
+    fill-opacity: 1;
+}
+
+.online-chart-stop-top {
+    stop-color: var(--omu-accent);
+    stop-opacity: 0.24;
+}
+
+.online-chart-stop-bottom {
+    stop-color: var(--omu-accent);
+    stop-opacity: 0;
+}
+
+.online-chart-line {
+    fill: none;
+    stroke: var(--omu-accent);
+    stroke-width: 2.25;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+}

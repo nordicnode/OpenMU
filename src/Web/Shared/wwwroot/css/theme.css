@@ -1,0 +1,131 @@
+/* Color and surface tokens (--omu-*) for light and dark mode, plus dark-mode styling for custom components (error UI, lookup fields, grid navigation icons). */
+:root,
+[data-bs-theme=light] {
+  --omu-bg: #f4f6fa;
+  --omu-surface: #ffffff;
+  --omu-surface-2: #ffffff;
+  --omu-surface-muted: #f6f8fb;
+  --omu-surface-hover: #eef2f8;
+  --omu-text: #182131;
+  --omu-text-muted: #6b7688;
+  --omu-text-secondary: #566275;
+  --omu-border: #e1e6ef;
+  --omu-link: #2f5bdd;
+  --omu-link-primary: #0d6efd;
+  --omu-link-primary-border: #0b5ed7;
+  --omu-mark-bg: #ffff00;
+  --omu-error-bg: lightyellow;
+  --omu-error-text: #212529;
+  --omu-accent: #355ff0;
+  --omu-accent-rgb: 53, 95, 240;
+  --omu-accent-text: #2f56d9;
+  --omu-accent-soft: rgba(53, 95, 240, 0.1);
+  --omu-action: #355ff0;
+  --omu-action-hover: #2a50dc;
+  --omu-nav-link: #566275;
+  --omu-spinner-dot: #355ff0;
+  --omu-overlay-bg: rgba(15, 23, 42, 0.5);
+  --omu-overlay-spinner: #ffffff;
+}
+
+[data-bs-theme=dark] {
+  --omu-bg: #0d1219;
+  --omu-surface: #111823;
+  --omu-surface-2: #151d29;
+  --omu-surface-muted: #131b26;
+  --omu-surface-hover: #1c2634;
+  --omu-text: #e7edf6;
+  --omu-text-muted: #8e9bae;
+  --omu-text-secondary: #a8b4c6;
+  --omu-border: #243042;
+  --omu-link: #8fb0ff;
+  --omu-link-primary: #0d6efd;
+  --omu-link-primary-border: #0b5ed7;
+  --omu-mark-bg: #6b5e00;
+  --omu-error-bg: #3a2f00;
+  --omu-error-text: #f5e9b3;
+  --omu-accent: #5b7dff;
+  --omu-accent-rgb: 91, 125, 255;
+  --omu-accent-text: #a8c0ff;
+  --omu-accent-soft: rgba(91, 125, 255, 0.16);
+  --omu-action: #3b63f3;
+  --omu-action-hover: #2f55dc;
+  --omu-nav-link: #a8b4c6;
+  --omu-spinner-dot: #8fb0ff;
+  --omu-overlay-bg: rgba(0, 0, 0, 0.55);
+  --omu-overlay-spinner: #ffffff;
+}
+
+html,
+body {
+  background-color: var(--bs-body-bg);
+  color: var(--bs-body-color);
+}
+
+[data-bs-theme=dark] .oi {
+  color: inherit;
+}
+
+[data-bs-theme=dark] .sidebar .nav-link {
+  color: var(--omu-nav-link);
+}
+
+[data-bs-theme=dark] #blazor-error-ui {
+  background: var(--omu-error-bg);
+  color: var(--omu-error-text);
+}
+
+[data-bs-theme=dark] .creation-panel-body .form-actions {
+  background-color: var(--omu-surface) !important;
+  border-top: 1px solid var(--omu-border) !important;
+}
+
+[data-bs-theme=dark] .add-new-bar {
+  background-color: var(--omu-surface) !important;
+  border-top: var(--bs-border-width) solid var(--omu-border) !important;
+}
+
+[data-bs-theme=dark] .multi-lookup-field__selected-items {
+  background: var(--omu-surface-2);
+  border-color: var(--omu-border);
+  color: var(--omu-text);
+}
+
+[data-bs-theme=dark] .multi-lookup-field__tag {
+  background-color: var(--omu-surface-hover);
+  border-color: var(--omu-border);
+  color: var(--omu-text);
+}
+
+[data-bs-theme=dark] .multi-lookup-field__tag-remove {
+  color: var(--omu-text-muted);
+}
+
+[data-bs-theme=dark] .multi-lookup-field__dropdown {
+  background: var(--omu-surface-2);
+  border-color: var(--omu-border);
+}
+
+[data-bs-theme=dark] .multi-lookup-field__dropdown-item {
+  color: var(--omu-text);
+}
+
+[data-bs-theme=dark] .multi-lookup-field__dropdown-item:hover, [data-bs-theme=dark] .multi-lookup-field__dropdown-item--selected {
+  background-color: var(--omu-surface-hover);
+}
+
+[data-bs-theme=dark] .multi-lookup-field__dropdown-item--selected:hover {
+  background-color: var(--omu-surface-muted);
+}
+
+[data-bs-theme=dark] .multi-lookup-field__dropdown-item--loading, [data-bs-theme=dark] .multi-lookup-field__dropdown-item--empty {
+  color: var(--omu-text-muted);
+}
+
+[data-bs-theme=dark] .sort-indicator,
+[data-bs-theme=dark] .go-first,
+[data-bs-theme=dark] .go-previous,
+[data-bs-theme=dark] .go-next,
+[data-bs-theme=dark] .go-last {
+  filter: invert(1);
+}

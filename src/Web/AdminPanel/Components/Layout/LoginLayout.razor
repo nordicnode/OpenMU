@@ -1,0 +1,21 @@
+@inherits LayoutComponentBase
+@using MUnique.OpenMU.Web.AdminPanel.Properties
+
+<div class="login-layout admin-app d-flex flex-column align-items-center justify-content-center min-vh-100 px-3">
+    <div class="login-panel w-100">
+        <div class="login-brand">
+            <span class="brand-mark" aria-hidden="true">OM</span>
+            <span class="login-brand__name">OpenMU</span>
+        </div>
+        <p class="login-brand__caption">@Resources.OpenMUAdminPanel</p>
+        @Body
+    </div>
+</div>
+
+<ToastContainer />
+
+<div id="blazor-error-ui" data-nosnippet>
+    @Resources.UnhandledErrorOccurred
+    <a href="." class="reload">@Resources.Reload</a>
+    <span class="dismiss">🗙</span>
+</div>

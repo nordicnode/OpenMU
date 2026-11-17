@@ -1,0 +1,22 @@
+.nav-scrollable {
+    display: none;
+    flex: 1;
+    overflow-y: auto;
+}
+
+.nav-scrollable.is-open {
+    display: block;
+}
+
+@media (min-width: 768px) {
+    .nav-scrollable {
+        /* Never collapse the sidebar for wide screens */
+        display: block;
+    }
+}
+
+@media (max-width: 767.98px) {
+    .nav-scrollable {
+        max-height: calc(100vh - 4rem);
+    }
+}

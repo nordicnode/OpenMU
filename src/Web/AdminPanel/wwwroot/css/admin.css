@@ -1,0 +1,993 @@
+/* Visual layer of the admin panel.
+   Scoped to .admin-app so the map viewer and item editor keep their own styling. */
+.admin-app {
+  --omu-radius: 9px;
+  --omu-radius-lg: 14px;
+  --omu-shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+  --omu-shadow-md: 0 18px 40px -24px rgba(16, 24, 40, 0.28);
+  min-height: 100vh;
+  background-color: var(--omu-bg);
+  color: var(--omu-text);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+.admin-app h1,
+.admin-app h2,
+.admin-app h3,
+.admin-app h4,
+.admin-app h5,
+.admin-app h6 {
+  letter-spacing: -0.02em;
+}
+
+.admin-app h1 {
+  font-size: 1.3rem;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.admin-app h1:focus,
+.admin-app h1:focus-visible {
+  outline: none;
+}
+
+.admin-app h2 {
+  font-size: 1.05rem;
+  font-weight: 650;
+}
+
+.admin-app h3 {
+  font-size: 0.98rem;
+  font-weight: 650;
+}
+
+.admin-app h4,
+.admin-app h5,
+.admin-app h6 {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.admin-app .h4 {
+  font-size: 0.98rem;
+}
+
+.admin-app .h5 {
+  font-size: 0.92rem;
+}
+
+.admin-app .h6 {
+  font-size: 0.84rem;
+}
+
+.admin-app .content {
+  flex: 1;
+  width: 100%;
+  max-width: 1600px;
+  margin-inline: auto;
+  padding: 1.5rem clamp(1rem, 2.2vw, 2rem) 2.5rem;
+}
+
+.admin-app .content > h1:first-child,
+.admin-app .content > .dashboard-heading:first-child {
+  margin-top: 0;
+}
+
+/* Page headings and short descriptions */
+
+.admin-app .admin-page-heading {
+  margin: 0 0 0.3rem;
+  font-size: 0.98rem;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.admin-app .collapsible-section__header h3 {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 650;
+}
+
+.admin-app .admin-page-description {
+  max-width: 70rem;
+  margin: 0 0 1rem;
+  color: var(--omu-text-muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.admin-app .admin-section-title {
+  margin: 1rem 0 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.admin-app .admin-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.admin-app .admin-audit-code {
+  max-width: 28rem;
+  max-height: 8rem;
+  margin: 0;
+  padding: 0.25rem 0.4rem;
+  overflow: auto;
+  border-radius: 6px;
+  background-color: var(--omu-surface-muted);
+  font-size: 0.72rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.admin-app .admin-update-description {
+  padding: 0.45rem 0.6rem;
+  border-radius: 7px;
+  background-color: var(--omu-surface-muted);
+  color: var(--omu-text-secondary);
+  font-size: 0.8rem;
+}
+
+/* Cards */
+
+.admin-app .card {
+  background-color: var(--omu-surface-2);
+  border: 1px solid var(--omu-border);
+  border-radius: var(--omu-radius-lg);
+  box-shadow: var(--omu-shadow-sm);
+}
+
+.admin-app .card-header {
+  padding: 0.85rem 1.1rem;
+  background-color: transparent;
+  border-bottom: 1px solid var(--omu-border);
+}
+
+.admin-app .card-header h2,
+.admin-app .card-header .h6 {
+  font-size: 0.925rem;
+  font-weight: 650;
+}
+
+.admin-app .card-body {
+  padding: 1.1rem;
+}
+
+.admin-app .card-footer {
+  padding: 0.85rem 1.1rem;
+  background-color: transparent;
+  border-top: 1px solid var(--omu-border);
+}
+
+/* Buttons, links and badges */
+
+.admin-app .btn {
+  border-radius: var(--omu-radius);
+  padding: 0.32rem 0.65rem;
+  font-size: 0.82rem;
+  font-weight: 550;
+  line-height: 1.4;
+}
+
+.admin-app .btn-sm {
+  padding: 0.2rem 0.45rem;
+  border-radius: 7px;
+  font-size: 0.76rem;
+}
+
+.admin-app .btn-primary {
+  --bs-btn-bg: var(--omu-action);
+  --bs-btn-border-color: var(--omu-action);
+  --bs-btn-hover-bg: var(--omu-action-hover);
+  --bs-btn-hover-border-color: var(--omu-action-hover);
+  --bs-btn-active-bg: var(--omu-action-hover);
+  --bs-btn-active-border-color: var(--omu-action-hover);
+  --bs-btn-disabled-bg: var(--omu-action);
+  --bs-btn-disabled-border-color: var(--omu-action);
+}
+
+.admin-app .btn-warning {
+  --bs-btn-color: #7a4b05;
+  --bs-btn-bg: rgba(245, 158, 11, 0.14);
+  --bs-btn-border-color: rgba(245, 158, 11, 0.36);
+  --bs-btn-hover-color: #633d04;
+  --bs-btn-hover-bg: rgba(245, 158, 11, 0.24);
+  --bs-btn-hover-border-color: rgba(245, 158, 11, 0.5);
+  --bs-btn-active-color: #633d04;
+  --bs-btn-active-bg: rgba(245, 158, 11, 0.28);
+  --bs-btn-active-border-color: rgba(245, 158, 11, 0.55);
+}
+
+[data-bs-theme=dark] .admin-app .btn-warning {
+  --bs-btn-color: #fcd34d;
+  --bs-btn-hover-color: #fde68a;
+  --bs-btn-active-color: #fde68a;
+}
+
+.admin-app .btn-outline-secondary {
+  --bs-btn-color: var(--omu-text-secondary);
+  --bs-btn-border-color: var(--omu-border);
+  --bs-btn-hover-color: var(--omu-text);
+  --bs-btn-hover-bg: var(--omu-surface-hover);
+  --bs-btn-hover-border-color: var(--omu-border);
+  --bs-btn-active-color: var(--omu-text);
+  --bs-btn-active-bg: var(--omu-surface-hover);
+  --bs-btn-active-border-color: var(--omu-border);
+}
+
+.admin-app .badge {
+  border-radius: 6px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.admin-app .alert {
+  padding: 0.7rem 0.9rem;
+  font-size: 0.85rem;
+}
+
+.admin-app .nav-tabs .nav-link,
+.admin-app .nav-pills .nav-link {
+  padding: 0.32rem 0.65rem;
+  font-size: 0.82rem;
+}
+
+.admin-app pre {
+  margin-bottom: 0;
+  font-size: 0.72rem;
+}
+
+/* Forms */
+
+.admin-app .form-control,
+.admin-app .form-select,
+.admin-app .input-group-text {
+  border-color: var(--omu-border);
+  border-radius: var(--omu-radius);
+  background-color: var(--omu-surface-2);
+  color: var(--omu-text);
+  font-size: 0.85rem;
+}
+
+.admin-app .form-control,
+.admin-app .input-group-text {
+  padding: 0.32rem 0.55rem;
+}
+
+.admin-app .form-select {
+  padding-top: 0.32rem;
+  padding-bottom: 0.32rem;
+  padding-left: 0.55rem;
+}
+
+.admin-app .input-group > .form-control:not(:first-child) {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.admin-app .form-control:focus,
+.admin-app .form-select:focus {
+  border-color: var(--omu-accent);
+  box-shadow: 0 0 0 0.2rem var(--omu-accent-soft);
+}
+
+.admin-app .auto-form-search-group .form-control {
+  padding-left: 2.1rem;
+}
+
+.admin-app .form-label {
+  margin-bottom: 0.35rem;
+  color: var(--omu-text-secondary);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+/* The brand row of the sidebar */
+
+.admin-app .top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 4rem;
+  padding: 0.75rem 0.85rem 0.75rem 1.1rem;
+  border-bottom: 1px solid var(--omu-border);
+}
+
+.admin-app .navbar-brand {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.65rem;
+  margin: 0;
+  padding: 0;
+  color: var(--omu-text);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  text-decoration: none;
+}
+
+.admin-app .navbar-brand:hover,
+.admin-app .navbar-brand:focus,
+.admin-app .navbar-brand.active {
+  background-color: transparent;
+  color: var(--omu-text);
+  text-decoration: none;
+}
+
+.admin-app .brand-name {
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.admin-app .navbar-toggler {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--omu-border);
+  border-radius: 8px;
+  background-color: var(--omu-surface-muted);
+  cursor: pointer;
+}
+
+.admin-app .navbar-toggler-icon {
+  width: 1.1rem;
+  height: 1.1rem;
+  background: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='%238e9bae' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e") no-repeat center/contain;
+}
+
+/* The global search in the top bar */
+
+.admin-app .configuration-search-container {
+  overflow: hidden;
+  border: 1px solid var(--omu-border);
+  border-radius: 10px;
+  background-color: var(--omu-surface-2);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.admin-app .configuration-search-container:focus-within {
+  border-color: var(--omu-accent);
+  box-shadow: 0 0 0 0.2rem var(--omu-accent-soft);
+}
+
+.admin-app .configuration-search-container .input-group-text {
+  padding-right: 0.15rem;
+  border: 0;
+  background-color: transparent;
+  color: var(--omu-text-muted);
+}
+
+.admin-app .configuration-search-container .form-control {
+  height: 2.45rem;
+  border: 0;
+  background-color: transparent;
+  box-shadow: none;
+}
+
+/* Tables */
+
+.admin-app .quickgrid,
+.admin-app .table {
+  width: 100%;
+  font-size: 0.84rem;
+  --bs-table-bg: transparent;
+  --bs-table-color: var(--omu-text);
+  --bs-table-striped-bg: transparent;
+}
+
+.admin-app .quickgrid thead th,
+.admin-app .table thead th {
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid var(--omu-border);
+  color: var(--omu-text-muted);
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.admin-app .quickgrid tbody td,
+.admin-app .table tbody td {
+  padding: 0.55rem 0.6rem;
+  border-bottom: 1px solid var(--omu-border);
+  color: var(--omu-text);
+  overflow-wrap: break-word;
+  vertical-align: middle;
+}
+
+.admin-app .quickgrid tfoot td,
+.admin-app .table tfoot td {
+  padding: 0.35rem 0.6rem;
+  border-color: var(--omu-border);
+  color: var(--omu-text-secondary);
+  font-size: 0.78rem;
+}
+
+.admin-app .plugin-type-cell {
+  max-width: 20rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-app .quickgrid tbody tr:hover {
+  background-color: var(--omu-surface-hover);
+}
+
+/* The brand mark, shared by the sidebar and the login screen */
+
+.admin-app .brand-mark {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 2rem;
+  border-radius: 9px;
+  background: linear-gradient(135deg, var(--omu-accent), #7a5cff);
+  box-shadow: 0 5px 12px -5px rgba(var(--omu-accent-rgb), 0.7);
+  color: #ffffff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+/* Login */
+
+.admin-app .login-panel .card {
+  border-radius: 16px;
+  box-shadow: var(--omu-shadow-md);
+}
+
+.admin-app .login-panel .card-body {
+  padding: 1.6rem;
+}
+
+.admin-app .login-panel .card-title {
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+/* Accordions, used by the setup page */
+
+.admin-app .accordion {
+  --bs-accordion-bg: transparent;
+  --bs-accordion-border-color: var(--omu-border);
+  --bs-accordion-btn-bg: transparent;
+  --bs-accordion-btn-color: var(--omu-text);
+  --bs-accordion-active-bg: var(--omu-surface-muted);
+  --bs-accordion-active-color: var(--omu-text);
+  --bs-accordion-btn-focus-box-shadow: 0 0 0 0.2rem var(--omu-accent-soft);
+}
+
+.admin-app .accordion:not(.accordion-flush) .accordion-item {
+  margin-bottom: 0.65rem;
+  overflow: hidden;
+  border: 1px solid var(--omu-border);
+  border-radius: var(--omu-radius-lg);
+  background-color: var(--omu-surface-2);
+  box-shadow: var(--omu-shadow-sm);
+}
+
+.admin-app .accordion:not(.accordion-flush) .accordion-button {
+  padding: 0.7rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  box-shadow: none;
+}
+
+.admin-app .accordion:not(.accordion-flush) .accordion-button:not(.collapsed) {
+  box-shadow: none;
+}
+
+.admin-app .accordion:not(.accordion-flush) .accordion-button::after {
+  width: 0.85rem;
+  height: 0.85rem;
+  background-size: 0.85rem;
+}
+
+.admin-app .accordion:not(.accordion-flush) .accordion-body {
+  padding: 0.9rem;
+  font-size: 0.85rem;
+}
+
+/* Compact data tables */
+
+.admin-app .admin-table-page {
+  padding: 0.85rem 1rem 1rem;
+  border: 1px solid var(--omu-border);
+  border-radius: var(--omu-radius-lg);
+  background-color: var(--omu-surface-2);
+  box-shadow: var(--omu-shadow-sm);
+}
+
+.admin-app .admin-table-page .btn-toolbar {
+  margin-bottom: 0.65rem;
+}
+
+.admin-app .admin-table-page .btn-toolbar .btn {
+  padding: 0.2rem 0.45rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+}
+
+.admin-app .admin-table-page .btn-toolbar .btn-primary {
+  --bs-btn-bg: var(--omu-surface-muted);
+  --bs-btn-border-color: var(--omu-border);
+  --bs-btn-color: var(--omu-text-secondary);
+  --bs-btn-hover-bg: var(--omu-surface-hover);
+  --bs-btn-hover-border-color: var(--omu-border);
+  --bs-btn-hover-color: var(--omu-text);
+  --bs-btn-active-bg: var(--omu-surface-hover);
+  --bs-btn-active-border-color: var(--omu-border);
+  --bs-btn-disabled-bg: transparent;
+  --bs-btn-disabled-border-color: transparent;
+  --bs-btn-disabled-color: var(--omu-text-muted);
+}
+
+.admin-app .admin-table-page .btn-toolbar .btn-secondary {
+  --bs-btn-bg: transparent;
+  --bs-btn-border-color: transparent;
+  --bs-btn-color: var(--omu-text-muted);
+  --bs-btn-disabled-bg: transparent;
+  --bs-btn-disabled-border-color: transparent;
+  --bs-btn-disabled-color: var(--omu-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-app .admin-table-page .table {
+  width: 100%;
+  margin-bottom: 0;
+  font-size: 0.84rem;
+  --bs-table-striped-bg: transparent;
+}
+
+.admin-app .plugins-page .table {
+  table-layout: fixed;
+}
+
+.admin-app .plugins-page .table th:nth-child(1),
+.admin-app .plugins-page .table td:nth-child(1) {
+  width: 17%;
+}
+
+.admin-app .plugins-page .table th:nth-child(2),
+.admin-app .plugins-page .table td:nth-child(2) {
+  width: 30%;
+}
+
+.admin-app .plugins-page .table th:nth-child(3),
+.admin-app .plugins-page .table td:nth-child(3) {
+  width: 31%;
+}
+
+.admin-app .plugins-page .table th:nth-child(4),
+.admin-app .plugins-page .table td:nth-child(4) {
+  width: 22%;
+}
+
+.admin-app .admin-table-page .table thead th {
+  padding: 0.45rem 0.6rem;
+  border-bottom-color: var(--omu-border);
+  font-size: 0.68rem;
+  letter-spacing: 0.055em;
+}
+
+.admin-app .admin-table-page .table tbody td {
+  padding: 0.55rem 0.6rem;
+  border-color: var(--omu-border);
+  vertical-align: middle;
+}
+
+.admin-app .admin-table-page .table tfoot td {
+  padding: 0.35rem 0.6rem;
+  border-color: var(--omu-border);
+  color: var(--omu-text-secondary);
+  font-size: 0.78rem;
+}
+
+.admin-app .admin-table-page .table thead tr:nth-child(2) th {
+  padding-top: 0.35rem;
+  padding-bottom: 0.5rem;
+}
+
+.admin-app .admin-table-page .form-control,
+.admin-app .admin-table-page .form-select,
+.admin-app .admin-table-page .input-group-text {
+  padding: 0.28rem 0.45rem;
+  font-size: 0.78rem;
+}
+
+.admin-app .admin-table-page .input-group-text {
+  padding-right: 0.1rem;
+  border: 0;
+  background-color: transparent;
+}
+
+.admin-app .admin-table-page .badge {
+  padding: 0.2rem 0.4rem;
+  border: 1px solid transparent;
+  font-size: 0.68rem;
+  line-height: 1.2;
+}
+
+.admin-app .admin-table-page .badge.text-bg-success {
+  border-color: rgba(16, 185, 129, 0.28);
+  background-color: rgba(16, 185, 129, 0.12) !important;
+  color: #087a58 !important;
+}
+
+[data-bs-theme=dark] .admin-app .admin-table-page .badge.text-bg-success {
+  color: #6ee7b7 !important;
+}
+
+.admin-app .admin-table-page .badge.text-bg-secondary {
+  border-color: var(--omu-border);
+  background-color: var(--omu-surface-muted) !important;
+  color: var(--omu-text-muted) !important;
+}
+
+.admin-app .table tr.admin-table-selected > td {
+  background-color: var(--omu-accent-soft) !important;
+  color: var(--omu-text);
+}
+
+.admin-app .admin-table-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+}
+
+.admin-app .admin-table-status::before {
+  width: 0.42rem;
+  height: 0.42rem;
+  flex: 0 0 0.42rem;
+  border-radius: 50%;
+  background-color: var(--omu-text-muted);
+  content: "";
+  opacity: 0.45;
+}
+
+.admin-app .admin-table-status--active::before {
+  background-color: #10b981;
+  box-shadow: 0 0 0 0.18rem rgba(16, 185, 129, 0.12);
+  opacity: 1;
+}
+
+.admin-app .admin-table-status--warning::before {
+  background-color: #f59e0b;
+  box-shadow: 0 0 0 0.18rem rgba(245, 158, 11, 0.12);
+  opacity: 1;
+}
+
+.admin-app .admin-table-page .admin-table-summary td {
+  background-color: var(--omu-surface-muted) !important;
+  color: var(--omu-text-secondary);
+  font-weight: 550;
+}
+
+.admin-app .admin-table-page .admin-table-summary strong {
+  color: var(--omu-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-app .admin-table-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.admin-app .admin-table-toolbar .nav {
+  flex-wrap: wrap;
+  gap: 0.15rem;
+}
+
+.admin-app .admin-table-toolbar .nav-link {
+  padding: 0.28rem 0.6rem;
+  border-radius: 6px;
+  color: var(--omu-text-secondary);
+  font-size: 0.78rem;
+  font-weight: 550;
+}
+
+.admin-app .admin-table-toolbar .nav-link:hover {
+  background-color: var(--omu-surface-hover);
+  color: var(--omu-text);
+}
+
+.admin-app .admin-table-toolbar .nav-link.active {
+  background-color: var(--omu-accent-soft);
+  color: var(--omu-accent-text);
+}
+
+.admin-app .admin-table-toolbar .form-select {
+  width: auto;
+  min-width: 10rem;
+  margin-left: auto;
+  padding: 0.3rem 2rem 0.3rem 0.55rem;
+  font-size: 0.78rem;
+}
+
+.admin-app .admin-table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.admin-app .admin-table-actions--start {
+  justify-content: flex-start;
+}
+
+.admin-app .admin-table-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.22rem 0.45rem;
+  border: 1px solid var(--omu-border);
+  border-radius: 6px;
+  background-color: transparent;
+  color: var(--omu-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 550;
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.admin-app .admin-table-icon-action {
+  width: 1.8rem;
+  height: 1.8rem;
+  padding: 0;
+  justify-content: center;
+}
+
+.admin-app .admin-table-action .oi {
+  color: var(--omu-text-muted);
+}
+
+.admin-app .admin-table-action:hover,
+.admin-app .admin-table-action:focus {
+  border-color: var(--omu-border);
+  background-color: var(--omu-surface-hover);
+  color: var(--omu-text);
+  text-decoration: none;
+}
+
+.admin-app .admin-table-action--primary .oi {
+  color: var(--omu-accent-text);
+}
+
+.admin-app .admin-table-action--primary:hover,
+.admin-app .admin-table-action--primary:focus {
+  border-color: rgba(var(--omu-accent-rgb), 0.35);
+  background-color: var(--omu-accent-soft);
+}
+
+.admin-app .admin-table-action--success .oi {
+  color: #0f766e;
+}
+
+.admin-app .admin-table-action--success:hover,
+.admin-app .admin-table-action--success:focus {
+  border-color: rgba(16, 185, 129, 0.4);
+  background-color: rgba(16, 185, 129, 0.08);
+}
+
+.admin-app .admin-table-action--warning .oi {
+  color: #b45309;
+}
+
+.admin-app .admin-table-action--warning:hover,
+.admin-app .admin-table-action--warning:focus {
+  border-color: rgba(245, 158, 11, 0.4);
+  background-color: rgba(245, 158, 11, 0.08);
+}
+
+.admin-app .admin-table-action--danger .oi {
+  color: #b91c1c;
+}
+
+.admin-app .admin-table-action--danger:hover,
+.admin-app .admin-table-action--danger:focus {
+  border-color: rgba(239, 68, 68, 0.4);
+  background-color: rgba(239, 68, 68, 0.08);
+}
+
+.admin-app .admin-table-action:disabled {
+  opacity: 0.45;
+}
+
+[data-bs-theme=dark] .admin-app .admin-table-action--success .oi {
+  color: #34d399;
+}
+
+[data-bs-theme=dark] .admin-app .admin-table-action--warning .oi {
+  color: #fbbf24;
+}
+
+[data-bs-theme=dark] .admin-app .admin-table-action--danger .oi {
+  color: #f87171;
+}
+
+.admin-app .admin-table-action:disabled .oi,
+[data-bs-theme=dark] .admin-app .admin-table-action:disabled .oi {
+  color: var(--omu-text-muted);
+}
+
+.admin-app .admin-table-footer {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--omu-border);
+}
+
+.admin-app .plugins-page .plugin-ext {
+  color: var(--omu-text-muted);
+  font-size: 0.78rem;
+}
+
+.admin-app .plugins-page .plugin-name {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.86rem;
+  font-weight: 500;
+}
+
+.admin-app .plugins-page .plugin-state {
+  width: 0.45rem;
+  height: 0.45rem;
+  flex: 0 0 0.45rem;
+  border-radius: 50%;
+}
+
+.admin-app .plugins-page .plugin-state--on {
+  background-color: #10b981;
+  box-shadow: 0 0 0 0.18rem rgba(16, 185, 129, 0.12);
+}
+
+.admin-app .plugins-page .plugin-state--off {
+  background-color: var(--omu-text-muted);
+  opacity: 0.45;
+}
+
+.admin-app .plugins-page .plugin-help {
+  max-width: 100%;
+  margin-top: 0.1rem;
+  overflow: hidden;
+  color: var(--omu-text-muted);
+  font-size: 0.72rem;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-app .plugins-page .plugin-type-cell {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--omu-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-app .plugins-page .plugin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.admin-app .plugins-page .table thead tr:first-child th:nth-child(4) {
+  text-align: right;
+}
+
+.admin-app .plugins-page .plugin-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.22rem 0.45rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 550;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.admin-app .plugins-page .plugin-action--off,
+.admin-app .plugins-page .plugin-action--on {
+  border-color: var(--omu-border);
+  background-color: transparent;
+  color: var(--omu-text-secondary);
+}
+
+.admin-app .plugins-page .plugin-action--off .oi {
+  color: #b45309;
+}
+
+.admin-app .plugins-page .plugin-action--on .oi {
+  color: #0f766e;
+}
+
+.admin-app .plugins-page .plugin-action--off:hover,
+.admin-app .plugins-page .plugin-action--off:focus {
+  border-color: rgba(245, 158, 11, 0.4);
+  background-color: rgba(245, 158, 11, 0.08);
+  color: var(--omu-text);
+}
+
+.admin-app .plugins-page .plugin-action--on:hover,
+.admin-app .plugins-page .plugin-action--on:focus {
+  border-color: rgba(16, 185, 129, 0.4);
+  background-color: rgba(16, 185, 129, 0.08);
+  color: var(--omu-text);
+}
+
+[data-bs-theme=dark] .admin-app .plugins-page .plugin-action--off .oi {
+  color: #fbbf24;
+}
+
+[data-bs-theme=dark] .admin-app .plugins-page .plugin-action--on .oi {
+  color: #34d399;
+}
+
+.admin-app .plugins-page .plugin-config {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  padding: 0;
+  border: 1px solid var(--omu-border);
+  border-radius: 6px;
+  background-color: transparent;
+  color: var(--omu-text-muted);
+}
+
+.admin-app .plugins-page .plugin-config:hover,
+.admin-app .plugins-page .plugin-config:focus {
+  border-color: var(--omu-border);
+  background-color: var(--omu-surface-hover);
+  color: var(--omu-text);
+}
+
+@media (max-width: 991.98px) {
+  .admin-app .admin-table-page {
+    overflow-x: auto;
+  }
+
+  .admin-app .admin-table-page .table {
+    min-width: 720px;
+  }
+
+  .admin-app .plugins-page .table {
+    table-layout: auto;
+    min-width: 780px;
+  }
+}
+
+/* Narrow screens */
+
+@media (max-width: 767.98px) {
+  .admin-app .content {
+    padding-top: 1.15rem;
+  }
+}

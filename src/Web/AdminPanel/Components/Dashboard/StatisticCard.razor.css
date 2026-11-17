@@ -1,0 +1,85 @@
+.stat-card {
+    --stat-tone: var(--omu-accent);
+    --stat-tone-soft: var(--omu-accent-soft);
+    overflow: hidden;
+}
+
+.stat-card__body {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.9rem;
+}
+
+.stat-card__icon {
+    display: grid;
+    place-items: center;
+    width: 2.45rem;
+    height: 2.45rem;
+    flex: 0 0 2.45rem;
+    border-radius: 10px;
+    background-color: var(--stat-tone-soft);
+    color: var(--stat-tone);
+    font-size: 1.1rem;
+}
+
+.stat-card__content {
+    min-width: 0;
+}
+
+.stat-card__title {
+    margin: 0 0 0.15rem;
+    color: var(--omu-text-secondary);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0;
+}
+
+.stat-card__value {
+    font-size: 1.65rem;
+    font-variant-numeric: tabular-nums;
+    font-weight: 650;
+    letter-spacing: -0.03em;
+    line-height: 1.15;
+}
+
+.stat-card__detail {
+    margin-top: 0.25rem;
+    color: var(--omu-text-muted);
+    font-size: 0.78rem;
+}
+
+.stat-card--blue {
+    --stat-tone: #3563f0;
+    --stat-tone-soft: rgba(53, 99, 240, 0.11);
+}
+
+.stat-card--emerald {
+    --stat-tone: #0b9f72;
+    --stat-tone-soft: rgba(16, 185, 129, 0.13);
+}
+
+.stat-card--amber {
+    --stat-tone: #b47409;
+    --stat-tone-soft: rgba(245, 158, 11, 0.15);
+}
+
+.stat-card--violet {
+    --stat-tone: #7c4dd8;
+    --stat-tone-soft: rgba(124, 77, 216, 0.12);
+}
+
+[data-bs-theme=dark] .stat-card--blue {
+    --stat-tone: #9db8ff;
+}
+
+[data-bs-theme=dark] .stat-card--emerald {
+    --stat-tone: #6ee7b7;
+}
+
+[data-bs-theme=dark] .stat-card--amber {
+    --stat-tone: #fcd34d;
+}
+
+[data-bs-theme=dark] .stat-card--violet {
+    --stat-tone: #c4a7ff;
+}

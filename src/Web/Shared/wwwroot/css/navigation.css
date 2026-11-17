@@ -1,0 +1,155 @@
+/* Sidebar navigation: container, links, dropdown groups and the culture selector. */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar > nav {
+  display: flex;
+  flex-direction: column;
+  background-color: var(--omu-surface);
+  border-right: 1px solid var(--omu-border);
+}
+
+@media (min-width: 768px) {
+  .sidebar > nav {
+    position: sticky;
+    top: 0;
+    width: 264px;
+    min-width: 264px;
+    height: 100vh;
+  }
+
+  .sidebar > nav > div:first-child > button {
+    display: none;
+  }
+}
+
+.sidebar .nav-item {
+  padding: 0 0.6rem 0.15rem;
+  font-size: 0.875rem;
+}
+
+.sidebar .nav-item:first-of-type {
+  padding-top: 0.75rem;
+}
+
+.sidebar .nav-item:last-of-type {
+  padding-bottom: 0.75rem;
+}
+
+.sidebar .navbar-brand {
+  color: var(--omu-text);
+  text-decoration: none;
+}
+
+.sidebar .navbar-brand.active {
+  background-color: transparent;
+  color: var(--omu-text);
+}
+
+.sidebar .nav-link {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 2.4rem;
+  height: auto;
+  padding: 0.55rem 0.65rem;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--omu-text-secondary);
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: normal;
+}
+
+.sidebar .nav-link:hover,
+.sidebar .nav-link:focus {
+  background-color: var(--omu-surface-hover);
+  color: var(--omu-text);
+}
+
+.sidebar a.active {
+  background-color: var(--omu-accent-soft);
+  color: var(--omu-accent-text);
+  font-weight: 650;
+}
+
+.sidebar .nav-link .oi {
+  width: 1.5rem;
+  min-width: 1.5rem;
+  margin-right: 0.35rem;
+  font-size: 1rem;
+  text-align: center;
+}
+
+.sidebar .nav-separator {
+  height: 1px;
+  margin: 0.55rem 1.25rem;
+  background-color: var(--omu-border);
+}
+
+.sidebar .dropdown-menu {
+  position: static;
+  float: none;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0.2rem 0 0.35rem;
+  border: 0;
+  border-radius: 0;
+  background-color: transparent;
+  box-shadow: none;
+}
+
+.sidebar .dropdown-menu.show {
+  display: block;
+}
+
+.sidebar .dropdown-menu .dropdown-item {
+  padding: 0.42rem 0.6rem 0.42rem 2.35rem;
+  border-radius: 7px;
+  color: var(--omu-text-secondary);
+  font-size: 0.82rem;
+  white-space: normal;
+}
+
+.sidebar .dropdown-menu .dropdown-item:hover,
+.sidebar .dropdown-menu .dropdown-item:focus {
+  background-color: var(--omu-surface-hover);
+  color: var(--omu-text);
+}
+
+.sidebar .dropdown-menu .dropdown-item.active {
+  background-color: var(--omu-accent-soft);
+  color: var(--omu-accent-text);
+}
+
+.sidebar .dropdown-menu hr {
+  margin: 0.35rem 0.5rem;
+  border-color: var(--omu-border);
+}
+
+.culture-selector-icon {
+  color: var(--omu-nav-link);
+}
+
+.culture-selector {
+  display: flex;
+  line-height: 2.5rem;
+  align-items: center;
+  padding-left: 0.25rem;
+  position: relative;
+}
+
+.culture-selector::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -0.4rem;
+  height: 1px;
+  background: var(--omu-border);
+  pointer-events: none;
+}

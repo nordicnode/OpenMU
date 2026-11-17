@@ -1,0 +1,21 @@
+﻿@page "/create-game-server"
+@attribute [Authorize(Policy = AdminPolicies.Administrator)]
+
+@using MUnique.OpenMU.Web.AdminPanel.Properties
+@{
+  var title = Resources.CreateGameServer;
+}
+<PageTitle>OpenMU: @title</PageTitle>
+<Breadcrumb Caption="@title"/>
+<h3 class="admin-page-heading">@title</h3>
+
+
+@if (this._viewModel is null)
+{
+    return;
+}
+
+<div class="admin-table-page">
+    <AutoForm Model="this._viewModel" OnValidSubmit="this.OnSaveButtonClickAsync" IsProcessing="this._isProcessing"></AutoForm>
+</div>
+

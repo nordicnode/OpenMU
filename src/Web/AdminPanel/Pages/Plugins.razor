@@ -1,0 +1,77 @@
+﻿@page "/plugins"
+@attribute [Authorize(Policy = AdminPolicies.Administrator)]
+@using MUnique.OpenMU.Web.AdminPanel.Properties
+@using MUnique.OpenMU.Web.Shared.Models
+
+<PageTitle>@Resources.Plugins</PageTitle>
+<Breadcrumb IsFirstFromRoot="true" Caption="@Resources.Plugins"/>
+<h3 class="admin-page-heading">@Resources.Plugins</h3>
+
+<div class="admin-table-page plugins-page">
+    <DataTable TItem=@PlugInConfigurationViewItem>
+        <TableHeader>
+            <th>@Resources.ExtensionPoint</th>
+            <th>@Resources.PluginName</th>
+            <th>@Resources.PluginType</th>
+            <th>@Resources.Action</th>
+        </TableHeader>
+        <FilterHeader>
+            <th><PlugInExtensionPointSelection SelectedPointId="@this.PlugInController.PointFilter" ExtensionPoints="@this.PlugInController.ExtensionPoints" OnSelectionChanged="@this.OnPlugInPointSelected" /></th>
+            <th><div class="input-group"><span class="input-group-text"><span class="oi oi-magnifying-glass" aria-hidden="true"></span></span><input type="search" class="form-control" placeholder="@Resources.Search" @bind="@this.PlugInController.NameFilter" @bind:event="oninput"/></div></th>
+            <th><div class="input-group"><span class="input-group-text"><span class="oi oi-magnifying-glass" aria-hidden="true"></span></span><input type="search" class="form-control" placeholder="@Resources.Search" @bind="@this.PlugInController.TypeFilter" @bind:event="oninput"/></div></th>
+            <th>
+                <select class="form-select" name="activeFilter" value="@this.PlugInController.ActiveFilter" @onchange="this.OnActiveFilterChanged">
+                    <option value="@PlugInActiveFilter.All">@Resources.All</option>
+                    <option value="@PlugInActiveFilter.Active">@Resources.Active</option>
+                    <option value="@PlugInActiveFilter.Inactive">@Resources.Inactive</option>
+                </select>
+            </th>
+        </FilterHeader>
+        <ItemTemplate Context="item">
+            <td class="plugin-ext" title=@item.PlugInPointDescription>@item.PlugInPointName</td>
+            <td title=@item.PlugInDescription>
+                <div class="plugin-name">
+                    <span class="plugin-state @(item.IsActive ? "plugin-state--on" : "plugin-state--off")"
+                          role="img" aria-label="@(item.IsActive ? Resources.Active : Resources.Inactive)"
+                          title="@(item.IsActive ? Resources.Active : Resources.Inactive)"></span>
+                    <MarkedText Marked=@this.PlugInController.NameFilter Text=@item.PlugInName />
+                </div>
+                @if (!string.IsNullOrWhiteSpace(item.PlugInDescription))
+                {
+                    <div class="plugin-help" title="@item.PlugInDescription">
+                        <MarkedText Marked=@this.PlugInController.NameFilter Text=@item.PlugInDescription />
+                    </div>
+                }
+            </td>
+            <td title="@($"{item.TypeName} ({item.TypeId})")">
+                <div class="plugin-type-cell">
+                    <MarkedText Marked=@this.PlugInController.TypeFilter Text=@item.TypeName />
+                </div>
+            </td>
+            <td class="plugin-actions-cell">
+                <div class="plugin-actions">
+                    @if (item.IsActive)
+                    {
+                        <button class="btn plugin-action plugin-action--off" @onclick="async () => await this.PlugInController.DeactivateAsync(item)">
+                            <span class="oi oi-x" aria-hidden="true"></span> @Resources.Deactivate
+                        </button>
+                    }
+                    else
+                    {
+                        <button class="btn plugin-action plugin-action--on" @onclick="async () => await this.PlugInController.ActivateAsync(item)">
+                            <span class="oi oi-check" aria-hidden="true"></span> @Resources.Activate
+                        </button>
+                    }
+
+                    @if (item.ConfigurationType is { })
+                    {
+                        <button class="btn plugin-config" title="@Resources.Edit" aria-label="@Resources.Edit"
+                                @onclick="() => this.PlugInController.ShowPlugInConfigAsync(item)">
+                            <span class="oi oi-cog" aria-hidden="true"></span>
+                        </button>
+                    }
+                </div>
+            </td>
+        </ItemTemplate>
+    </DataTable>
+</div>

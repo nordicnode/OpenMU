@@ -1,0 +1,86 @@
+@page "/audit"
+@using System.Text.Json.Nodes
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.Extensions.Localization
+@using MUnique.OpenMU.Web.AdminPanel.Auth
+@using MUnique.OpenMU.Web.AdminPanel.Operations
+@using MUnique.OpenMU.Web.AdminPanel.Properties
+@attribute [Authorize(Policy = AdminPolicies.Administrator)]
+@inject AuditReadOperations Audit
+@inject IStringLocalizer<Resources> Text
+
+<PageTitle>@Text["AuditHistory"]</PageTitle>
+<h3 class="admin-page-heading">@Text["AuditHistory"]</h3>
+<p class="admin-page-description">@Text["AuditPendingExplanation"]</p>
+@if (this._unavailable)
+{
+    <div class="alert alert-warning" role="alert">@Text["AuditUnavailable"]</div>
+}
+else if (this._page is { } page)
+{
+    <div class="admin-table-page">
+        <div class="table-responsive">
+            <table class="table table-sm">
+                <thead><tr>
+                    <th class="text-nowrap">@Text["AuditTime"]</th><th>@Text["AuditPrincipal"]</th><th class="text-nowrap">@Text["AuditFrontend"]</th>
+                    <th>@Text["AuditOperation"]</th><th>@Text["AuditArguments"]</th><th>@Text["AuditOutcome"]</th>
+                </tr></thead>
+                <tbody>
+                @foreach (var item in page["items"]!.AsArray())
+                {
+                    <tr>
+                        <td class="text-nowrap">@item?["startedAt"]</td><td>@item?["principalName"]</td><td>@item?["frontend"]</td>
+                        <td>@item?["operation"]</td><td><pre class="admin-audit-code">@item?["argumentsJson"]</pre></td>
+                        <td>@item?["outcome"]<pre class="admin-audit-code">@item?["resultJson"]</pre></td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+        <div class="admin-table-footer">
+            <button class="btn btn-secondary" disabled="@(this._offset == 0)" @onclick="this.PreviousAsync">@Text["AuditPrevious"]</button>
+            <button class="btn btn-secondary ms-1" disabled="@(this._offset + 50 >= page["total"]!.GetValue<int>())" @onclick="this.NextAsync">@Text["AuditNext"]</button>
+        </div>
+    </div>
+}
+
+@code {
+    private JsonObject? _page;
+    private int _offset;
+    private bool _unavailable;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Audit authorization needs the running circuit, which is absent during prerendering.
+            await this.LoadAsync().ConfigureAwait(true);
+            this.StateHasChanged();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            this._page = await this.Audit.ListAsync(this._offset, 50, default).ConfigureAwait(true);
+            this._unavailable = false;
+        }
+        catch
+        {
+            this._unavailable = true;
+        }
+    }
+
+    private async Task NextAsync()
+    {
+        this._offset += 50;
+        await this.LoadAsync().ConfigureAwait(true);
+    }
+
+    private async Task PreviousAsync()
+    {
+        this._offset = Math.Max(0, this._offset - 50);
+        await this.LoadAsync().ConfigureAwait(true);
+    }
+}

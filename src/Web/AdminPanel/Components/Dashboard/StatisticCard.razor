@@ -1,0 +1,45 @@
+<section class="card stat-card stat-card--@this.Tone h-100">
+    <div class="card-body stat-card__body">
+        <span class="stat-card__icon"><span class="oi @this.Icon" aria-hidden="true"></span></span>
+        <div class="stat-card__content">
+            <h2 class="stat-card__title">@this.Title</h2>
+            <div class="stat-card__value">@this.Value</div>
+            @if (this.ChildContent is not null)
+            {
+                <div class="stat-card__detail">@this.ChildContent</div>
+            }
+        </div>
+    </div>
+</section>
+
+@code {
+    /// <summary>
+    /// Gets or sets the title.
+    /// </summary>
+    [Parameter]
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the CSS class of the open iconic icon, e.g. <c>oi-people</c>.
+    /// </summary>
+    [Parameter]
+    public string Icon { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the color tone of the card, e.g. <c>blue</c> or <c>emerald</c>.
+    /// </summary>
+    [Parameter]
+    public string Tone { get; set; } = "blue";
+
+    /// <summary>
+    /// Gets or sets the value.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? Value { get; set; }
+
+    /// <summary>
+    /// Gets or sets the details, which are shown below the value.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+}

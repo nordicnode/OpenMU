@@ -1,0 +1,65 @@
+﻿@page "/accounts"
+@using MUnique.OpenMU.DataModel
+@using MUnique.OpenMU.DataModel.Entities;
+@using MUnique.OpenMU.Persistence;
+@using Resources = MUnique.OpenMU.Web.AdminPanel.Properties.Resources
+
+@inject AccountService _accountService;
+
+@{
+  var title = typeof(Account).GetPluralizedTypeCaption();
+}
+<PageTitle>OpenMU: @title</PageTitle>
+<Breadcrumb IsFirstFromRoot="true" Caption="@title" />
+<h3 class="admin-page-heading">@title</h3>
+
+<div class="admin-table-page">
+    <DataTable TItem=@Account>
+        <TableHeader>
+            <th class="col-2">@typeof(Account).GetPropertyCaption(nameof(Account.LoginName))</th>
+            <th class="col-2">@typeof(Account).GetPropertyCaption(nameof(Account.State))</th>
+            <th class="col-5">@typeof(Account).GetPropertyCaption(nameof(Account.EMail))</th>
+            <th class="col-3 text-end">@Resources.Action</th>
+        </TableHeader>
+        <FilterHeader>
+            <th colspan="4">
+                <div class="input-group">
+                    <span class="input-group-text"><span class="oi oi-magnifying-glass" aria-hidden="true"></span></span>
+                    <input class="form-control" type="search" autofocus @bind="@this._accountService.SearchFilter" @bind:event="oninput" placeholder="@($"{Resources.Search}...")"/>
+                </div>
+            </th>
+        </FilterHeader>
+        <ItemTemplate Context="item">
+            <td>@item.LoginName</td>
+            <td>@item.State.GetEnumCaption()</td>
+            <td>@item.EMail</td>
+            <td>
+                <div class="admin-table-actions">
+                    <AuthorizeView Policy="@AdminPolicies.Operator">
+                        <NavLink href="@($"edit-account/{item.GetId()}/{typeof(Account).FullName}/{item.GetId()}")" class="btn admin-table-action admin-table-action--primary">
+                            <span class="oi oi-pencil" aria-hidden="true"></span> @Resources.Edit
+                        </NavLink>
+                        <NavLink href="@($"accounts/{Uri.EscapeDataString(item.LoginName)}/links")" class="btn admin-table-action admin-table-icon-action admin-table-action--primary" title="@Resources.ExternalLinks" aria-label="@Resources.ExternalLinks">
+                            <span class="oi oi-link-intact" aria-hidden="true"></span>
+                        </NavLink>
+                    </AuthorizeView>
+                    <AuthorizeView Policy="@AdminPolicies.CashShop">
+                        <NavLink href="@($"accounts/{Uri.EscapeDataString(item.LoginName)}/cash-shop")" class="btn admin-table-action admin-table-icon-action admin-table-action--warning" title="@Resources.CashShopCoins" aria-label="@Resources.CashShopCoins">
+                            <span class="oi oi-dollar" aria-hidden="true"></span>
+                        </NavLink>
+                    </AuthorizeView>
+                </div>
+            </td>
+        </ItemTemplate>
+        <TableFooter>
+            <td>
+                <button type="button" class="btn admin-table-action admin-table-action--primary" @onclick="@this._accountService.CreateNewInModalDialogAsync">
+                    <span class="oi oi-plus" aria-hidden="true"></span> @Resources.Create
+                </button>
+            </td>
+            <td></td>
+            <td></td>
+            <td></td>
+        </TableFooter>
+    </DataTable>
+</div>
