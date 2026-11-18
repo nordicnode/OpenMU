@@ -10,8 +10,9 @@ using MUnique.OpenMU.Pathfinding;
 using NUnit.Framework;
 
 /// <summary>
-/// Tests for the planning of a town trip - when a bot heads to the buff NPC, when it warps into the
-/// town of its map first, and when it goes home instead (see <see cref="BotTownTripPlanner"/>).
+/// Tests for the planning of a town errand - when a bot heads to the NPC which serves it (a merchant or
+/// the buff NPC), when it warps into the town of its map first, and when it goes home instead (see
+/// <see cref="BotTownTripPlanner"/>).
 /// </summary>
 /// <remarks>
 /// The planner decides the step from plain facts, so the tests state the facts a bot on a map would
@@ -32,14 +33,14 @@ public class BotTownTripTest
     [Test]
     public void NoTripWithoutAnApplicableBuff()
     {
-        var step = BotTownTripPlanner.PlanBuffTrip(
-            needsBuff: false,
+        var step = BotTownTripPlanner.PlanTrip(
+            needsErrand: false,
             npcOnMap: BuffNpcPosition,
             inSafezone: false,
             canWarpToTown: true,
             canWarpHome: true);
 
-        Assert.That(step, Is.EqualTo(BotTownTripPlanner.BuffTripStep.NoBuffNeeded));
+        Assert.That(step, Is.EqualTo(BotTownTripPlanner.TripStep.NoErrandNeeded));
     }
 
     /// <summary>
@@ -48,14 +49,14 @@ public class BotTownTripTest
     [Test]
     public void BuffNpcInTownIsWalkedTo()
     {
-        var step = BotTownTripPlanner.PlanBuffTrip(
-            needsBuff: true,
+        var step = BotTownTripPlanner.PlanTrip(
+            needsErrand: true,
             npcOnMap: BuffNpcPosition,
             inSafezone: true,
             canWarpToTown: true,
             canWarpHome: true);
 
-        Assert.That(step, Is.EqualTo(BotTownTripPlanner.BuffTripStep.WalkToNpc));
+        Assert.That(step, Is.EqualTo(BotTownTripPlanner.TripStep.WalkToNpc));
     }
 
     /// <summary>
@@ -65,14 +66,14 @@ public class BotTownTripTest
     [Test]
     public void FieldBuffTripWarpsIntoTheTownFirst()
     {
-        var step = BotTownTripPlanner.PlanBuffTrip(
-            needsBuff: true,
+        var step = BotTownTripPlanner.PlanTrip(
+            needsErrand: true,
             npcOnMap: BuffNpcPosition,
             inSafezone: false,
             canWarpToTown: true,
             canWarpHome: false);
 
-        Assert.That(step, Is.EqualTo(BotTownTripPlanner.BuffTripStep.WarpToSafezone));
+        Assert.That(step, Is.EqualTo(BotTownTripPlanner.TripStep.WarpToSafezone));
     }
 
     /// <summary>
@@ -82,14 +83,14 @@ public class BotTownTripTest
     [Test]
     public void BuffNpcWithoutTownsIsWalkedToFromTheField()
     {
-        var step = BotTownTripPlanner.PlanBuffTrip(
-            needsBuff: true,
+        var step = BotTownTripPlanner.PlanTrip(
+            needsErrand: true,
             npcOnMap: BuffNpcPosition,
             inSafezone: false,
             canWarpToTown: false,
             canWarpHome: false);
 
-        Assert.That(step, Is.EqualTo(BotTownTripPlanner.BuffTripStep.WalkToNpc));
+        Assert.That(step, Is.EqualTo(BotTownTripPlanner.TripStep.WalkToNpc));
     }
 
     /// <summary>
@@ -98,14 +99,14 @@ public class BotTownTripTest
     [Test]
     public void MissingBuffNpcSendsTheBotHome()
     {
-        var step = BotTownTripPlanner.PlanBuffTrip(
-            needsBuff: true,
+        var step = BotTownTripPlanner.PlanTrip(
+            needsErrand: true,
             npcOnMap: null,
             inSafezone: false,
             canWarpToTown: true,
             canWarpHome: true);
 
-        Assert.That(step, Is.EqualTo(BotTownTripPlanner.BuffTripStep.WarpHome));
+        Assert.That(step, Is.EqualTo(BotTownTripPlanner.TripStep.WarpHome));
     }
 
     /// <summary>
@@ -114,14 +115,14 @@ public class BotTownTripTest
     [Test]
     public void MissingBuffNpcWithoutHomeDoesNothing()
     {
-        var step = BotTownTripPlanner.PlanBuffTrip(
-            needsBuff: true,
+        var step = BotTownTripPlanner.PlanTrip(
+            needsErrand: true,
             npcOnMap: null,
             inSafezone: true,
             canWarpToTown: true,
             canWarpHome: false);
 
-        Assert.That(step, Is.EqualTo(BotTownTripPlanner.BuffTripStep.NoBuffNpc));
+        Assert.That(step, Is.EqualTo(BotTownTripPlanner.TripStep.NoNpcOnMap));
     }
 
     /// <summary>
@@ -133,13 +134,13 @@ public class BotTownTripTest
     {
         Assert.That(
             BotTownTripPlanner.PlanTargetStep(distanceToTarget: BotTownTripPlanner.NpcInteractionRange + 1),
-            Is.EqualTo(BotTownTripPlanner.BuffTripStep.WalkToNpc));
+            Is.EqualTo(BotTownTripPlanner.TripStep.WalkToNpc));
         Assert.That(
             BotTownTripPlanner.PlanTargetStep(distanceToTarget: BotTownTripPlanner.NpcInteractionRange),
-            Is.EqualTo(BotTownTripPlanner.BuffTripStep.Claim));
+            Is.EqualTo(BotTownTripPlanner.TripStep.Claim));
         Assert.That(
             BotTownTripPlanner.PlanTargetStep(distanceToTarget: 0),
-            Is.EqualTo(BotTownTripPlanner.BuffTripStep.Claim));
+            Is.EqualTo(BotTownTripPlanner.TripStep.Claim));
     }
 
     /// <summary>

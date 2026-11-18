@@ -8,9 +8,9 @@ using MUnique.OpenMU.GameLogic.PlayerActions;
 using MUnique.OpenMU.Pathfinding;
 
 /// <summary>
-/// The decisions of a trip which needs a town NPC - so far the buff trip to the buff NPC - and the
-/// gates such a trip uses: the safezone gate of the current map to get out of the field, and the
-/// class hometown as the fallback when the current map offers the NPC nowhere.
+/// The decisions of an errand which needs a town NPC - the shopping trip to a merchant and the buff
+/// trip to the buff NPC - and the gates such a trip uses: the safezone gate of the current map to get
+/// out of the field, and the class hometown as the fallback when the current map offers the NPC nowhere.
 /// </summary>
 /// <remarks>
 /// Pure decision logic, exposed for unit tests. The navigator only performs the step which is planned
@@ -27,23 +27,24 @@ internal static class BotTownTripPlanner
     internal const int NpcInteractionRange = 3;
 
     /// <summary>
-    /// The steps of a buff trip. A trip either starts (warp home, warp into the town of the current map,
-    /// or walk off to the NPC) or continues (walk on, or claim), and it can end without a trip when the
-    /// bot needs no buff or no NPC anywhere offers one.
+    /// The steps of a town errand. An errand either starts (warp home, warp into the town of the current
+    /// map, or walk off to the NPC) or continues (walk on, or trade/claim), and it can end without a trip
+    /// when the bot needs nothing or no NPC anywhere offers what it needs.
     /// </summary>
-    internal enum BuffTripStep
+    internal enum TripStep
     {
         /// <summary>
-        /// The bot has no buff to claim: no buff NPC is configured (the Elf Soldier exists only in Season
+        /// The bot has nothing to get: it needs no shopping (the backpack has room, the potions are
+        /// stocked) - or, for the buff, no buff NPC is configured (the Elf Soldier exists only in Season
         /// Six data), or it already has the effect, or its level is outside the buff's range.
         /// </summary>
-        NoBuffNeeded,
+        NoErrandNeeded,
 
         /// <summary>
-        /// The bot needs a buff, but neither this map nor its hometown has the NPC. It retries later -
-        /// the NPC may be spawned, or it may level into the buff's range.
+        /// The bot has something to get, but neither this map nor its hometown has the NPC. It retries
+        /// later - the NPC may be spawned, or the bot may need shopping again.
         /// </summary>
-        NoBuffNpc,
+        NoNpcOnMap,
 
         /// <summary>
         /// The bot warps to its class hometown, whose town offers the NPC - the equivalent of a town scroll.
@@ -57,28 +58,29 @@ internal static class BotTownTripPlanner
         WarpToSafezone,
 
         /// <summary>
-        /// The bot walks to the buff NPC, either in its town or - for an NPC which stands outside the
+        /// The bot walks to the NPC, either in its town or - for an NPC which stands outside the
         /// safezone - where it stands.
         /// </summary>
         WalkToNpc,
 
         /// <summary>
-        /// The bot stands at the buff NPC and can claim the buff.
+        /// The bot stands at the NPC and can trade with it, or claim its buff.
         /// </summary>
         Claim,
     }
 
     /// <summary>
-    /// Plans the next step of a buff trip - from plain facts, so the rule is testable without a game.
+    /// Plans the next step of a town errand - from plain facts, so the rule is testable without a game.
     /// The caller only evaluates the facts which the trip needs: <paramref name="npcOnMap"/> only when
-    /// the bot needs a buff at all, and the two warp capabilities only when the NPC is missing or the
-    /// bot is out in the field.
+    /// the bot has something to get at all, and the two warp capabilities only when the NPC is missing or
+    /// the bot is out in the field.
     /// </summary>
-    /// <param name="needsBuff">
-    /// Whether a buff NPC is configured which the bot qualifies for and does not have yet (see
-    /// <see cref="BotBuffHandler.TryGetApplicableBuff"/>).
+    /// <param name="needsErrand">
+    /// Whether the bot has something to get which an NPC on a map offers: a merchant to sell loot and
+    /// restock potions (see <see cref="BotShoppingHandler.NeedsShopping"/>), or a buff NPC it qualifies
+    /// for and whose effect it does not have yet (see <see cref="BotBuffHandler.TryGetApplicableBuff"/>).
     /// </param>
-    /// <param name="npcOnMap">The position of a live buff NPC on the current map, or <c>null</c>.</param>
+    /// <param name="npcOnMap">The position of a live NPC offering the errand on the current map, or <c>null</c>.</param>
     /// <param name="inSafezone">Whether the bot currently stands in the safezone of the map.</param>
     /// <param name="canWarpToTown">
     /// Whether the current map has a spawn gate the bot can warp to, i.e. a town to warp into.
@@ -87,33 +89,33 @@ internal static class BotTownTripPlanner
     /// Whether the bot has a class hometown it may go to instead (see <see cref="TryFindHomeGate"/>).
     /// </param>
     /// <returns>The step to perform.</returns>
-    internal static BuffTripStep PlanBuffTrip(bool needsBuff, Point? npcOnMap, bool inSafezone, bool canWarpToTown, bool canWarpHome)
+    internal static TripStep PlanTrip(bool needsErrand, Point? npcOnMap, bool inSafezone, bool canWarpToTown, bool canWarpHome)
     {
-        if (!needsBuff)
+        if (!needsErrand)
         {
-            return BuffTripStep.NoBuffNeeded;
+            return TripStep.NoErrandNeeded;
         }
 
         if (npcOnMap is null)
         {
-            return canWarpHome ? BuffTripStep.WarpHome : BuffTripStep.NoBuffNpc;
+            return canWarpHome ? TripStep.WarpHome : TripStep.NoNpcOnMap;
         }
 
         if (!inSafezone && canWarpToTown)
         {
-            return BuffTripStep.WarpToSafezone;
+            return TripStep.WarpToSafezone;
         }
 
-        return BuffTripStep.WalkToNpc;
+        return TripStep.WalkToNpc;
     }
 
     /// <summary>
-    /// Plans the next step of a buff trip which already has a target, from the distance to it.
+    /// Plans the next step of a town errand which already has a target, from the distance to it.
     /// </summary>
-    /// <param name="distanceToTarget">How far the bot is from the buff NPC it heads to.</param>
-    /// <returns>The step to perform: walk on, or claim the buff when close enough.</returns>
-    internal static BuffTripStep PlanTargetStep(double distanceToTarget)
-        => distanceToTarget > NpcInteractionRange ? BuffTripStep.WalkToNpc : BuffTripStep.Claim;
+    /// <param name="distanceToTarget">How far the bot is from the NPC it heads to.</param>
+    /// <returns>The step to perform: walk on, or trade/claim when close enough.</returns>
+    internal static TripStep PlanTargetStep(double distanceToTarget)
+        => distanceToTarget > NpcInteractionRange ? TripStep.WalkToNpc : TripStep.Claim;
 
     /// <summary>
     /// Gets the safezone gate of a map the bot warps to when it wants to reach the town of the map it

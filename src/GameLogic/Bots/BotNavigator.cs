@@ -1530,7 +1530,7 @@ internal sealed class BotNavigator : AsyncDisposable
     {
         if (this._shoppingTarget is { } target)
         {
-            if (this._player.GetDistanceTo(target) > BotTownTripPlanner.NpcInteractionRange)
+            if (BotTownTripPlanner.PlanTargetStep(this._player.GetDistanceTo(target)) == BotTownTripPlanner.TripStep.WalkToNpc)
             {
                 if (!await this.TravelTowardAsync(map, target, cancellationToken).ConfigureAwait(false))
                 {
@@ -1566,40 +1566,48 @@ internal sealed class BotNavigator : AsyncDisposable
         }
 
         this._nextShoppingCheckUtc = DateTime.UtcNow + ShoppingCheckInterval;
-        if (!BotShoppingHandler.NeedsShopping(this._player))
+        var needsShopping = BotShoppingHandler.NeedsShopping(this._player);
+        var merchantPosition = needsShopping ? BotShoppingHandler.FindMerchantPosition(this._player, map) : null;
+        ExitGate? homeGate = null;
+        GameMapDefinition? homeMap = null;
+        var homeGateAvailable = merchantPosition is null
+                                && this.TryGetHomeEscapeGate(allowTrivialHome: true, out homeGate, out homeMap, out _);
+        var townGate = merchantPosition is not null ? BotTownTripPlanner.FindTownGate(map.Definition) : null;
+        var step = BotTownTripPlanner.PlanTrip(needsShopping, merchantPosition, inSafezone, townGate is not null, homeGateAvailable);
+        if (step == BotTownTripPlanner.TripStep.NoErrandNeeded)
         {
             return false;
         }
 
-        if (BotShoppingHandler.FindMerchantPosition(this._player, map) is not { } merchantPosition)
+        if (step == BotTownTripPlanner.TripStep.NoNpcOnMap)
         {
-            // No merchant lives on this map at all (the Dungeon has no town). Shopping here would
-            // starve the bot's logistics for as long as it stays - no potion restock, no selling, a
-            // slowly silting backpack. Like a player pulling a town scroll, it warps to its class
-            // hometown and shops there; the better-map logic takes it back hunting afterward.
-            if (this.TryGetHomeEscapeGate(allowTrivialHome: true, out var homeGate, out var homeMap, out _))
-            {
-                this._travelPath = null;
-                this._hasDestination = false;
-                this._lastWarpUtc = this._timeProvider.GetUtcNow();
-                this._nextShoppingCheckUtc = DateTime.UtcNow; // start the trip on the new map right away
-                this._player.Logger.LogDebug("Bot '{Name}' warps home to {Map} for a shopping trip - no merchant on its map.", this._player.Name, homeMap.Name);
-                await this._player.WarpToAsync(homeGate).ConfigureAwait(false);
-                return true;
-            }
-
+            // No merchant lives on this map at all (the Dungeon has no town) and there is no hometown to
+            // go to either: shopping here would starve the bot's logistics for as long as it stays - no
+            // potion restock, no selling, a slowly silting backpack.
             this._nextShoppingCheckUtc = NextShoppingCheckUtc();
             return false;
         }
 
-        // Merchants stand in town: when out in the field, warp to the map's safezone first (like using
-        // a town portal scroll), then walk over to the merchant.
-        if (!inSafezone
-            && map.Definition.ExitGates.Where(g => g.IsSpawnGate).SelectRandom() is { } townGate)
+        if (step == BotTownTripPlanner.TripStep.WarpHome)
         {
+            // Like a player pulling a town scroll, it warps to its class hometown and shops there; the
+            // better-map logic takes it back hunting afterward.
             this._travelPath = null;
             this._hasDestination = false;
-            await this._player.WarpToAsync(townGate).ConfigureAwait(false);
+            this._lastWarpUtc = this._timeProvider.GetUtcNow();
+            this._nextShoppingCheckUtc = DateTime.UtcNow; // start the trip on the new map right away
+            this._player.Logger.LogDebug("Bot '{Name}' warps home to {Map} for a shopping trip - no merchant on its map.", this._player.Name, homeMap!.Name);
+            await this._player.WarpToAsync(homeGate!).ConfigureAwait(false);
+            return true;
+        }
+
+        if (step == BotTownTripPlanner.TripStep.WarpToSafezone)
+        {
+            // Merchants stand in town: when out in the field, warp to the map's safezone first (like using
+            // a town portal scroll), then walk over to the merchant.
+            this._travelPath = null;
+            this._hasDestination = false;
+            await this._player.WarpToAsync(townGate!).ConfigureAwait(false);
         }
 
         this._shoppingTarget = merchantPosition;
@@ -1655,21 +1663,21 @@ internal sealed class BotNavigator : AsyncDisposable
         var homeGateAvailable = buffNpcPosition is null
                                 && this.TryGetHomeEscapeGate(allowTrivialHome: true, out homeGate, out homeMap, out _);
         var townGate = buffNpcPosition is not null ? BotTownTripPlanner.FindTownGate(map.Definition) : null;
-        var step = BotTownTripPlanner.PlanBuffTrip(needsBuff, buffNpcPosition, inSafezone, townGate is not null, homeGateAvailable);
-        if (step == BotTownTripPlanner.BuffTripStep.NoBuffNeeded)
+        var step = BotTownTripPlanner.PlanTrip(needsBuff, buffNpcPosition, inSafezone, townGate is not null, homeGateAvailable);
+        if (step == BotTownTripPlanner.TripStep.NoErrandNeeded)
         {
             // No buff dialog NPC configured (data without an Elf Soldier) or the bot does not qualify
             // (already buffed, or outside the buff's level range): a no-op on such servers.
             return false;
         }
 
-        if (step == BotTownTripPlanner.BuffTripStep.NoBuffNpc)
+        if (step == BotTownTripPlanner.TripStep.NoNpcOnMap)
         {
             this._nextBuffCheckUtc = NextBuffCheckUtc();
             return false;
         }
 
-        if (step == BotTownTripPlanner.BuffTripStep.WarpHome)
+        if (step == BotTownTripPlanner.TripStep.WarpHome)
         {
             // No buff NPC lives on this map at all. Like a player pulling a town scroll, the bot warps
             // to its class hometown, where the buff is offered; the better-map logic takes it back
@@ -1683,7 +1691,7 @@ internal sealed class BotNavigator : AsyncDisposable
             return true;
         }
 
-        if (step == BotTownTripPlanner.BuffTripStep.WarpToSafezone)
+        if (step == BotTownTripPlanner.TripStep.WarpToSafezone)
         {
             // Buff NPCs stand in town (in or near the safezone): when out in the field, warp to the
             // map's safezone first (like using a town portal scroll), then walk over to the NPC.
@@ -1709,7 +1717,7 @@ internal sealed class BotNavigator : AsyncDisposable
     /// <returns>Always <c>true</c>: the trip consumed this tick.</returns>
     private async ValueTask<bool> DriveBuffTripAsync(GameMap map, Point target, CancellationToken cancellationToken)
     {
-        if (BotTownTripPlanner.PlanTargetStep(this._player.GetDistanceTo(target)) == BotTownTripPlanner.BuffTripStep.WalkToNpc)
+        if (BotTownTripPlanner.PlanTargetStep(this._player.GetDistanceTo(target)) == BotTownTripPlanner.TripStep.WalkToNpc)
         {
             if (!await this.TravelTowardAsync(map, target, cancellationToken).ConfigureAwait(false))
             {
