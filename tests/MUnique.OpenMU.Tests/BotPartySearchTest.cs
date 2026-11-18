@@ -173,8 +173,8 @@ public class BotPartySearchTest
         var darkWizard = new CharacterClass { Number = 0 };
         var classes = new List<CharacterClass> { darkWizard, bladeMaster, bladeKnight, darkKnight };
 
-        Assert.That(BotChatPlugIn.GetFirstClassOfLine(bladeMaster, classes), Is.SameAs(darkKnight));
-        Assert.That(BotChatPlugIn.GetFirstClassOfLine(darkWizard, classes), Is.SameAs(darkWizard));
+        Assert.That(BotPartyRequest.GetFirstClassOfLine(bladeMaster, classes), Is.SameAs(darkKnight));
+        Assert.That(BotPartyRequest.GetFirstClassOfLine(darkWizard, classes), Is.SameAs(darkWizard));
     }
 
     /// <summary>

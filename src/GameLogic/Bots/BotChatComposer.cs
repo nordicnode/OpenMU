@@ -32,6 +32,15 @@ internal static class BotChatComposer
     }
 
     /// <summary>
+    /// Picks a random usable line of the list which fits the current time of day.
+    /// </summary>
+    /// <param name="lines">The lines of one list, e.g. the greetings.</param>
+    /// <param name="previous">The line said last time to the same player, which is left out when there are others.</param>
+    /// <returns>The picked line, or <c>null</c> when the list has no usable line.</returns>
+    internal static BotChatLine? PickCurrentLine(IEnumerable<BotChatLine> lines, object? previous = null)
+        => PickLine(lines, BotChatTiming.GetTimeOfDay(DateTime.Now.Hour), count => Rand.NextInt(0, count), previous);
+
+    /// <summary>
     /// Determines whether a line or conversation of the given time of day may be said now.
     /// </summary>
     /// <param name="when">The time of day of the line.</param>

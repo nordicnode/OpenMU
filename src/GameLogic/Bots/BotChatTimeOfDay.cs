@@ -10,7 +10,7 @@ namespace MUnique.OpenMU.GameLogic.Bots;
 /// </summary>
 /// <remarks>
 /// New values are appended: the configuration stores the time of day as a number. The hours are
-/// fixed (see <see cref="BotChatPlugIn.GetTimeOfDay"/>); they only pick fitting lines, so a
+/// fixed (see <see cref="BotChatTiming.GetTimeOfDay"/>); they only pick fitting lines, so a
 /// configurable boundary wouldn't be worth the extra settings.
 /// </remarks>
 public enum BotChatTimeOfDay

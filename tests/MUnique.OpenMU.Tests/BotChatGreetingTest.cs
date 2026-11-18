@@ -11,7 +11,7 @@ using MUnique.OpenMU.GameLogic.Offline;
 using MUnique.OpenMU.Pathfinding;
 
 /// <summary>
-/// Tests which bot greets a player entering the game (<see cref="BotChatPlugIn.FindGreeter"/>): the
+/// Tests which bot greets a player entering the game (<see cref="BotChatAudience.FindGreeter"/>): the
 /// greeting must come from a character the player sees on the screen.
 /// </summary>
 [TestFixture]
@@ -34,7 +34,7 @@ public class BotChatGreetingTest
         var farther = await CreateBotAsync(gameContext, map, new Point(106, 100)).ConfigureAwait(false);
         var elsewhere = await CreateBotAsync(gameContext, otherMap, new Point(101, 100)).ConfigureAwait(false);
 
-        var greeter = BotChatPlugIn.FindGreeter([player, farther, elsewhere, near], player, map);
+        var greeter = BotChatAudience.FindGreeter([player, farther, elsewhere, near], player, map);
 
         Assert.That(greeter, Is.SameAs(near));
     }
@@ -51,7 +51,7 @@ public class BotChatGreetingTest
         var player = await CreateHumanAsync(gameContext, map).ConfigureAwait(false);
         var far = await CreateBotAsync(gameContext, map, new Point(130, 100)).ConfigureAwait(false);
 
-        Assert.That(BotChatPlugIn.FindGreeter([player, far], player, map), Is.Null);
+        Assert.That(BotChatAudience.FindGreeter([player, far], player, map), Is.Null);
     }
 
     private static async ValueTask<Player> CreateHumanAsync(IGameContext gameContext, GameMap map)

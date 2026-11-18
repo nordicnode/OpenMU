@@ -75,7 +75,7 @@ public class BotMeetingPlaceTest
     {
         var (bot, _, _, upperGate) = await CreateLostTowerAsync().ConfigureAwait(false);
 
-        var entry = BotChatPlugIn.FindMeetingEntry(bot, upperGate.Map!, null, new Point(200, 200));
+        var entry = BotEventMeetingPlanner.FindMeetingEntry(bot, upperGate.Map!, null, new Point(200, 200));
 
         Assert.That(entry, Is.Not.Null);
         Assert.That(entry!.Value.Gate, Is.SameAs(upperGate));
@@ -93,8 +93,8 @@ public class BotMeetingPlaceTest
         var (bot, _, upperWarp, upperGate) = await CreateLostTowerAsync().ConfigureAwait(false);
         upperWarp.LevelRequirement = 400;
 
-        Assert.That(BotChatPlugIn.FindMeetingEntry(bot, upperGate.Map!, null, new Point(200, 200)), Is.Null);
-        Assert.That(BotChatPlugIn.FindMeetingEntry(bot, upperGate.Map!, upperWarp, null), Is.Null);
+        Assert.That(BotEventMeetingPlanner.FindMeetingEntry(bot, upperGate.Map!, null, new Point(200, 200)), Is.Null);
+        Assert.That(BotEventMeetingPlanner.FindMeetingEntry(bot, upperGate.Map!, upperWarp, null), Is.Null);
     }
 
     /// <summary>
@@ -106,7 +106,7 @@ public class BotMeetingPlaceTest
     {
         var (bot, _, upperWarp, upperGate) = await CreateLostTowerAsync().ConfigureAwait(false);
 
-        var entry = BotChatPlugIn.FindMeetingEntry(bot, upperGate.Map!, upperWarp, null);
+        var entry = BotEventMeetingPlanner.FindMeetingEntry(bot, upperGate.Map!, upperWarp, null);
 
         Assert.That(entry, Is.Not.Null);
         Assert.That(entry!.Value.Gate, Is.SameAs(upperGate));
@@ -137,7 +137,7 @@ public class BotMeetingPlaceTest
         gameContext.Configuration.WarpList.Add(new MUnique.OpenMU.Persistence.BasicModel.WarpInfo { Id = Guid.NewGuid(), Name = "Devias", Gate = townGate });
         gameContext.Configuration.WarpList.Add(new MUnique.OpenMU.Persistence.BasicModel.WarpInfo { Id = Guid.NewGuid(), Name = "Devias3", Gate = farGate });
 
-        var entry = BotChatPlugIn.FindMeetingEntry(bot, map, null, new Point(30, 10));
+        var entry = BotEventMeetingPlanner.FindMeetingEntry(bot, map, null, new Point(30, 10));
 
         Assert.That(entry?.Gate, Is.SameAs(townGate));
     }
@@ -195,11 +195,11 @@ public class BotMeetingPlaceTest
         var mapDefinition = CreateMap(LostTowerNumber, terrain);
         var target = new Point(30, 10);
 
-        Assert.That(BotChatPlugIn.FindMeetingEntry(bot, mapDefinition, null, target), Is.Null);
+        Assert.That(BotEventMeetingPlanner.FindMeetingEntry(bot, mapDefinition, null, target), Is.Null);
 
         bot.SetCurrentMapSilently(new GameMap(mapDefinition, TimeSpan.FromMinutes(1), 8));
         bot.Position = new Point(10, 10);
-        var entry = BotChatPlugIn.FindMeetingEntry(bot, mapDefinition, null, target);
+        var entry = BotEventMeetingPlanner.FindMeetingEntry(bot, mapDefinition, null, target);
 
         Assert.That(entry, Is.Not.Null);
         Assert.That(entry!.Value.Gate, Is.Null);

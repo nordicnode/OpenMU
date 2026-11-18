@@ -90,6 +90,58 @@ internal sealed partial record BotPartyRequest(int MinimumLevel, int MaximumLeve
     internal bool IsWantedLevel(int level) => level >= this.MinimumLevel && level <= this.MaximumLevel;
 
     /// <summary>
+    /// Gets the first class of the line the class belongs to, e.g. the Dark Knight for the Blade
+    /// Master - by following the class evolution of the configuration backwards.
+    /// </summary>
+    /// <param name="characterClass">The character class.</param>
+    /// <param name="classes">All character classes of the configuration.</param>
+    /// <returns>The first class of the line.</returns>
+    internal static CharacterClass GetFirstClassOfLine(CharacterClass characterClass, ICollection<CharacterClass> classes)
+    {
+        var current = characterClass;
+
+        // Bounded, so a misconfigured evolution cycle can't hang the game logic.
+        for (var step = 0; step < classes.Count; step++)
+        {
+            if (classes.FirstOrDefault(c => c.NextGenerationClass?.Number == current.Number) is not { } previous)
+            {
+                break;
+            }
+
+            current = previous;
+        }
+
+        return current;
+    }
+
+    /// <summary>
+    /// Determines whether the bot's class is one of the classes the party search asked for.
+    /// </summary>
+    /// <param name="bot">The bot.</param>
+    /// <param name="request">The party search.</param>
+    /// <param name="classes">All character classes of the configuration.</param>
+    /// <returns><c>true</c>, if the bot is welcome; <c>true</c> as well when the search asks for no class.</returns>
+    internal static bool IsOfWantedClass(Player bot, BotPartyRequest request, ICollection<CharacterClass> classes)
+    {
+        if (request.ClassNumbers.Count == 0)
+        {
+            return true;
+        }
+
+        if (bot.SelectedCharacter?.CharacterClass is not { } ownClass)
+        {
+            return false;
+        }
+
+        var ownLine = GetFirstClassOfLine(ownClass, classes).Number;
+        return request.ClassNumbers.Any(number =>
+            classes.FirstOrDefault(c => c.Number == number) is { } wanted
+            && GetFirstClassOfLine(wanted, classes).Number == ownLine);
+    }
+
+    /// <summary>"300-350", "300 - 350", "300~350".</summary>
+
+    /// <summary>
     /// Finds the first event word followed by a level, e.g. "bc7" or "blood castle 7"; the event word
     /// must stand on its own, so "abc7" names no event.
     /// </summary>
@@ -139,7 +191,6 @@ internal sealed partial record BotPartyRequest(int MinimumLevel, int MaximumLeve
 
     private static int ParseNumber(string text) => int.Parse(text, NumberStyles.None, CultureInfo.InvariantCulture);
 
-    /// <summary>"300-350", "300 - 350", "300~350".</summary>
     [GeneratedRegex(@"\b(\d{1,4})\s*[-~]\s*(\d{1,4})\b")]
     private static partial Regex RangeRegex();
 

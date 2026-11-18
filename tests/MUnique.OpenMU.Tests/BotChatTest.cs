@@ -172,9 +172,9 @@ public class BotChatTest
         var reaction = TimeSpan.FromSeconds(1);
         var perCharacter = TimeSpan.FromMilliseconds(200);
 
-        Assert.That(BotChatPlugIn.GetTypingTime(2, reaction, perCharacter), Is.EqualTo(TimeSpan.FromMilliseconds(1400)));
-        Assert.That(BotChatPlugIn.GetTypingTime(30, reaction, perCharacter), Is.EqualTo(TimeSpan.FromSeconds(7)));
-        Assert.That(BotChatPlugIn.GetTypingTime(500, reaction, perCharacter), Is.EqualTo(TimeSpan.FromSeconds(12)));
+        Assert.That(BotChatTiming.GetTypingTime(2, reaction, perCharacter), Is.EqualTo(TimeSpan.FromMilliseconds(1400)));
+        Assert.That(BotChatTiming.GetTypingTime(30, reaction, perCharacter), Is.EqualTo(TimeSpan.FromSeconds(7)));
+        Assert.That(BotChatTiming.GetTypingTime(500, reaction, perCharacter), Is.EqualTo(TimeSpan.FromSeconds(12)));
     }
 
     /// <summary>
@@ -368,7 +368,7 @@ public class BotChatTest
     [TestCase(0, BotChatTimeOfDay.Night)]
     public void KnowsTheTimeOfDay(int hour, BotChatTimeOfDay expected)
     {
-        Assert.That(BotChatPlugIn.GetTimeOfDay(hour), Is.EqualTo(expected));
+        Assert.That(BotChatTiming.GetTimeOfDay(hour), Is.EqualTo(expected));
     }
 
     /// <summary>

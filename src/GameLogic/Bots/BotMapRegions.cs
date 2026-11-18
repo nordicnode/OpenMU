@@ -20,7 +20,7 @@ using MUnique.OpenMU.Persistence;
 /// Tiles are connected to all eight neighbours, the same way the bots' path finding moves.
 /// The split is cached for the lifetime of the process, keyed by the map's id - terrain is static
 /// configuration, so terrain edited through the admin panel needs a server restart to be taken into
-/// account (like <see cref="BotNavigator.HasWalkableSpawnGate"/>).
+/// account (like <see cref="BotWarpPlanner.HasWalkableSpawnGate"/>).
 /// </remarks>
 internal sealed class BotMapRegions
 {

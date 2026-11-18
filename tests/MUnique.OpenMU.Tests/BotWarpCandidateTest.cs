@@ -23,7 +23,7 @@ public class BotWarpCandidateTest
     {
         var map = CreateMap(gateIsWalkable: false);
 
-        Assert.That(BotNavigator.HasWalkableSpawnGateCore(map), Is.False);
+        Assert.That(BotWarpPlanner.HasWalkableSpawnGateCore(map), Is.False);
     }
 
     /// <summary>
@@ -34,7 +34,7 @@ public class BotWarpCandidateTest
     {
         var map = CreateMap(gateIsWalkable: true);
 
-        Assert.That(BotNavigator.HasWalkableSpawnGateCore(map), Is.True);
+        Assert.That(BotWarpPlanner.HasWalkableSpawnGateCore(map), Is.True);
     }
 
     /// <summary>
@@ -49,7 +49,7 @@ public class BotWarpCandidateTest
         var destination = CreateMap(gateIsWalkable: false);
         destination.SafezoneMap = CreateMap(gateIsWalkable: true);
 
-        Assert.That(BotNavigator.HasWalkableSpawnGate(destination), Is.True);
+        Assert.That(BotWarpPlanner.HasWalkableSpawnGate(destination), Is.True);
     }
 
     /// <summary>
@@ -62,7 +62,7 @@ public class BotWarpCandidateTest
         var destination = CreateMap(gateIsWalkable: true);
         destination.SafezoneMap = CreateMap(gateIsWalkable: false);
 
-        Assert.That(BotNavigator.HasWalkableSpawnGate(destination), Is.False);
+        Assert.That(BotWarpPlanner.HasWalkableSpawnGate(destination), Is.False);
     }
 
     /// <summary>

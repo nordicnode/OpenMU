@@ -43,8 +43,8 @@ public class BotHuntingGroundTest
         var acrossTheMap = new MonsterSpawnArea { X1 = 33, X2 = 33, Y1 = 95, Y2 = 95, Quantity = 1 };
         var gate = new Point(222, 211);
 
-        var near = BotNavigator.GroundWeight(atTheGate, gate);
-        var far = BotNavigator.GroundWeight(acrossTheMap, gate);
+        var near = BotHuntingGroundSelector.GroundWeight(atTheGate, gate);
+        var far = BotHuntingGroundSelector.GroundWeight(acrossTheMap, gate);
 
         Assert.That(near, Is.GreaterThan(far), "closer grounds are still preferred");
         Assert.That(near, Is.LessThan(far * 10), "but not to the point where the rest of the map never gets picked");
@@ -60,7 +60,7 @@ public class BotHuntingGroundTest
         var dense = new MonsterSpawnArea { X1 = 100, X2 = 100, Y1 = 100, Y2 = 100, Quantity = 20 };
         var from = new Point(150, 150);
 
-        Assert.That(BotNavigator.GroundWeight(dense, from), Is.GreaterThan(BotNavigator.GroundWeight(thin, from)));
+        Assert.That(BotHuntingGroundSelector.GroundWeight(dense, from), Is.GreaterThan(BotHuntingGroundSelector.GroundWeight(thin, from)));
     }
 
     /// <summary>

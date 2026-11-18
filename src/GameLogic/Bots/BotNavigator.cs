@@ -4,7 +4,6 @@
 
 namespace MUnique.OpenMU.GameLogic.Bots;
 
-using System.Buffers;
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
@@ -26,34 +25,11 @@ using MUnique.OpenMU.Persistence;
 /// </summary>
 internal sealed class BotNavigator : AsyncDisposable
 {
-    /// <summary>
-    /// A bot only warps to another map if it offers safe monsters at least this many levels stronger.
-    /// Sized as a hysteresis band: the safety verdict for a borderline monster flips when the bot's
-    /// defense changes with its buffs, and a small margin let two maps leapfrog each other on every
-    /// re-evaluation - the bot ping-ponged between them on warp cooldown.
-    /// </summary>
-    private const int WarpImprovementMargin = 8;
-
     /// <summary>Fallback when the server defines no warps: the lowest stock requirement.</summary>
     private const int FallbackMinWarpLevel = 10;
 
-    /// <summary>Width of the level band of areas we randomize between, so bots don't all stack on one spot.</summary>
-    private const int BandWidth = 3;
-
     /// <summary>Range (tiles) around the origin that counts as "at the hunting ground".</summary>
     private const int HuntingRange = BotMuHelperSettings.DefaultHuntingRange;
-
-    /// <summary>
-    /// Distance (tiles) at which a hunting ground counts as half as attractive as one the bot is standing on.
-    /// See <see cref="GroundWeight"/>.
-    /// </summary>
-    private const int ProximityFalloff = 64;
-
-    /// <summary>
-    /// Width (tiles) of the box a hunting ground point is sampled from when the spawn area itself is smaller.
-    /// See <see cref="TryPickWalkablePoint"/>.
-    /// </summary>
-    private const int GroundScatterSpan = 2 * HuntingRange;
 
     /// <summary>
     /// Share of the shopping cooldown the next trip is spread over, so that bots which shopped together
@@ -113,9 +89,6 @@ internal sealed class BotNavigator : AsyncDisposable
     /// </summary>
     private const int PathReuseTolerance = 4;
 
-    /// <summary>How close (tiles) the bot must be to the merchant to trade.</summary>
-    private const int MerchantTalkRange = 3;
-
     /// <summary>
     /// If a monster is within this range the bot stops traveling and lets the combat handler engage.
     /// MUST equal the combat hunting range: the combat handler only ever targets monsters within
@@ -125,13 +98,8 @@ internal sealed class BotNavigator : AsyncDisposable
     /// </summary>
     private const int TravelStopRange = HuntingRange;
 
-    /// <summary>Search limit for the travel pathfinder, generous enough for a full cross-map route.</summary>
-    private const int TravelSearchLimit = 20000;
-
     /// <summary>Heuristic weight while traveling: high enough to make the A* search greedy and cheap over long routes.</summary>
     private const int TravelHeuristicWeight = 12;
-
-    private const int MaxPointPickAttempts = 25;
 
     /// <summary>
     /// Follow trigger for mini-game events: a participant further than this (tiles) from its
@@ -155,52 +123,11 @@ internal sealed class BotNavigator : AsyncDisposable
     /// </summary>
     private const int FollowerLeashDistance = 2 * HuntingRange;
 
-    /// <summary>
-    /// Hunting grounds closer than this (tiles) to a recent death site are avoided after the same
-    /// player killed the bot repeatedly (see <see cref="OfflinePlayer.TryGetDeathSiteToAvoid"/>),
-    /// so the bot farms somewhere else instead of walking back into the same lost fight.
-    /// </summary>
-    private const int DeathSiteAvoidanceRange = 30;
-
-    /// <summary>
-    /// After this many deaths by monsters in the zone of one warp entry (see <see cref="BotMapZones"/>)
-    /// within <see cref="MonsterDeathWindow"/>, the bot keeps away from that zone for
-    /// <see cref="DangerousZoneAvoidance"/>. The safety check judges one monster at a time, so a
-    /// zone of dense packs (the top floors of the Lost Tower) can pass it and still kill the bot,
-    /// which then respawned, warped back and died again in a loop.
-    /// </summary>
-    private const int MonsterDeathThreshold = 3;
-
-    /// <summary>
-    /// Share of the picks the best ranked map takes when the bot chooses where to hunt (see
-    /// <see cref="PickByRank"/>); the runners-up split what is left, on the same terms. Below a half on
-    /// purpose: at a half the fourth map of a level band and everything behind it share a few percent
-    /// between them, which left Karutan, Icarus and Kanturu with three or four bots each while the top
-    /// map held a hundred. The bot still prefers the best ground - every candidate it draws from is
-    /// already a step up from where it stands - it just does not treat the runner-up as worthless.
-    /// </summary>
-    private const double BestCandidateShare = 0.35;
-
     /// <summary>The game's own warp action, so a bot travels on exactly a player's terms - fare included.</summary>
     private static readonly WarpAction WarpAction = new();
 
     /// <summary>The game's own action to open a personal store, with all its checks of the prices.</summary>
     private static readonly OpenStoreAction MarketStoreOpenAction = new();
-
-    /// <summary>
-    /// Cache of which maps' safezone spawn gates have a walkable tile, so a bot may safely be sent
-    /// there. Keyed by the resolved safezone map's id, not its number: map numbers are not unique -
-    /// the Devil Squares share number 9, and a server can host several game configurations whose
-    /// maps carry the same numbers over different terrain. See <see cref="HasWalkableSpawnGate"/>.
-    /// </summary>
-    private static readonly ConcurrentDictionary<Guid, bool> WalkableSpawnGateCache = new();
-
-    /// <summary>
-    /// Cache of which warp gates land on at least one walkable tile, so a bot only pays a fare for a trip
-    /// it can actually take. Keyed by the gate itself - configuration reloads build new gate instances,
-    /// so a reload must not reuse the old verdicts (see <see cref="HasWalkableLanding"/>).
-    /// </summary>
-    private static readonly ConcurrentDictionary<ExitGate, bool> WalkableLandingCache = new(ReferenceEqualityComparer.Instance);
 
     /// <summary>
     /// How long a bot which found no better ground than the trivial one under its feet waits before it
@@ -265,12 +192,6 @@ internal sealed class BotNavigator : AsyncDisposable
     /// </summary>
     private static readonly TimeSpan BarrenMapDuration = TimeSpan.FromMinutes(3);
 
-    /// <summary>How long deaths by monsters count toward <see cref="MonsterDeathThreshold"/>.</summary>
-    private static readonly TimeSpan MonsterDeathWindow = TimeSpan.FromMinutes(10);
-
-    /// <summary>How long the bot keeps away from a zone it died in too often (see <see cref="MonsterDeathThreshold"/>).</summary>
-    private static readonly TimeSpan DangerousZoneAvoidance = TimeSpan.FromMinutes(30);
-
     /// <summary>Cooldown for following the party leader to another map (shorter, so the group regroups quickly).</summary>
     private static readonly TimeSpan FollowWarpCooldown = TimeSpan.FromSeconds(20);
 
@@ -324,18 +245,8 @@ internal sealed class BotNavigator : AsyncDisposable
 
     private readonly OfflinePlayer _player;
     private readonly TimeProvider _timeProvider;
+    private readonly BotDangerZoneTracker _dangerZones;
 
-    /// <summary>
-    /// Deaths by monsters, noted by the death event (another thread) and evaluated in the navigation
-    /// ticks (see <see cref="UpdateAvoidedEntries"/>).
-    /// </summary>
-    private readonly ConcurrentQueue<(GameMapDefinition Map, Point Position, DateTimeOffset At)> _monsterDeaths = new();
-
-    /// <summary>The recent deaths by monsters with the warp entry whose zone they happened in.</summary>
-    private readonly List<(WarpInfo Entry, DateTimeOffset At)> _recentZoneDeaths = [];
-
-    /// <summary>The warp entries whose zones the bot keeps away from, with the end of the avoidance.</summary>
-    private readonly Dictionary<WarpInfo, DateTimeOffset> _avoidedEntries = new(ReferenceEqualityComparer.Instance);
     private readonly CancellationTokenSource _cts = new();
 
     private Timer? _timer;
@@ -428,6 +339,7 @@ internal sealed class BotNavigator : AsyncDisposable
     {
         this._player = player;
         this._timeProvider = timeProvider;
+        this._dangerZones = new BotDangerZoneTracker(player, timeProvider, this.GetHuntingZones);
         this._player.Died += this.OnDied;
     }
 
@@ -447,228 +359,6 @@ internal sealed class BotNavigator : AsyncDisposable
             null,
             TimeSpan.FromMilliseconds(2000 + Rand.NextInt(0, 1500)),
             PollInterval);
-    }
-
-    /// <summary>
-    /// Rates a spawn area as a hunting ground for a bot standing at the given point.
-    /// </summary>
-    /// <param name="area">The spawn area.</param>
-    /// <param name="from">The point the bot measures from.</param>
-    /// <returns>The relative weight of the area.</returns>
-    internal static int GroundWeight(MonsterSpawnArea area, Point from)
-    {
-        // Manhattan distances on a 256x256 map reach ~460, so a linear "300 - distance" term rated a
-        // ground next to the entrance up to 299 while everything past the halfway point clamped to 1.
-        // Bots enter a map through the same gate and therefore all measure from the same spot, so that
-        // ratio made them queue up on the handful of spawns nearest to it. A hyperbolic falloff keeps
-        // the preference for close grounds - travel is still time not spent hunting - without writing
-        // off the rest of the map.
-        var proximity = (ProximityFalloff * ProximityFalloff) / (ProximityFalloff + GroundDistance(area, from));
-        return Math.Max(1, (int)area.Quantity) * Math.Max(1, proximity);
-    }
-
-    /// <summary>
-    /// Whether a bot may safely be sent to the map: the safezone spawn gate it would be recovered to
-    /// has at least one walkable tile. A warp which lands a bot on a blocked tile is recovered by
-    /// <see cref="Player.WarpToSafezoneAsync"/>, and for a connection-less bot that recovery runs
-    /// inline (see <see cref="OfflineMapChangePlugIn"/>) - so a spawn gate with no walkable tile at
-    /// all used to recurse until the stack overflowed. The player's map transitions now bound that
-    /// recovery, so this filter is no longer what keeps the server alive; it keeps the bot from
-    /// picking a map it cannot stand in and being bounced straight back out of it.
-    /// </summary>
-    /// <param name="map">The map the bot considers warping to.</param>
-    /// <returns>True, if the map's resolved safezone spawn gate has a walkable tile.</returns>
-    /// <remarks>
-    /// The verdict is cached for the lifetime of the process, keyed by the resolved safezone map -
-    /// terrain is static configuration, so it is parsed once and shared by every bot. Terrain edited
-    /// through the admin panel therefore needs a server restart to be taken into account.
-    /// Only maps whose spawn gate has *zero* walkable tiles are excluded. A gate with a few walkable
-    /// tiles can still, under PlaceAtGateAsync's single random roll, miss and recover to town - a
-    /// quality glitch, not a crash, accepted by design.
-    /// </remarks>
-    internal static bool HasWalkableSpawnGate(GameMapDefinition map)
-    {
-        // The bot is not recovered to the destination map's own gate but to its safezone map's -
-        // mirroring Player.GetSpawnGateOfCurrentMapAsync. Many maps (dungeons, event maps, Icarus,
-        // Karutan 2, ...) point somewhere else entirely, so checking the destination itself would
-        // both reject safe maps and miss the ones which actually strand a bot.
-        var safezoneMap = map.SafezoneMap ?? map;
-        var mapId = safezoneMap.GetId();
-        if (mapId == Guid.Empty)
-        {
-            // GetId falls back to Guid.Empty for anything it cannot identify, so caching under it
-            // would file every such map under one entry and hand the first map's verdict to all the
-            // others - a single blocked one would then reject every map there is.
-            return HasWalkableSpawnGateCore(safezoneMap);
-        }
-
-        return WalkableSpawnGateCache.GetOrAdd(mapId, _ => HasWalkableSpawnGateCore(safezoneMap));
-    }
-
-    /// <summary>
-    /// The uncached terrain check behind <see cref="HasWalkableSpawnGate"/>, on an already resolved
-    /// safezone map.
-    /// </summary>
-    /// <param name="safezoneMap">The resolved safezone map.</param>
-    /// <returns>True, if the map's spawn gate has a walkable tile.</returns>
-    internal static bool HasWalkableSpawnGateCore(GameMapDefinition safezoneMap)
-    {
-        // The map is usually not loaded when a bot weighs it up, so its GameMap (which would expose
-        // Terrain and SafeZoneSpawnGate ready-made) may not exist - and forcing it to load just for
-        // this check would be far more expensive than parsing the terrain once.
-        var terrain = new GameMapTerrain(safezoneMap);
-        return terrain.GetWalkableCoordinate(safezoneMap.GetSafezoneGate(terrain)) is not null;
-    }
-
-    /// <summary>
-    /// Determines whether there is a walkable route between two points of a map, not longer than the
-    /// bots' travel search limit.
-    /// </summary>
-    /// <param name="walkMap">The walk map of the map.</param>
-    /// <param name="from">The start point.</param>
-    /// <param name="to">The target point.</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns><c>true</c>, if the target can be walked to.</returns>
-    internal static bool CanWalk(bool[,] walkMap, Point from, Point to, CancellationToken cancellationToken)
-    {
-        if (!walkMap[from.X, from.Y])
-        {
-            return false;
-        }
-
-        var width = walkMap.GetLength(0);
-        var coordinateCount = width * walkMap.GetLength(1);
-        var distancesFromTarget = ArrayPool<int>.Shared.Rent(coordinateCount);
-        var pendingCoordinates = ArrayPool<int>.Shared.Rent(coordinateCount);
-        try
-        {
-            Array.Clear(distancesFromTarget, 0, coordinateCount);
-            PopulateWalkableDistancesFrom(walkMap, to, distancesFromTarget, pendingCoordinates, cancellationToken);
-
-            // Zero means unreachable, so stored distances are offset by one.
-            var encodedDistance = distancesFromTarget[(from.Y * width) + from.X];
-            return encodedDistance != 0 && encodedDistance - 1 <= TravelSearchLimit;
-        }
-        finally
-        {
-            ArrayPool<int>.Shared.Return(distancesFromTarget);
-            ArrayPool<int>.Shared.Return(pendingCoordinates);
-        }
-    }
-
-    /// <summary>
-    /// Whether the warp's landing area holds at least one walkable tile, so the bot really arrives on the
-    /// map it paid for.
-    /// </summary>
-    /// <param name="warp">The warp to check.</param>
-    /// <returns><c>true</c>, if the bots may land there.</returns>
-    /// <remarks>
-    /// <see cref="Player.WarpToAsync(ExitGate)"/> places the character on a random tile of the gate and
-    /// does not retry; a blocked one is recovered to the map's spawn gate - which for several maps lies on
-    /// a different map entirely (Elvenland recovers to Noria, Icarus to its safezone map). A bot which
-    /// paid for a trip into the field and ended up back in a starter town had taken no step at all: it
-    /// stood in the very level band it tried to leave, and tried again on the next cooldown.
-    /// The verdict is cached per gate for the lifetime of the process - terrain is static configuration,
-    /// like <see cref="HasWalkableSpawnGate"/>, so edited terrain needs a restart.
-    /// </remarks>
-    internal static bool HasWalkableLanding(WarpInfo warp)
-    {
-        if (warp.Gate is not { Map: { } map } gate)
-        {
-            return false;
-        }
-
-        return WalkableLandingCache.GetOrAdd(gate, _ =>
-        {
-            var terrain = new GameMapTerrain(map);
-            return gate.GetPossibleLandingPoints().Any(point => terrain.WalkMap[point.X, point.Y]);
-        });
-    }
-
-    /// <summary>
-    /// Gets the warp entry whose landing area has the shortest walkable route to a target, see
-    /// <see cref="FindBestReachableLegalWarp"/>.
-    /// </summary>
-    /// <param name="warps">The warp entries to choose from; the caller checks they are legal.</param>
-    /// <param name="walkMap">The walk map of the target map.</param>
-    /// <param name="target">The target position.</param>
-    /// <param name="currentPosition">
-    /// The position of the bot if it already is on the map: a gate which may land the bot there takes
-    /// it nowhere; <c>null</c> otherwise.
-    /// </param>
-    /// <param name="ignoreBlockedLandingPoints">
-    /// <c>false</c> to reject a gate as soon as any of its landing points is blocked; <c>true</c> to
-    /// leave the blocked ones out - a player landing there is moved to the map's spawn gate, which is
-    /// acceptable when the caller can cope with that (and the town gates of Lorencia and Devias have
-    /// some blocked tiles, so they'd never be picked otherwise).
-    /// </param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>The best reachable warp, or <c>null</c> if no gate can reach the target.</returns>
-    internal static WarpInfo? FindBestReachableWarp(
-        IEnumerable<WarpInfo> warps,
-        bool[,] walkMap,
-        Point target,
-        Point? currentPosition,
-        bool ignoreBlockedLandingPoints,
-        CancellationToken cancellationToken)
-    {
-        var candidates = warps
-            .Where(candidate => candidate.Gate is not null)
-            .Select(candidate => (Warp: candidate, Gate: candidate.Gate!, LandingPoints: candidate.Gate!.GetPossibleLandingPoints()
-                .Where(point => !ignoreBlockedLandingPoints || walkMap[point.X, point.Y])
-                .ToArray()))
-            .Where(candidate => candidate.LandingPoints.Length > 0
-                                && (currentPosition is not { } position || !candidate.LandingPoints.Contains(position)))
-            .ToArray();
-        if (candidates.Length == 0)
-        {
-            return null;
-        }
-
-        // Movement on the walk map is bidirectional. One reverse flood fill from the target therefore
-        // gives both reachability and shortest distance for every possible gate landing point, without
-        // acquiring a full-map pathfinder once per point.
-        // Cancellation from this flood fill is expected during shutdown and handled by SafeEvaluateAsync.
-        cancellationToken.ThrowIfCancellationRequested();
-        var width = walkMap.GetLength(0);
-        var coordinateCount = width * walkMap.GetLength(1);
-        var distancesFromTarget = ArrayPool<int>.Shared.Rent(coordinateCount);
-        var pendingCoordinates = ArrayPool<int>.Shared.Rent(coordinateCount);
-        try
-        {
-            Array.Clear(distancesFromTarget, 0, coordinateCount);
-            PopulateWalkableDistancesFrom(
-                walkMap,
-                target,
-                distancesFromTarget,
-                pendingCoordinates,
-                cancellationToken);
-            WarpInfo? bestWarp = null;
-            var bestWorstCaseDistance = int.MaxValue;
-            foreach (var candidate in candidates)
-            {
-                var worstCaseDistance = GetWorstLandingDistance(candidate.LandingPoints, distancesFromTarget, width);
-                if (worstCaseDistance is null
-                    || worstCaseDistance > TravelSearchLimit
-                    || worstCaseDistance > bestWorstCaseDistance
-                    || (worstCaseDistance == bestWorstCaseDistance
-                        && bestWarp?.Gate is { } bestGate
-                        && GateDistance(candidate.Gate, target) >= GateDistance(bestGate, target)))
-                {
-                    continue;
-                }
-
-                bestWarp = candidate.Warp;
-                bestWorstCaseDistance = worstCaseDistance.Value;
-            }
-
-            return bestWarp;
-        }
-        finally
-        {
-            ArrayPool<int>.Shared.Return(distancesFromTarget);
-            ArrayPool<int>.Shared.Return(pendingCoordinates);
-        }
     }
 
     /// <summary>
@@ -1044,9 +734,9 @@ internal sealed class BotNavigator : AsyncDisposable
             return true;
         }
 
-        if (meeting.NpcPosition is { } npcPosition && this._player.GetDistanceTo(npcPosition) > MerchantTalkRange)
+        if (meeting.NpcPosition is { } npcPosition && this._player.GetDistanceTo(npcPosition) > BotTownTripPlanner.NpcInteractionRange)
         {
-            var standingPoint = BotEventMeetingPlanner.FindStandingPoint(map.Terrain, npcPosition, MerchantTalkRange);
+            var standingPoint = BotEventMeetingPlanner.FindStandingPoint(map.Terrain, npcPosition, BotTownTripPlanner.NpcInteractionRange);
 
             // Already on the map, but the meeting's gate lands closer - another floor of the Lost Tower,
             // or Devias3 while the bot stands in the town of Devias: warp instead of a long walk, or none
@@ -1054,8 +744,8 @@ internal sealed class BotNavigator : AsyncDisposable
             if (standingPoint is { } point
                 && meeting.Gate is { } meetingGate
                 && this.GetGateWarpCount(meeting) < 2
-                && !IsInside(meetingGate, this._player.Position)
-                && GateDistance(meetingGate, point) < this._player.GetDistanceTo(point))
+                && !BotWarpPlanner.IsInside(meetingGate, this._player.Position)
+                && BotWarpPlanner.GateDistance(meetingGate, point) < this._player.GetDistanceTo(point))
             {
                 await this.WarpToMeetingAsync(meeting, meetingGate).ConfigureAwait(false);
                 return true;
@@ -1115,11 +805,11 @@ internal sealed class BotNavigator : AsyncDisposable
     /// first entry sent the bots to a floor which held none of them, or on a long walk. The bot's own
     /// map counts too, through the entries to the other zones - a bot on the first floor of the Lost
     /// Tower may warp up to a better one. Zones the bot died in too often are left out
-    /// (see <see cref="MonsterDeathThreshold"/>).
+    /// (see <see cref="BotDangerZoneTracker"/>).
     /// </remarks>
     internal IEnumerable<(WarpInfo Warp, int Level)> GetHuntingWarps(GameMapDefinition mapDefinition, int minimumLevel)
     {
-        this.UpdateAvoidedEntries();
+        this._dangerZones.Update();
         if (this.GetHuntingZones(mapDefinition) is not { } hunting)
         {
             yield break;
@@ -1132,25 +822,23 @@ internal sealed class BotNavigator : AsyncDisposable
         {
             if (!hunting.Zones.HasZone(entry)
                 || entry == currentZone
-                || this.IsEntryAvoided(hunting.Entries[entry]))
+                || this._dangerZones.IsAvoided(hunting.Entries[entry]))
             {
                 continue;
             }
 
             var zone = entry;
-            yield return (hunting.Entries[entry], this.BestSafeLevel(mapDefinition, minimumLevel, area => hunting.Zones.IsAreaWithin(area, zone, GroundScatterSpan, HuntingRange)));
+            yield return (hunting.Entries[entry], this.BestSafeLevel(mapDefinition, minimumLevel, area => hunting.Zones.IsAreaWithin(area, zone, BotHuntingGroundSelector.GroundScatterSpan, HuntingRange)));
         }
     }
 
     /// <summary>
-    /// Notes a death by a monster for <see cref="MonsterDeathThreshold"/>.
+    /// Notes a death by a monster, so the bot keeps away from that place when it dies there too often
+    /// (see <see cref="BotDangerZoneTracker"/>).
     /// </summary>
     /// <param name="map">The map of the death.</param>
     /// <param name="position">The position of the death.</param>
-    internal void RegisterMonsterDeath(GameMapDefinition map, Point position)
-    {
-        this._monsterDeaths.Enqueue((map, position, this._timeProvider.GetUtcNow()));
-    }
+    internal void RegisterMonsterDeath(GameMapDefinition map, Point position) => this._dangerZones.RegisterDeath(map, position);
 
     /// <summary>
     /// Gets the maps worth moving to, each through the entry to its best part, along with the level of the
@@ -1163,44 +851,39 @@ internal sealed class BotNavigator : AsyncDisposable
     /// <remarks>
     /// Public to the assembly so the map choice can be checked by the bot map tests without running a world.
     /// </remarks>
-    internal List<(WarpInfo Warp, GameMapDefinition Map, int Level)> GetBetterMapCandidates(bool escape, int minimumMonsterLevel, int escapeFloor)
+    internal List<BotMapChoicePlanner.MapChoice> GetBetterMapCandidates(bool escape, int minimumMonsterLevel, int escapeFloor)
     {
         var current = this._player.CurrentMap?.Definition;
-        var threshold = escape
-            ? Math.Max(1, escapeFloor)
-            : (current is null ? 0 : this.BestSafeLevel(current, minimumMonsterLevel, this.GetCurrentZoneFilter())) + WarpImprovementMargin;
-
-        // Monsters below the threshold can't make a map a candidate, so they don't need to be judged at all.
-        var judgedFrom = Math.Max(minimumMonsterLevel, threshold);
-        var candidates = new List<(WarpInfo Warp, GameMapDefinition Map, int Level)>();
+        var currentGroundLevel = current is null ? 0 : this.BestSafeLevel(current, minimumMonsterLevel, this.GetCurrentZoneFilter());
+        var targetLevel = BotMapChoicePlanner.TargetLevel(escape, escapeFloor, currentGroundLevel);
+        var judgedFrom = BotMapChoicePlanner.JudgeFrom(minimumMonsterLevel, targetLevel);
+        var candidates = new List<BotMapChoicePlanner.MapChoice>();
         foreach (var candidate in this._player.GameContext.Configuration.Maps)
         {
             // The whole map is an upper bound for every part of it, and cheap to judge.
-            if (this.BestSafeLevel(candidate, judgedFrom) < threshold
+            if (this.BestSafeLevel(candidate, judgedFrom) < targetLevel
                 || candidate.TryGetRequirementError(this._player, out _)
-                || !HasWalkableSpawnGate(candidate))
+                || !BotWarpPlanner.HasWalkableSpawnGate(candidate))
             {
                 continue;
             }
 
             // One candidate per map, through the entry to its best part: the ranking in
-            // TryPickBetterMapCore spreads the bots over maps, and several floors of one map must not
-            // crowd the others out of it.
-            (WarpInfo Warp, int Level)? bestEntry = null;
-            foreach (var entry in this.GetHuntingWarps(candidate, judgedFrom))
+            // BotMapChoicePlanner.PickStrongest spreads the bots over maps, and several floors of one map
+            // must not crowd the others out of it.
+            BotMapChoicePlanner.MapChoice? bestEntry = null;
+            foreach (var (warp, level) in this.GetHuntingWarps(candidate, judgedFrom))
             {
-                if (entry.Level >= threshold
-                    && entry.Level > (bestEntry?.Level ?? 0)
-                    && this.CanAffordWarp(entry.Warp)
-                    && HasWalkableLanding(entry.Warp))
+                if (level > (bestEntry?.Level ?? 0)
+                    && BotMapChoicePlanner.IsWorthEntering(level, targetLevel, this.CanAffordWarp(warp), BotWarpPlanner.HasWalkableLanding(warp)))
                 {
-                    bestEntry = entry;
+                    bestEntry = new BotMapChoicePlanner.MapChoice(warp, candidate, level);
                 }
             }
 
             if (bestEntry is { } chosen)
             {
-                candidates.Add((chosen.Warp, candidate, chosen.Level));
+                candidates.Add(chosen);
             }
         }
 
@@ -1256,26 +939,20 @@ internal sealed class BotNavigator : AsyncDisposable
         monsterLevel = 0;
 
         var homeMap = this._player.SelectedCharacter?.CharacterClass?.HomeMap;
-        if (homeMap is null
-            || homeMap.Number == this._player.CurrentMap?.Definition.Number
-            || BotFeaturePlugIn.GetConfiguration(this._player.GameContext)?.IsMapForbidden(homeMap) == true
-            || homeMap.GetSafezoneGate() is not { } safezoneGate)
+        if (BotTownTripPlanner.TryFindHomeGate(
+                homeMap,
+                this._player.CurrentMap?.Definition.Number,
+                isForbidden: BotFeaturePlugIn.GetConfiguration(this._player.GameContext)?.IsMapForbidden(homeMap) == true,
+                homeMonsterLevel: homeMap is null ? 0 : this.BestSafeLevel(homeMap),
+                botLevel: this.GetBotLevel(),
+                allowTrivialHome) is not { } home)
         {
             return false;
         }
 
-        var homeLevel = this.BestSafeLevel(homeMap);
-        if (!allowTrivialHome && MapFit.IsTrivial(homeLevel, this.GetBotLevel()))
-        {
-            // Home is the starter ground this bot has to leave behind, not a destination: it would only
-            // find low-level monsters there, exactly like the reported level 200-300 characters farming
-            // level-1 monsters on Lorencia.
-            return false;
-        }
-
-        gate = safezoneGate;
-        mapDefinition = homeMap;
-        monsterLevel = homeLevel;
+        gate = home.Gate;
+        mapDefinition = home.Map;
+        monsterLevel = home.MonsterLevel;
         return true;
     }
 
@@ -1409,7 +1086,7 @@ internal sealed class BotNavigator : AsyncDisposable
         }
 
         var plainLevel = (int)(this._player.Attributes?[Stats.Level] ?? 1);
-        var minimumLevel = Math.Max(currentLevel + WarpImprovementMargin, 1);
+        var minimumLevel = Math.Max(currentLevel + BotMapChoicePlanner.ImprovementMargin, 1);
         var configuration = BotFeaturePlugIn.GetConfiguration(this._player.GameContext);
         foreach (var enterGate in currentMap.EnterGates)
         {
@@ -1419,7 +1096,7 @@ internal sealed class BotNavigator : AsyncDisposable
                 || !candidate.IsActive
                 || configuration?.IsMapForbidden(candidate) == true
                 || candidate.GetSafezoneGate() is null
-                || !HasWalkableSpawnGate(candidate)
+                || !BotWarpPlanner.HasWalkableSpawnGate(candidate)
                 || character.GetEffectiveMoveLevelRequirement(enterGate.LevelRequirement) > plainLevel
                 || candidate.TryGetRequirementError(this._player, out _))
             {
@@ -1473,7 +1150,7 @@ internal sealed class BotNavigator : AsyncDisposable
         {
             Heuristic = new ManhattanTravelHeuristic(),
             HeuristicEstimate = TravelHeuristicWeight,
-            SearchLimit = TravelSearchLimit,
+            SearchLimit = BotWarpPlanner.TravelSearchLimit,
         };
     }
 
@@ -1488,15 +1165,6 @@ internal sealed class BotNavigator : AsyncDisposable
         return pool;
     }
 
-    private static int GetMonsterLevel(MonsterDefinition definition)
-        => (int)(definition.Attributes.FirstOrDefault(a => a.AttributeDefinition == Stats.Level)?.Value ?? 0f);
-
-    /// <summary>Manhattan distance between the center of the spawn area and the given point.</summary>
-    /// <summary>
-    /// Returns the time of the next supply check, spread around <see cref="ShoppingCooldown"/> so that bots
-    /// which just shopped together don't queue up at the merchant together again.
-    /// </summary>
-    /// <returns>The time of the next supply check.</returns>
     private static DateTime NextShoppingCheckUtc()
     {
         var spread = 1 + (((Rand.NextDouble() * 2) - 1) * ShoppingSpread);
@@ -1512,123 +1180,6 @@ internal sealed class BotNavigator : AsyncDisposable
     {
         var spread = 1 + (((Rand.NextDouble() * 2) - 1) * BuffSpread);
         return DateTime.UtcNow + (BuffCooldown * spread);
-    }
-
-    private static int GroundDistance(MonsterSpawnArea area, Point from)
-    {
-        var center = GroundCenter(area);
-        return Math.Abs(from.X - center.X) + Math.Abs(from.Y - center.Y);
-    }
-
-    private static Point GroundCenter(MonsterSpawnArea area)
-        => new((byte)((area.X1 + area.X2) / 2), (byte)((area.Y1 + area.Y2) / 2));
-
-    private static int GateDistance(Gate gate, Point target)
-    {
-        var centerX = (gate.X1 + gate.X2) / 2;
-        var centerY = (gate.Y1 + gate.Y2) / 2;
-        return Math.Abs(target.X - centerX) + Math.Abs(target.Y - centerY);
-    }
-
-    private static bool IsInside(Gate gate, Point position)
-        => position.X >= gate.X1 && position.X <= gate.X2 && position.Y >= gate.Y1 && position.Y <= gate.Y2;
-
-    private static int? GetWorstLandingDistance(
-        IReadOnlyCollection<Point> landingPoints,
-        int[] distancesFromTarget,
-        int mapWidth)
-    {
-        var worstCaseDistance = 0;
-        foreach (var landingPoint in landingPoints)
-        {
-            var encodedDistance = distancesFromTarget[(landingPoint.Y * mapWidth) + landingPoint.X];
-            if (encodedDistance == 0)
-            {
-                return null;
-            }
-
-            // Zero means unreachable, so stored distances are offset by one.
-            worstCaseDistance = Math.Max(worstCaseDistance, encodedDistance - 1);
-        }
-
-        return worstCaseDistance;
-    }
-
-    private static void PopulateWalkableDistancesFrom(
-        bool[,] walkMap,
-        Point start,
-        int[] distances,
-        int[] pendingCoordinates,
-        CancellationToken cancellationToken)
-    {
-        if (!walkMap[start.X, start.Y])
-        {
-            return;
-        }
-
-        var width = walkMap.GetLength(0);
-        var height = walkMap.GetLength(1);
-        var readIndex = 0;
-        var writeIndex = 0;
-        var startIndex = (start.Y * width) + start.X;
-        distances[startIndex] = 1;
-        pendingCoordinates[writeIndex++] = startIndex;
-        while (readIndex < writeIndex)
-        {
-            if ((readIndex & 0xFF) == 0)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-            }
-
-            var currentIndex = pendingCoordinates[readIndex++];
-            var currentX = currentIndex % width;
-            var currentY = currentIndex / width;
-            var nextEncodedDistance = distances[currentIndex] + 1;
-            for (var offsetX = -1; offsetX <= 1; offsetX++)
-            {
-                for (var offsetY = -1; offsetY <= 1; offsetY++)
-                {
-                    if (offsetX == 0 && offsetY == 0)
-                    {
-                        continue;
-                    }
-
-                    var nextX = currentX + offsetX;
-                    var nextY = currentY + offsetY;
-                    if ((uint)nextX >= width
-                        || (uint)nextY >= height
-                        || !walkMap[nextX, nextY]
-                        || distances[(nextY * width) + nextX] != 0)
-                    {
-                        continue;
-                    }
-
-                    var nextIndex = (nextY * width) + nextX;
-                    distances[nextIndex] = nextEncodedDistance;
-                    pendingCoordinates[writeIndex++] = nextIndex;
-                }
-            }
-        }
-    }
-
-    /// <summary>
-    /// Picks an index into a list ranked best-first, each rank taking
-    /// <see cref="BestCandidateShare"/> of what the ranks before it left over. Deliberately not a
-    /// uniform draw - a bot should prefer the best ground it can hunt, just not to the exclusion of
-    /// everything else.
-    /// </summary>
-    /// <param name="count">The number of ranked candidates.</param>
-    private static int PickByRank(int count)
-    {
-        for (var rank = 0; rank < count - 1; rank++)
-        {
-            if (Rand.NextDouble() < BestCandidateShare)
-            {
-                return rank;
-            }
-        }
-
-        return count - 1;
     }
 
     private async Task SafeEvaluateAsync(CancellationToken cancellationToken)
@@ -1979,7 +1530,7 @@ internal sealed class BotNavigator : AsyncDisposable
     {
         if (this._shoppingTarget is { } target)
         {
-            if (this._player.GetDistanceTo(target) > MerchantTalkRange)
+            if (this._player.GetDistanceTo(target) > BotTownTripPlanner.NpcInteractionRange)
             {
                 if (!await this.TravelTowardAsync(map, target, cancellationToken).ConfigureAwait(false))
                 {
@@ -2085,32 +1636,7 @@ internal sealed class BotNavigator : AsyncDisposable
     {
         if (this._buffTarget is { } target)
         {
-            if (this._player.GetDistanceTo(target) > MerchantTalkRange)
-            {
-                if (!await this.TravelTowardAsync(map, target, cancellationToken).ConfigureAwait(false))
-                {
-                    // No way to the buff NPC from here - give up this trip and don't retry every
-                    // check interval: an unreachable NPC stays unreachable for a while, and a bot
-                    // retrying twice a minute wastes its hunting time on futile marches.
-                    this._player.Logger.LogDebug("Bot '{Name}' gives up its buff trip: no route to the buff NPC at {Target}.", this._player.Name, target);
-                    this._buffTarget = null;
-                    this._player.IsOnBuffTrip = false;
-                    this._nextBuffCheckUtc = NextBuffCheckUtc();
-                }
-
-                return true;
-            }
-
-            // The dialog itself runs in the MU Helper tick, not here: it pauses the combat AI on the
-            // next tick and applies the effect to the character, a player-state mutation which must run
-            // where all other bot mutations run (see PendingBotActions).
-            this._player.PendingBotActions.Enqueue(() => this.ClaimBuffAsync(map, target));
-
-            this._buffTarget = null;
-            this._player.IsOnBuffTrip = false;
-            this._nextBuffCheckUtc = NextBuffCheckUtc();
-            this._lastMoveUtc = DateTime.UtcNow; // standing at the buff NPC is not "stuck"
-            return true;
+            return await this.DriveBuffTripAsync(map, target, cancellationToken).ConfigureAwait(false);
         }
 
         if (DateTime.UtcNow < this._nextBuffCheckUtc)
@@ -2119,46 +1645,95 @@ internal sealed class BotNavigator : AsyncDisposable
         }
 
         this._nextBuffCheckUtc = DateTime.UtcNow + BuffCheckInterval;
-        if (BotBuffHandler.TryGetApplicableBuff(this._player) is null)
+        var needsBuff = BotBuffHandler.TryGetApplicableBuff(this._player) is not null;
+        var buffNpcPosition = needsBuff ? BotBuffHandler.FindBuffNpcPosition(this._player, map) : null;
+
+        // Only asked when the trip could need it: finding the hometown next to the buff check would
+        // scan the hometown's spawn areas on every check of every bot.
+        ExitGate? homeGate = null;
+        GameMapDefinition? homeMap = null;
+        var homeGateAvailable = buffNpcPosition is null
+                                && this.TryGetHomeEscapeGate(allowTrivialHome: true, out homeGate, out homeMap, out _);
+        var townGate = buffNpcPosition is not null ? BotTownTripPlanner.FindTownGate(map.Definition) : null;
+        var step = BotTownTripPlanner.PlanBuffTrip(needsBuff, buffNpcPosition, inSafezone, townGate is not null, homeGateAvailable);
+        if (step == BotTownTripPlanner.BuffTripStep.NoBuffNeeded)
         {
             // No buff dialog NPC configured (data without an Elf Soldier) or the bot does not qualify
             // (already buffed, or outside the buff's level range): a no-op on such servers.
             return false;
         }
 
-        if (BotBuffHandler.FindBuffNpcPosition(this._player, map) is not { } buffNpcPosition)
+        if (step == BotTownTripPlanner.BuffTripStep.NoBuffNpc)
         {
-            // No buff NPC lives on this map at all. Like a player pulling a town scroll, the bot warps
-            // to its class hometown, where the buff is offered; the better-map logic takes it back
-            // hunting afterward.
-            if (this.TryGetHomeEscapeGate(allowTrivialHome: true, out var homeGate, out var homeMap, out _))
-            {
-                this._travelPath = null;
-                this._hasDestination = false;
-                this._lastWarpUtc = this._timeProvider.GetUtcNow();
-                this._nextBuffCheckUtc = DateTime.UtcNow; // start the trip on the new map right away
-                this._player.Logger.LogDebug("Bot '{Name}' warps home to {Map} for its buff - no buff NPC on its map.", this._player.Name, homeMap.Name);
-                await this._player.WarpToAsync(homeGate).ConfigureAwait(false);
-                return true;
-            }
-
             this._nextBuffCheckUtc = NextBuffCheckUtc();
             return false;
         }
 
-        // Buff NPCs stand in town (in or near the safezone): when out in the field, warp to the map's
-        // safezone first (like using a town portal scroll), then walk over to the NPC.
-        if (!inSafezone
-            && map.Definition.ExitGates.Where(g => g.IsSpawnGate).SelectRandom() is { } townGate)
+        if (step == BotTownTripPlanner.BuffTripStep.WarpHome)
         {
+            // No buff NPC lives on this map at all. Like a player pulling a town scroll, the bot warps
+            // to its class hometown, where the buff is offered; the better-map logic takes it back
+            // hunting afterward.
             this._travelPath = null;
             this._hasDestination = false;
-            await this._player.WarpToAsync(townGate).ConfigureAwait(false);
+            this._lastWarpUtc = this._timeProvider.GetUtcNow();
+            this._nextBuffCheckUtc = DateTime.UtcNow; // start the trip on the new map right away
+            this._player.Logger.LogDebug("Bot '{Name}' warps home to {Map} for its buff - no buff NPC on its map.", this._player.Name, homeMap!.Name);
+            await this._player.WarpToAsync(homeGate!).ConfigureAwait(false);
+            return true;
+        }
+
+        if (step == BotTownTripPlanner.BuffTripStep.WarpToSafezone)
+        {
+            // Buff NPCs stand in town (in or near the safezone): when out in the field, warp to the
+            // map's safezone first (like using a town portal scroll), then walk over to the NPC.
+            this._travelPath = null;
+            this._hasDestination = false;
+            await this._player.WarpToAsync(townGate!).ConfigureAwait(false);
         }
 
         this._buffTarget = buffNpcPosition;
         this._player.IsOnBuffTrip = true;
         this._player.Logger.LogDebug("Bot '{Name}' heads to the buff NPC for its free buff.", this._player.Name);
+        return true;
+    }
+
+    /// <summary>
+    /// Drives a buff trip which already has its target: walks the bot to the buff NPC, or - when it stands
+    /// there - queues the claim. A target which has no route is dropped, so a bot doesn't retry a futile
+    /// march every check interval.
+    /// </summary>
+    /// <param name="map">The current map.</param>
+    /// <param name="target">The position of the buff NPC.</param>
+    /// <param name="cancellationToken">The token which aborts the travel wait on shutdown.</param>
+    /// <returns>Always <c>true</c>: the trip consumed this tick.</returns>
+    private async ValueTask<bool> DriveBuffTripAsync(GameMap map, Point target, CancellationToken cancellationToken)
+    {
+        if (BotTownTripPlanner.PlanTargetStep(this._player.GetDistanceTo(target)) == BotTownTripPlanner.BuffTripStep.WalkToNpc)
+        {
+            if (!await this.TravelTowardAsync(map, target, cancellationToken).ConfigureAwait(false))
+            {
+                // No way to the buff NPC from here - give up this trip and don't retry every
+                // check interval: an unreachable NPC stays unreachable for a while, and a bot
+                // retrying twice a minute wastes its hunting time on futile marches.
+                this._player.Logger.LogDebug("Bot '{Name}' gives up its buff trip: no route to the buff NPC at {Target}.", this._player.Name, target);
+                this._buffTarget = null;
+                this._player.IsOnBuffTrip = false;
+                this._nextBuffCheckUtc = NextBuffCheckUtc();
+            }
+
+            return true;
+        }
+
+        // The dialog itself runs in the MU Helper tick, not here: it pauses the combat AI on the
+        // next tick and applies the effect to the character, a player-state mutation which must run
+        // where all other bot mutations run (see PendingBotActions).
+        this._player.PendingBotActions.Enqueue(() => this.ClaimBuffAsync(map, target));
+
+        this._buffTarget = null;
+        this._player.IsOnBuffTrip = false;
+        this._nextBuffCheckUtc = NextBuffCheckUtc();
+        this._lastMoveUtc = DateTime.UtcNow; // standing at the buff NPC is not "stuck"
         return true;
     }
 
@@ -2344,7 +1919,7 @@ internal sealed class BotNavigator : AsyncDisposable
     {
         if (this._chaosMachineTarget is { } target)
         {
-            if (this._player.GetDistanceTo(target) > MerchantTalkRange)
+            if (this._player.GetDistanceTo(target) > BotTownTripPlanner.NpcInteractionRange)
             {
                 if (!await this.TravelTowardAsync(map, this._chaosMachineStandingPoint, cancellationToken).ConfigureAwait(false))
                 {
@@ -2401,7 +1976,7 @@ internal sealed class BotNavigator : AsyncDisposable
             return false;
         }
 
-        if (BotChaosMachineHandler.FindStandingPoint(map.Terrain, goblinPosition, MerchantTalkRange) is not { } standingPoint)
+        if (BotChaosMachineHandler.FindStandingPoint(map.Terrain, goblinPosition, BotTownTripPlanner.NpcInteractionRange) is not { } standingPoint)
         {
             this._nextChaosMachineCheckUtc = DateTime.UtcNow + ChaosMachineCooldown;
             return false;
@@ -2696,47 +2271,22 @@ internal sealed class BotNavigator : AsyncDisposable
 
         var botLevel = this.GetBotLevel();
         var plainLevel = (int)(this._player.Attributes?[Stats.Level] ?? 1);
-
-        // Three situations force the bot OFF its current map, bypassing the usual minimum warp level:
-        // a map without a single safe monster is hostile territory (aggressive monsters kill the bot
-        // while it cannot fight back), a map the bot could not legally warp to with its plain level is
-        // off-limits regardless of its strength - a real character of that level cannot be there, so
-        // neither may the bot (e.g. a veteran stranded on a high map after its reset) - and a map whose
-        // monsters are all trivial for the bot is no hunting ground either. The last case is what kept
-        // high-level bots on Lorencia and Noria: they found level-1 monsters there, so the nearby-target
-        // logic never left them enough quiet time to warp away (issue #1542).
         var currentMap = this._player.CurrentMap?.Definition;
         var currentLevel = currentMap is null ? 0 : this.BestSafeLevel(currentMap, 0, this.GetCurrentZoneFilter());
-        var mapIsHostile = currentMap is not null && currentLevel == 0;
-        var mapIsTrivial = MapFit.IsTrivial(currentLevel, botLevel);
-        var mapIsIllegal = currentMap is not null
-                           && !this.TryGetLegalWarp(currentMap, out _)
-                           && currentMap.Number != this._player.SelectedCharacter?.CharacterClass?.HomeMap?.Number;
-        var mustEscape = mapIsHostile || mapIsTrivial || mapIsIllegal;
-
-        // The ground an escape target has to offer. Leaving is only worth a fare when the destination is
-        // at least as good as what the bot leaves, and the trivial ground which made it leave in the first
-        // place has to be beaten by a real step - see MapFit.EscapeTargetFloor for why.
-        var escapeFloor = MapFit.EscapeTargetFloor(currentLevel, mapIsHostile || mapIsIllegal);
-
-        // A trivial map which offers nothing better within reach is not a reason to travel on, it is a
-        // reason to settle and farm what it has: the level-ups, drops and Zen from it are what opens the
-        // next map. Re-checked periodically (and after every level-up, since the review is keyed on the
-        // bot's level), not on every tick - scanning every map's monsters hundreds of times a second is
-        // exactly the load this population cannot afford.
-        if (mapIsTrivial && !mapIsHostile && !mapIsIllegal && this.IsEscapeReviewDeferred(botLevel, currentMap))
+        var plan = BotMapChoicePlanner.PlanMove(new BotMapChoicePlanner.MapMoveFacts
         {
-            return false;
-        }
-
-        // A map can pass every check above and still pay the bot nothing: the safe monsters are a rare
-        // kind among ones it must refuse, or stronger bots empty the grounds before it arrives. The bot
-        // notices the way a player would - it has not landed a hit in minutes - and steps DOWN to easier
-        // ground to earn its way back up, instead of walking between hunting grounds forever.
-        var mapIsBarren = DateTime.UtcNow - this._player.LastAttackUtc > BarrenMapDuration;
-
-        if ((plainLevel < this.GetMinWarpLevel() && !mustEscape && !mapIsBarren)
-            || this._timeProvider.GetUtcNow() - this._lastWarpUtc < WarpCooldown)
+            BotLevel = botLevel,
+            PlainLevel = plainLevel,
+            MinWarpLevel = this.GetMinWarpLevel(),
+            CurrentGroundLevel = currentLevel,
+            HasCurrentMap = currentMap is not null,
+            HasLegalWarpHere = currentMap is not null && this.TryGetLegalWarp(currentMap, out _),
+            IsHomeMap = currentMap?.Number == this._player.SelectedCharacter?.CharacterClass?.HomeMap?.Number,
+            EscapeReviewDeferred = this.IsEscapeReviewDeferred(botLevel, currentMap),
+            Barren = DateTime.UtcNow - this._player.LastAttackUtc > BarrenMapDuration,
+            WarpCooldownElapsed = this._timeProvider.GetUtcNow() - this._lastWarpUtc >= WarpCooldown,
+        });
+        if (plan is not { } move)
         {
             return false;
         }
@@ -2754,21 +2304,21 @@ internal sealed class BotNavigator : AsyncDisposable
         GameMapDefinition? targetMap;
         int targetLevel;
         var usedGateEscape = false;
-        if ((mapIsBarren && this.TryPickEasierMap(out var easierWarp, out targetMap, out targetLevel))
-            || this.TryPickBetterMap(mustEscape, escapeFloor, out easierWarp, out targetMap, out targetLevel))
+        if ((move.StepDown && this.TryPickEasierMap(out var easierWarp, out targetMap, out targetLevel))
+            || this.TryPickBetterMap(move.Escape, move.EscapeFloor, out easierWarp, out targetMap, out targetLevel))
         {
             fare = easierWarp;
             targetGate = easierWarp.Gate!;
         }
         else if (currentMap is not null
-                 && (mustEscape || mapIsBarren)
+                 && (move.Escape || move.StepDown)
                  && this.TryGetGateEscape(currentMap, currentLevel, out var gate, out targetMap, out targetLevel))
         {
             targetGate = gate;
             usedGateEscape = true;
         }
-        else if ((mustEscape || mapIsBarren)
-                 && this.TryGetHomeEscapeGate(allowTrivialHome: mapIsHostile, out var homeGate, out targetMap, out targetLevel))
+        else if ((move.Escape || move.StepDown)
+                 && this.TryGetHomeEscapeGate(allowTrivialHome: move.AllowTrivialHome, out var homeGate, out targetMap, out targetLevel))
         {
             targetGate = homeGate;
         }
@@ -2776,7 +2326,7 @@ internal sealed class BotNavigator : AsyncDisposable
         {
             // Nowhere better to go. A bot on trivial ground settles for it and earns its way up, instead
             // of walking to the next equally trivial ground and back on every warp cooldown.
-            if (mapIsTrivial)
+            if (move.Trivial)
             {
                 this.DeferEscapeReview(botLevel, currentMap);
                 this._player.Logger.LogDebug(
@@ -2807,7 +2357,7 @@ internal sealed class BotNavigator : AsyncDisposable
             targetLevel,
             fare?.Costs ?? 0,
             currentLevel,
-            mapIsHostile ? "nothing safe here" : mapIsIllegal ? "may not legally be here" : mapIsTrivial ? "ground too weak" : "barren");
+            BotMapChoicePlanner.Describe(move.Reason));
 
         if (fare is not null)
         {
@@ -3103,11 +2653,11 @@ internal sealed class BotNavigator : AsyncDisposable
     /// and one bad coordinate; keeping that trade-off local avoids changing map-transition behavior for
     /// other warp features.
     /// The reverse flood fill can inspect the whole map, whereas the travel pathfinder stops after
-    /// <see cref="TravelSearchLimit"/> expanded nodes. A gate whose shortest landing route already exceeds
+    /// <see cref="BotWarpPlanner.TravelSearchLimit"/> expanded nodes. A gate whose shortest landing route already exceeds
     /// that budget is therefore rejected before warping.
     /// </remarks>
     private WarpInfo? FindBestReachableLegalWarp(GameMap map, Point target, CancellationToken cancellationToken)
-        => FindBestReachableWarp(
+        => BotWarpPlanner.FindBestReachableWarp(
             this.GetLegalWarps(map.Definition).Where(this.CanAffordWarp),
             map.Terrain.WalkMap,
             target,
@@ -3214,13 +2764,13 @@ internal sealed class BotNavigator : AsyncDisposable
         var best = 0;
         foreach (var area in mapDefinition.MonsterSpawns)
         {
-            if (!this.IsPermanentMonsterSpawn(area)
+            if (!BotHuntingGroundSelector.IsPermanentMonsterSpawn(area)
                 || (isWithin is not null && !isWithin(area)))
             {
                 continue;
             }
 
-            var level = GetMonsterLevel(area.MonsterDefinition!);
+            var level = BotHuntingGroundSelector.GetMonsterLevel(area.MonsterDefinition!);
             if (level >= minimumLevel && level > best && CombatHandler.IsSafeTarget(this._player, area.MonsterDefinition!))
             {
                 best = level;
@@ -3228,19 +2778,6 @@ internal sealed class BotNavigator : AsyncDisposable
         }
 
         return best;
-    }
-
-    /// <summary>
-    /// Whether the spawn area holds monsters which actually stand on the map at all times. The event
-    /// spawns (golden monsters, the invasion and wave areas) are configured on the regular maps too, but
-    /// only exist while their event runs - a bot judging a map by them would travel to hunting grounds
-    /// which are empty most of the day, and would think its current map holds far stronger monsters than
-    /// it can find there. Same class of mistake as walking to a merchant that is only spawned now and
-    /// then, see <see cref="BotShoppingHandler.FindMerchantPosition"/>.
-    /// </summary>
-    private bool IsPermanentMonsterSpawn(MonsterSpawnArea area)
-    {
-        return area is { Quantity: > 0, SpawnTrigger: SpawnTrigger.Automatic, MonsterDefinition.ObjectKind: NpcObjectKind.Monster };
     }
 
     /// <summary>
@@ -3257,7 +2794,7 @@ internal sealed class BotNavigator : AsyncDisposable
         }
 
         int[] reachable = [region];
-        return area => regions.IsAreaWithin(area, reachable, GroundScatterSpan, HuntingRange);
+        return area => regions.IsAreaWithin(area, reachable, BotHuntingGroundSelector.GroundScatterSpan, HuntingRange);
     }
 
     /// <summary>
@@ -3275,12 +2812,12 @@ internal sealed class BotNavigator : AsyncDisposable
             return this.GetCurrentRegionFilter();
         }
 
-        if (this.IsEntryAvoided(hunting.Entries[zone]))
+        if (this._dangerZones.IsAvoided(hunting.Entries[zone]))
         {
             return _ => false;
         }
 
-        return area => hunting.Zones.IsAreaWithin(area, zone, GroundScatterSpan, HuntingRange);
+        return area => hunting.Zones.IsAreaWithin(area, zone, BotHuntingGroundSelector.GroundScatterSpan, HuntingRange);
     }
 
     /// <summary>
@@ -3307,63 +2844,8 @@ internal sealed class BotNavigator : AsyncDisposable
             && this._player.CurrentMap is { } map
             && map.GetObject(death.KillerId) is Monster { SummonedBy: null })
         {
-            this.RegisterMonsterDeath(map.Definition, this._player.Position);
+            this._dangerZones.RegisterDeath(map.Definition, this._player.Position);
         }
-    }
-
-    /// <summary>
-    /// Evaluates the deaths by monsters noted since the last call: the zone of an entry where the bot
-    /// died <see cref="MonsterDeathThreshold"/> times within <see cref="MonsterDeathWindow"/> is avoided
-    /// for <see cref="DangerousZoneAvoidance"/>, so the bot settles for the next best zone instead.
-    /// </summary>
-    private void UpdateAvoidedEntries()
-    {
-        var now = this._timeProvider.GetUtcNow();
-        while (this._monsterDeaths.TryDequeue(out var death))
-        {
-            if (this.GetHuntingZones(death.Map) is not { } hunting
-                || hunting.Zones.GetZone(death.Position) is not (var zone and >= 0))
-            {
-                continue;
-            }
-
-            var entry = hunting.Entries[zone];
-            if (this.IsEntryAvoided(entry))
-            {
-                // Dying on the way out of an avoided zone doesn't make it any more avoided.
-                continue;
-            }
-
-            this._recentZoneDeaths.RemoveAll(d => now - d.At > MonsterDeathWindow);
-            this._recentZoneDeaths.Add((entry, death.At));
-            if (this._recentZoneDeaths.Count(d => ReferenceEquals(d.Entry, entry)) >= MonsterDeathThreshold)
-            {
-                this._recentZoneDeaths.RemoveAll(d => ReferenceEquals(d.Entry, entry));
-                this._avoidedEntries[entry] = now + DangerousZoneAvoidance;
-                this._player.Logger.LogInformation(
-                    "Bot {Character} died {Count} times near warp {Warp} on map {Map}; it keeps away from there for a while.",
-                    this._player.Name,
-                    MonsterDeathThreshold,
-                    entry,
-                    death.Map.Name);
-            }
-        }
-    }
-
-    private bool IsEntryAvoided(WarpInfo entry)
-    {
-        if (!this._avoidedEntries.TryGetValue(entry, out var until))
-        {
-            return false;
-        }
-
-        if (this._timeProvider.GetUtcNow() < until)
-        {
-            return true;
-        }
-
-        this._avoidedEntries.Remove(entry);
-        return false;
     }
 
     /// <summary>
@@ -3399,14 +2881,14 @@ internal sealed class BotNavigator : AsyncDisposable
             if (mapBest <= 0
                 || mapBest <= monsterLevel
                 || candidate.TryGetRequirementError(this._player, out _)
-                || !HasWalkableSpawnGate(candidate))
+                || !BotWarpPlanner.HasWalkableSpawnGate(candidate))
             {
                 continue;
             }
 
             foreach (var (candidateWarp, best) in this.GetHuntingWarps(candidate, 0))
             {
-                if (best > 0 && best < currentLevel && best > monsterLevel && this.CanAffordWarp(candidateWarp))
+                if (BotMapChoicePlanner.IsBetterStepDown(best, currentLevel, monsterLevel) && this.CanAffordWarp(candidateWarp))
                 {
                     warp = candidateWarp;
                     mapDefinition = candidate;
@@ -3465,17 +2947,15 @@ internal sealed class BotNavigator : AsyncDisposable
         // of bots on Vulcanus while Tarkan, Karutan and Kanturu, which their level opens, see nobody. The
         // strongest map still wins most of the picks (see BestCandidateShare); the runners-up share the
         // rest, so the population spreads over the maps a player of that band would choose between.
-        var candidates = this.GetBetterMapCandidates(escape, minimumMonsterLevel, escapeFloor);
-        if (candidates.Count == 0)
+        var picked = BotMapChoicePlanner.PickStrongest(this.GetBetterMapCandidates(escape, minimumMonsterLevel, escapeFloor));
+        if (picked is not { } choice)
         {
             return false;
         }
 
-        var ranked = candidates.OrderByDescending(c => c.Level).ToList();
-        var picked = ranked[PickByRank(ranked.Count)];
-        warp = picked.Warp;
-        mapDefinition = picked.Map;
-        monsterLevel = picked.Level;
+        warp = choice.Warp;
+        mapDefinition = choice.Map;
+        monsterLevel = choice.Level;
         return true;
     }
 
@@ -3497,10 +2977,10 @@ internal sealed class BotNavigator : AsyncDisposable
         int[] regions = [region];
         var isAvoided = this.GetAvoidedGroundFilter(map.Definition);
         var candidates = map.Definition.MonsterSpawns
-            .Where(this.IsPermanentMonsterSpawn)
-            .Where(a => region == 0 || mapRegions.IsAreaWithin(a, regions, GroundScatterSpan, HuntingRange))
+            .Where(BotHuntingGroundSelector.IsPermanentMonsterSpawn)
+            .Where(a => region == 0 || mapRegions.IsAreaWithin(a, regions, BotHuntingGroundSelector.GroundScatterSpan, HuntingRange))
             .Where(a => isAvoided is null || !isAvoided(a))
-            .Select(a => (Area: a, Level: GetMonsterLevel(a.MonsterDefinition!)))
+            .Select(a => (Area: a, Level: BotHuntingGroundSelector.GetMonsterLevel(a.MonsterDefinition!)))
             .Where(x => x.Level > 0)
             .ToList();
         if (candidates.Count == 0)
@@ -3512,29 +2992,8 @@ internal sealed class BotNavigator : AsyncDisposable
         // pass the safety check, fall back to the weakest available (the bot should warp away anyway).
         var safe = candidates.Where(x => CombatHandler.IsSafeTarget(this._player, x.Area.MonsterDefinition!)).ToList();
 
-        // A mastered bot only earns master experience above the floor (see MasterExperienceFloor), so as
-        // long as this map holds such monsters, it hunts them - the weaker grounds would pay it nothing.
-        // Above the floor it then takes the WEAKEST monsters rather than the strongest: master experience
-        // hardly grows with the monster's level, so the cheapest kill above the floor is the best one.
         var floor = this.MasterExperienceFloor();
-        var masterGrounds = floor > 0 ? safe.Where(x => x.Level >= floor).ToList() : [];
-
-        List<(MonsterSpawnArea Area, int Level)> band;
-        if (masterGrounds.Count > 0)
-        {
-            var cheapest = masterGrounds.Min(x => x.Level);
-            band = masterGrounds.Where(x => x.Level <= cheapest + BandWidth).ToList();
-        }
-        else if (safe.Count > 0)
-        {
-            var top = safe.Max(x => x.Level);
-            band = safe.Where(x => x.Level >= top - BandWidth).ToList();
-        }
-        else
-        {
-            var bottom = candidates.Min(x => x.Level);
-            band = candidates.Where(x => x.Level <= bottom + BandWidth).ToList();
-        }
+        var band = BotHuntingGroundSelector.SelectLevelBand(candidates, safe, floor);
 
         // After repeated deaths against the same player, the area around the death site is off the
         // menu for a while (see OfflinePlayer.TryGetDeathSiteToAvoid): drop grounds close to it, so
@@ -3544,7 +3003,7 @@ internal sealed class BotNavigator : AsyncDisposable
         Point? siteToAvoid = this._player.TryGetDeathSiteToAvoid(map.Definition, out var avoidPoint) ? avoidPoint : null;
         if (siteToAvoid is { } avoid)
         {
-            var farGrounds = band.Where(x => GroundDistance(x.Area, avoid) > DeathSiteAvoidanceRange).ToList();
+            var farGrounds = band.Where(x => BotHuntingGroundSelector.GroundDistance(x.Area, avoid) > BotHuntingGroundSelector.DeathSiteAvoidanceRange).ToList();
             if (farGrounds.Count > 0)
             {
                 band = farGrounds;
@@ -3555,43 +3014,43 @@ internal sealed class BotNavigator : AsyncDisposable
         // (shorter, safer travel) while keeping some variety. Grounds another bot outside the party
         // already works are dropped first, so two independent bots do not farm the same monsters.
         var competitorSpots = HuntingSpotOccupancy.GetCompetitorSpots(this._player, map.GetPlayers(), map.Definition.Number);
-        var freeBand = band.Where(x => !HuntingSpotOccupancy.IsSpotOccupied(GroundCenter(x.Area), competitorSpots)).ToList();
+        var freeBand = band.Where(x => !HuntingSpotOccupancy.IsSpotOccupied(BotHuntingGroundSelector.GroundCenter(x.Area), competitorSpots)).ToList();
         if (freeBand.Count > 0)
         {
             band = freeBand;
         }
 
         var position = this._player.Position;
-        var chosen = band.SelectWeightedRandom(band.Select(x => GroundWeight(x.Area, position)));
+        var chosen = band.SelectWeightedRandom(band.Select(x => BotHuntingGroundSelector.GroundWeight(x.Area, position)));
         if (chosen.Area is null)
         {
             return false;
         }
 
         groundLevel = chosen.Level;
-        return this.TryPickWalkablePoint(map, chosen.Area, siteToAvoid, competitorSpots, region == 0 ? null : mapRegions, region, out ground);
+        return BotHuntingGroundSelector.TryPickWalkablePoint(map, chosen.Area, siteToAvoid, competitorSpots, region == 0 ? null : mapRegions, region, out ground);
     }
 
     /// <summary>
-    /// Gets the zones of the map which the bot keeps away from (see <see cref="MonsterDeathThreshold"/>).
+    /// Gets the zones of the map which the bot keeps away from (see <see cref="BotDangerZoneTracker"/>).
     /// </summary>
     /// <param name="mapDefinition">The map.</param>
     /// <returns>The zones of the map with the indexes of the avoided ones; <c>null</c> if none is avoided.</returns>
     private (BotMapZones Zones, HashSet<int> Avoided)? GetAvoidedZones(GameMapDefinition mapDefinition)
     {
-        this.UpdateAvoidedEntries();
-        if (this._avoidedEntries.Count == 0 || this.GetHuntingZones(mapDefinition) is not { } hunting)
+        this._dangerZones.Update();
+        if (this.GetHuntingZones(mapDefinition) is not { } hunting
+            || this._dangerZones.GetAvoidedZoneIndexes(hunting.Entries) is not { } avoided)
         {
             return null;
         }
 
-        var avoided = Enumerable.Range(0, hunting.Entries.Count).Where(i => this.IsEntryAvoided(hunting.Entries[i])).ToHashSet();
-        return avoided.Count == 0 ? null : (hunting.Zones, avoided);
+        return (hunting.Zones, avoided);
     }
 
     /// <summary>
     /// Gets a filter for the spawn areas which belong to zones the bot keeps away from (see
-    /// <see cref="MonsterDeathThreshold"/>), so it doesn't walk back into them on a map it can walk through.
+    /// <see cref="BotDangerZoneTracker"/>), so it doesn't walk back into them on a map it can walk through.
     /// </summary>
     /// <param name="mapDefinition">The map.</param>
     /// <returns>The filter, or <c>null</c> if no zone of the map is avoided.</returns>
@@ -3602,71 +3061,7 @@ internal sealed class BotNavigator : AsyncDisposable
             return null;
         }
 
-        return area => avoided.Avoided.Contains(avoided.Zones.GetAreaZone(area, GroundScatterSpan, HuntingRange));
-    }
-
-    private bool TryPickWalkablePoint(GameMap map, MonsterSpawnArea area, Point? avoidCenter, IReadOnlyList<HuntingSpot> competitorSpots, BotMapRegions? mapRegions, int region, out Point point)
-    {
-        int minX = Math.Min(area.X1, area.X2);
-        int maxX = Math.Max(area.X1, area.X2);
-        int minY = Math.Min(area.Y1, area.Y2);
-        int maxY = Math.Max(area.Y1, area.Y2);
-
-        // Not every map states its spawns as rectangles: LaCleon, for one, lists every spawn as a single
-        // tile, and so do 44 of the 55 maps which hold more than ten of them. Sampling "inside" such an
-        // area can only ever return that one tile, so every bot that picks it walks onto the very same
-        // spot. Scatter around it instead - the bot still arrives within combat range of the monster.
-        var isSingleSpot = (maxX - minX) < GroundScatterSpan && (maxY - minY) < GroundScatterSpan;
-        var center = new Point((byte)((minX + maxX) / 2), (byte)((minY + maxY) / 2));
-
-        Point? occupiedFallback = null;
-        for (var attempt = 0; attempt < MaxPointPickAttempts; attempt++)
-        {
-            // GetRandomCoordinate already keeps to the map, retries unwalkable picks and falls back to the
-            // point itself when the surroundings offer nothing - so a spawn on a ledge stays usable.
-            var candidate = isSingleSpot
-                ? map.Terrain.GetRandomCoordinate(center, HuntingRange)
-                : new Point((byte)Rand.NextInt(minX, maxX + 1), (byte)Rand.NextInt(minY, maxY + 1));
-            int x = candidate.X;
-            int y = candidate.Y;
-            if (!map.Terrain.WalkMap[x, y]
-                || map.Terrain.SafezoneMap[x, y]
-                || (mapRegions is not null && mapRegions.GetRegion(candidate) != region))
-            {
-                continue;
-            }
-
-            // MU spawn areas can span most of the map, so a random point of an otherwise "far" area
-            // may still land right at the death site to avoid - re-roll such points. If the area
-            // offers nothing else, the attempts run out, and the pick fails like for any other
-            // unusable area (the caller then simply retries the next tick).
-            if (avoidCenter is { } avoid
-                && Math.Abs(x - avoid.X) + Math.Abs(y - avoid.Y) <= DeathSiteAvoidanceRange)
-            {
-                continue;
-            }
-
-            var pointCandidate = new Point((byte)x, (byte)y);
-            if (HuntingSpotOccupancy.IsSpotOccupied(pointCandidate, competitorSpots))
-            {
-                // Remember the point as a last resort: if this whole area is taken, sharing it is still
-                // better than leaving the bot without a destination.
-                occupiedFallback ??= pointCandidate;
-                continue;
-            }
-
-            point = pointCandidate;
-            return true;
-        }
-
-        if (occupiedFallback is { } fallback)
-        {
-            point = fallback;
-            return true;
-        }
-
-        point = default;
-        return false;
+        return area => avoided.Avoided.Contains(avoided.Zones.GetAreaZone(area, BotHuntingGroundSelector.GroundScatterSpan, HuntingRange));
     }
 
     /// <summary>
