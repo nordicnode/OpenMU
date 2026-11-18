@@ -49,7 +49,7 @@ public class BotAccountService : IDataService<BotAccount>
     /// <remarks>
     /// The full list is cached for a few seconds: building it copies the whole player list of every
     /// game server, while the table only renders one page. Paging applies on top of the cached,
-    /// globally ordered list, so party grouping stays correct across pages.
+    /// globally ordered list, so the bot which has been in its mode longest stays on the first page.
     /// </remarks>
     public async Task<List<BotAccount>> GetAsync(int offset, int count)
     {
@@ -86,9 +86,10 @@ public class BotAccountService : IDataService<BotAccount>
                     partyMaster,
                     partySize,
                     activity?.Summary,
-                    activity?.Detail);
+                    activity?.Detail,
+                    activity?.TimeInState.TotalSeconds ?? 0);
             })
-            .OrderPartyGrouped()
+            .OrderLongestInState()
             .ToList();
 
         this._cache.Set(ListCacheKey, ordered, ListCacheLifetime);

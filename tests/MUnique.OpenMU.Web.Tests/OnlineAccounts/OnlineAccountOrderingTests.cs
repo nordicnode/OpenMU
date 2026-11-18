@@ -68,4 +68,24 @@ public class OnlineAccountOrderingTests
 
         Assert.That(result, Is.EqualTo(new[] { "alpha", "Bravo" }));
     }
+
+    /// <summary>
+    /// The bot table puts the bot which has been in its mode the longest on top, because that is the one
+    /// which is most likely to be stuck, and breaks ties by character name.
+    /// </summary>
+    [Test]
+    public void BotsLongestInTheirModeComeFirst_TiesByCharacter()
+    {
+        var bots = new List<BotAccount>
+        {
+            new("bot-hunter", 1, "Kain", TestTimestamp, State: "Hunt", SecondsInState: 30),
+            new("bot-trader", 1, "Lyra", TestTimestamp, State: "MarketShift", SecondsInState: 95),
+            new("bot-idle", 1, "Ares", TestTimestamp, State: "Idle", SecondsInState: 640),
+            new("bot-busy", 1, "Boreas", TestTimestamp, State: "Idle", SecondsInState: 640),
+        };
+
+        var result = bots.OrderLongestInState().Select(b => b.CharacterName).ToList();
+
+        Assert.That(result, Is.EqualTo(new[] { "Ares", "Boreas", "Lyra", "Kain" }));
+    }
 }

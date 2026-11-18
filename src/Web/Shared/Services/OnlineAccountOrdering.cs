@@ -25,4 +25,17 @@ public static class OnlineAccountOrdering
             .ThenBy(a => a.LoginName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(a => a.CharacterName, StringComparer.OrdinalIgnoreCase);
     }
+
+    /// <summary>
+    /// Orders the bots so the one which has been in its mode the longest comes first - the one most likely to
+    /// be stuck - and ties by character name, the same way the bot list of the MCP server reports them.
+    /// </summary>
+    /// <param name="bots">The bots to order.</param>
+    /// <returns>The ordered bots.</returns>
+    public static IOrderedEnumerable<BotAccount> OrderLongestInState(this IEnumerable<BotAccount> bots)
+    {
+        return bots
+            .OrderByDescending(b => b.SecondsInState)
+            .ThenBy(b => b.CharacterName, StringComparer.OrdinalIgnoreCase);
+    }
 }
