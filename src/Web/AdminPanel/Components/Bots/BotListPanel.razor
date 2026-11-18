@@ -15,6 +15,7 @@
         <th class="col-1">@Resources.Guild</th>
         <th class="col-1">@Resources.Party</th>
         <th class="col-2">@Resources.StartedAt</th>
+        <th class="col-1">@Resources.Actions</th>
     </TableHeader>
     <ItemTemplate Context="item">
         <td>@item.LoginName</td>
@@ -38,6 +39,15 @@
         <td>@(item.GuildName ?? Resources.EmptyValue)</td>
         <td><PartyBadge PartyMaster="@item.PartyMaster" PartySize="@item.PartySize" /></td>
         <td>@item.StartedAt.ToString("yyyy-MM-dd HH:mm:ss") UTC</td>
+        <td class="text-end">
+            @if (item.QuarantinedSeconds > 0 || item.Restarts > 0)
+            {
+                @* Only shown when there is something to forget: a healthy bot has no health to reset. *@
+                <button type="button" class="btn admin-table-action admin-table-icon-action admin-table-action--warning" title="@Resources.BotResetHealthHint" aria-label="@Resources.BotResetHealth" @onclick="() => this.OnResetHealth.InvokeAsync(item)">
+                    <span class="oi oi-reload" aria-hidden="true"></span>
+                </button>
+            }
+        </td>
     </ItemTemplate>
 </DataTable>
 
@@ -47,6 +57,13 @@
     /// </summary>
     [Parameter]
     public string? AlarmLine { get; set; }
+
+    /// <summary>
+    /// Gets or sets what to do when an operator wants to forget the failures of a bot. The panel only raises the
+    /// request - whether it is allowed, and what it reports afterwards, belongs to the page.
+    /// </summary>
+    [Parameter]
+    public EventCallback<BotAccount> OnResetHealth { get; set; }
 
     private int QuarantineMinutes(double seconds) => Math.Max(1, (int)Math.Ceiling(seconds / 60));
 }

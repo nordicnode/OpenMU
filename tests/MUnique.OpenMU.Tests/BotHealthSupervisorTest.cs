@@ -207,6 +207,42 @@ public class BotHealthSupervisorTest
     }
 
     /// <summary>
+    /// An operator who fixed the cause can say so: the reset forgets the failures, the restart streak and the
+    /// quarantine, so the bot may run and be restarted again - with the same policy, not a different one.
+    /// </summary>
+    [Test]
+    public void ResetForgetsEverythingHeldAgainstTheAccount()
+    {
+        var supervisor = this.CreateSupervisor();
+        for (var i = 0; i < BotHealthPolicy.ConsecutiveFaultsUntilRestart; i++)
+        {
+            supervisor.RecordFault(new NullReferenceException());
+        }
+
+        for (var i = 0; i < BotHealthPolicy.RestartsUntilQuarantine; i++)
+        {
+            supervisor.TryBeginRestart();
+        }
+
+        Assert.That(supervisor.RemainingQuarantine(), Is.GreaterThan(TimeSpan.Zero));
+        Assert.That(supervisor.Describe(), Is.Not.Null);
+
+        supervisor.Reset();
+
+        Assert.That(supervisor.RemainingQuarantine(), Is.EqualTo(TimeSpan.Zero));
+        Assert.That(supervisor.Restarts, Is.Zero);
+        Assert.That(supervisor.Faults, Is.Zero);
+        Assert.That(supervisor.ConsecutiveFaults, Is.Zero);
+        Assert.That(supervisor.LastFault, Is.Null);
+        Assert.That(supervisor.Describe(), Is.Null);
+
+        // The policy is unchanged: the bot has to fail its ticks again before it asks for another restart.
+        Assert.That(supervisor.RecordFault(new NullReferenceException()), Is.False);
+        Assert.That(supervisor.TryBeginRestart(), Is.True);
+        Assert.That(supervisor.RemainingQuarantine(), Is.EqualTo(TimeSpan.Zero));
+    }
+
+    /// <summary>
     /// The per-account record is dropped once it has nothing left to remember - the map is keyed by account and
     /// would otherwise grow with every account which ever ran a bot. A quarantine outlives the idle window.
     /// </summary>

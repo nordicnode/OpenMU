@@ -80,6 +80,9 @@ public class NetworkAnalyzerLinkTests
         context.Services.AddSingleton(new LoggedInAccountService(Mock.Of<ILoginServer>(), serverProvider.Object, new MemoryCache(new MemoryCacheOptions()), MUnique.OpenMU.Web.Tests.Mcp.AdminOperationTestServices.CreateExecutor()));
         context.Services.AddSingleton(new OfflineAccountService(serverProvider.Object));
         context.Services.AddSingleton(new BotAccountService(serverProvider.Object, new MemoryCache(new MemoryCacheOptions())));
+        context.Services.AddSingleton(new MUnique.OpenMU.Web.AdminPanel.Operations.BotWriteOperations(
+            serverProvider.Object,
+            MUnique.OpenMU.Web.Tests.Mcp.AdminOperationTestServices.CreateExecutor()));
         context.Services.AddSingleton<IDataService<LoggedInAccount>>(
             new TestDataService<LoggedInAccount>([new LoggedInAccount("Test Account", 3)]));
         context.Services.AddSingleton<IDataService<OfflineAccount>>(new TestDataService<OfflineAccount>([]));

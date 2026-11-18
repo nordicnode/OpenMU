@@ -276,6 +276,28 @@
     }
   },
   {
+    "Name": "bots_reset_health",
+    "InputSchema": {
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "Exact account login name from bots_list.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "account"
+      ]
+    },
+    "Annotations": {
+      "title": null,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    }
+  },
+  {
     "Name": "cashshop_get_balance",
     "InputSchema": {
       "type": "object",

@@ -69,6 +69,32 @@ public class BotListPanelTests
     }
 
     /// <summary>
+    /// The panel only offers the reset where there is something to forget, and it hands the row to the page - which
+    /// decides whether the operator may do it and what it reports.
+    /// </summary>
+    [Test]
+    public void OffersTheResetOnlyWhereThereIsSomethingToForget()
+    {
+        using var context = CreateContext(
+            Bot("bot-flap", "Kain", restarts: 4),
+            Bot("bot-held", "Mo", restarts: 3, quarantinedSeconds: 150),
+            Bot("bot-fine", "Lena"));
+
+        BotAccount? reset = null;
+        var panel = context.Render<BotListPanel>(parameters => parameters
+            .Add(p => p.AlarmLine, (string?)null)
+            .Add(p => p.OnResetHealth, account => reset = account));
+
+        var resetButtons = panel.FindAll("button.admin-table-action");
+        Assert.That(resetButtons, Has.Count.EqualTo(2));
+
+        resetButtons[0].Click();
+
+        Assert.That(reset, Is.Not.Null);
+        Assert.That(reset!.LoginName, Is.EqualTo("bot-flap"));
+    }
+
+    /// <summary>
     /// A healthy server renders an empty table without an alarm and without a health badge - the column still
     /// exists, so the table doesn't change its shape when a bot starts failing.
     /// </summary>
@@ -80,8 +106,9 @@ public class BotListPanelTests
         var panel = context.Render<BotListPanel>(parameters => parameters.Add(p => p.AlarmLine, (string?)null));
 
         Assert.That(panel.FindAll("#bots-stuck-alarm"), Is.Empty);
-        Assert.That(panel.FindAll("thead th"), Has.Count.EqualTo(8));
+        Assert.That(panel.FindAll("thead th"), Has.Count.EqualTo(9));
         Assert.That(panel.FindAll(".badge"), Is.Empty);
+        Assert.That(panel.FindAll("button.admin-table-action"), Is.Empty);
     }
 
     private static BunitContext CreateContext(params BotAccount[] bots)

@@ -8348,5 +8348,23 @@ namespace MUnique.OpenMU.Web.AdminPanel.Properties {
                 return ResourceManager.GetString("BotQuarantined", resourceCulture);
             }
         }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Reset health.
+        /// </summary>
+        public static string BotResetHealth {
+            get {
+                return ResourceManager.GetString("BotResetHealth", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Forget the failures, the restarts and the quarantine of this bot, so it is allowed to run and to be restarted again.
+        /// </summary>
+        public static string BotResetHealthHint {
+            get {
+                return ResourceManager.GetString("BotResetHealthHint", resourceCulture);
+            }
+        }
     }
 }

@@ -302,6 +302,21 @@ public sealed class AdminWriteTools
         [Description("Mandatory audit reason.")] string reason)
         => AdminToolExecution.ExecuteAsync(() => operations.RemoveRegistrationAsync(serverId, guildId, reason, cancellationToken));
 
+    /// <summary>Forget the failures, restarts and quarantine of an account's bots, so they may be restarted again.</summary>
+    /// <param name="operations">The shared admin operations.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <param name="account">Exact account login name from bots_list.</param>
+    /// <returns>The safe operation result.</returns>
+    [McpServerTool(Name = "bots_reset_health", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [Description("Forget the failures, restarts and quarantine of an account's bots, so a quarantined bot is allowed to run and to be restarted again. Use it after fixing the cause of a bot which keeps failing (see bots_alarm). Does not start, stop or respawn a bot.")]
+    [Authorize(Roles = "Operator")]
+    [ExposesOperation(typeof(BotWriteOperations), nameof(BotWriteOperations.ResetHealthAsync))]
+    public static ValueTask<JsonObject> BotsResetHealthAsync(
+        [FromServices] BotWriteOperations operations,
+        CancellationToken cancellationToken,
+        [Description("Exact account login name from bots_list.")] string account)
+        => AdminToolExecution.ExecuteAsync(() => operations.ResetHealthAsync(account, cancellationToken));
+
     /// <summary>Set the default local minimum logging level while retaining overrides and sink settings. Distributed deployments are refused.</summary>
     /// <param name="operations">The shared admin operations.</param>
     /// <param name="cancellationToken">The cancellation token.</param>

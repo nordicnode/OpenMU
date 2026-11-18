@@ -278,6 +278,32 @@ internal sealed class BotHealthSupervisor
     }
 
     /// <summary>
+    /// Forgets everything an operator no longer wants held against the account: the quarantine, the restart streak
+    /// and the counters. It does not restart the bot - a bot which still fails every tick keeps asking for one, and
+    /// the next maintenance pass acts on that request as if the account were fresh. This is the lever for "I fixed
+    /// the cause, let it run again" which otherwise only a server restart would provide.
+    /// </summary>
+    internal void Reset()
+    {
+        lock (this._lock)
+        {
+            this._consecutiveFaults = 0;
+            this._restartStreak = 0;
+            this._faults = 0;
+            this._transientFaults = 0;
+            this._ignoredTicks = 0;
+            this._restarts = 0;
+            this._lastFault = null;
+            this._lastFaultKind = null;
+            this._lastRestartUtc = null;
+            this._quarantinedUntilUtc = null;
+            this._quarantineReason = null;
+            this._quarantineReported = false;
+            this._lastEventUtc = null;
+        }
+    }
+
+    /// <summary>
     /// Describes the health of the account in one line for the operator surfaces, or nothing while it is healthy.
     /// </summary>
     /// <returns>The line, or <c>null</c> when the account never faulted.</returns>

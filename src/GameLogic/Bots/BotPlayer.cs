@@ -76,6 +76,13 @@ public sealed class BotPlayer : OfflinePlayer
     /// </summary>
     internal BotHealthSupervisor Health { get; set; } = new();
 
+    /// <summary>
+    /// Forgets the failures, the restarts and the quarantine of this bot's account, so it is allowed to run and to be
+    /// restarted again. This is the operator's answer to "I fixed the cause" - the policy itself is unchanged, and a
+    /// bot which still fails every tick simply keeps asking for a restart.
+    /// </summary>
+    public void ResetHealth() => this.Health.Reset();
+
     /// <inheritdoc />
     /// <remarks>
     /// A bot opens its store only on a market shift (see <see cref="BotMarketShift"/>): a store which was

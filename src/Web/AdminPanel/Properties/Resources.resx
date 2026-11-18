@@ -2768,4 +2768,10 @@
   <data name="BotQuarantined" xml:space="preserve">
     <value>quarantined {0} min</value>
   </data>
+  <data name="BotResetHealth" xml:space="preserve">
+    <value>Reset health</value>
+  </data>
+  <data name="BotResetHealthHint" xml:space="preserve">
+    <value>Forget the failures, the restarts and the quarantine of this bot, so it is allowed to run and to be restarted again. Do it after fixing the cause of a bot which keeps failing.</value>
+  </data>
 </root>
