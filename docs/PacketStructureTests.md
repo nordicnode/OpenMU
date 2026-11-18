@@ -19,6 +19,12 @@ New test project that:
 - Integrates with existing test infrastructure (NUnit, StyleCop, etc.)
 - Added to main solution file for CI/CD integration
 
+The generated files are generated into `obj/` and copied into the project only when
+their content changed, so a build of unchanged definitions leaves the working tree
+alone. A CI build (`-p:ci=true`) does not copy anything, but fails when a committed
+generated file differs from a fresh generation — a packet definition change whose
+test file was not regenerated and committed is a build error, not a silent gap.
+
 ### 3. Test Files Generated
 - `ClientToServerPacketTests.cs` - Tests for client-to-server packets
 - `ServerToClientPacketTests.cs` - Tests for server-to-client packets  
