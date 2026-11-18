@@ -127,6 +127,64 @@ public class BotHuntingGroundTest
         Assert.That(monster.Position, Is.EqualTo(ground));
     }
 
+    /// <summary>
+    /// A band which keeps the grounds away from the death site; when every ground lies near it, all of
+    /// them stay - a bot which may not hunt anywhere else still hunts.
+    /// </summary>
+    [Test]
+    public void DeathSiteNarrowingKeepsEverythingWhenEverythingIsNear()
+    {
+        var near = CreateBand(new Point(100, 100), new Point(101, 101));
+        Assert.That(BotHuntingGroundSelector.WithoutDeathSite(near, new Point(100, 100)), Has.Count.EqualTo(2), "the whole band must stay when no ground is far enough away");
+
+        var band = CreateBand(new Point(100, 100), new Point(200, 200));
+        var narrowed = BotHuntingGroundSelector.WithoutDeathSite(band, new Point(100, 100));
+
+        Assert.That(narrowed, Has.Count.EqualTo(1));
+        Assert.That(BotHuntingGroundSelector.GroundCenter(narrowed[0].Area), Is.EqualTo(new Point(200, 200)));
+        Assert.That(BotHuntingGroundSelector.WithoutDeathSite(band, null), Is.SameAs(band));
+    }
+
+    /// <summary>
+    /// A band which drops the grounds another bot already works; when every ground is taken, all of them
+    /// stay - waiting for a free ground would idle the bot.
+    /// </summary>
+    [Test]
+    public void CompetitorNarrowingKeepsEverythingWhenEverythingIsTaken()
+    {
+        var taken = new List<HuntingSpot> { new(new Point(100, 100), 0), new(new Point(200, 200), 0) };
+        var band = CreateBand(new Point(100, 100), new Point(200, 200));
+        Assert.That(BotHuntingGroundSelector.WithoutCompetitors(band, taken), Has.Count.EqualTo(2));
+
+        var half = new List<HuntingSpot> { new(new Point(100, 100), 0) };
+        var narrowed = BotHuntingGroundSelector.WithoutCompetitors(band, half);
+        Assert.That(narrowed, Has.Count.EqualTo(1));
+        Assert.That(BotHuntingGroundSelector.GroundCenter(narrowed[0].Area), Is.EqualTo(new Point(200, 200)));
+    }
+
+    /// <summary>
+    /// The weighted pick only ever returns a ground of the band, and there is no pick at all for an empty
+    /// band (which the caller turns into "no ground on this map").
+    /// </summary>
+    [Test]
+    public void WeightedPickStaysInsideTheBand()
+    {
+        Assert.That(BotHuntingGroundSelector.PickWeighted([], new Point(100, 100)), Is.Null);
+
+        var band = CreateBand(new Point(100, 100), new Point(200, 200));
+        for (var i = 0; i < 50; i++)
+        {
+            var picked = BotHuntingGroundSelector.PickWeighted(band, new Point(100, 100));
+            Assert.That(picked, Is.Not.Null);
+            Assert.That(band, Does.Contain(picked!.Value));
+        }
+    }
+
+    private static List<(MUnique.OpenMU.DataModel.Configuration.MonsterSpawnArea Area, int Level)> CreateBand(params Point[] centers)
+        => centers
+            .Select(center => ((MUnique.OpenMU.DataModel.Configuration.MonsterSpawnArea)new MonsterSpawnArea { X1 = center.X, X2 = center.X, Y1 = center.Y, Y2 = center.Y, Quantity = 1 }, Level: 10))
+            .ToList();
+
     private static GameMapDefinition CreateIsolatedGroundMap(byte number)
     {
         var terrain = new byte[ushort.MaxValue + 3];

@@ -3005,32 +3005,16 @@ internal sealed class BotNavigator : AsyncDisposable
 
         // After repeated deaths against the same player, the area around the death site is off the
         // menu for a while (see OfflinePlayer.TryGetDeathSiteToAvoid): drop grounds close to it, so
-        // the bot farms somewhere else instead of walking back into the same lost fight. Only if
-        // EVERY candidate lies near the death site, are they all kept - relocating within the band is
-        // still better than not picking any ground at all (the point pick below still steers away).
+        // the bot farms somewhere else instead of walking back into the same lost fight.
         Point? siteToAvoid = this._player.TryGetDeathSiteToAvoid(map.Definition, out var avoidPoint) ? avoidPoint : null;
-        if (siteToAvoid is { } avoid)
-        {
-            var farGrounds = band.Where(x => BotHuntingGroundSelector.GroundDistance(x.Area, avoid) > BotHuntingGroundSelector.DeathSiteAvoidanceRange).ToList();
-            if (farGrounds.Count > 0)
-            {
-                band = farGrounds;
-            }
-        }
+        band = BotHuntingGroundSelector.WithoutDeathSite(band, siteToAvoid);
 
-        // Weight the choice by spawn quantity and proximity, so the bot prefers nearby, dense grounds
-        // (shorter, safer travel) while keeping some variety. Grounds another bot outside the party
-        // already works are dropped first, so two independent bots do not farm the same monsters.
+        // Grounds another bot outside the party already works are dropped first, so two independent
+        // bots do not farm the same monsters.
         var competitorSpots = HuntingSpotOccupancy.GetCompetitorSpots(this._player, map.GetPlayers(), map.Definition.Number);
-        var freeBand = band.Where(x => !HuntingSpotOccupancy.IsSpotOccupied(BotHuntingGroundSelector.GroundCenter(x.Area), competitorSpots)).ToList();
-        if (freeBand.Count > 0)
-        {
-            band = freeBand;
-        }
+        band = BotHuntingGroundSelector.WithoutCompetitors(band, competitorSpots);
 
-        var position = this._player.Position;
-        var chosen = band.SelectWeightedRandom(band.Select(x => BotHuntingGroundSelector.GroundWeight(x.Area, position)));
-        if (chosen.Area is null)
+        if (BotHuntingGroundSelector.PickWeighted(band, this._player.Position) is not { } chosen)
         {
             return false;
         }

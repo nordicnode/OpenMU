@@ -170,6 +170,66 @@ internal static class BotHuntingGroundSelector
     }
 
     /// <summary>
+    /// Narrows a band to the grounds which are not close to the place the bot was last killed by the same
+    /// player (see <see cref="MUnique.OpenMU.GameLogic.Offline.OfflinePlayer.TryGetDeathSiteToAvoid"/>), so it
+    /// farms somewhere else instead of walking back into the same lost fight.
+    /// </summary>
+    /// <param name="band">The grounds of the chosen band.</param>
+    /// <param name="siteToAvoid">The death site to stay away from; <c>null</c> for none.</param>
+    /// <returns>The narrowed band, or all of it when there is no site or every ground lies near it.</returns>
+    /// <remarks>
+    /// When EVERY ground lies near the death site, they are all kept: relocating within the band is still
+    /// better than not picking any ground at all - the point pick below still steers away from the site.
+    /// </remarks>
+    internal static List<(MonsterSpawnArea Area, int Level)> WithoutDeathSite(
+        List<(MonsterSpawnArea Area, int Level)> band,
+        Point? siteToAvoid)
+    {
+        if (siteToAvoid is not { } site)
+        {
+            return band;
+        }
+
+        var farGrounds = band.Where(x => GroundDistance(x.Area, site) > DeathSiteAvoidanceRange).ToList();
+        return farGrounds.Count > 0 ? farGrounds : band;
+    }
+
+    /// <summary>
+    /// Narrows a band to the grounds which no other bot outside the party already works, so two independent
+    /// bots do not farm the same monsters.
+    /// </summary>
+    /// <param name="band">The grounds of the chosen band.</param>
+    /// <param name="competitorSpots">The hunting spots of the other bots.</param>
+    /// <returns>The narrowed band, or all of it when every ground is already taken.</returns>
+    internal static List<(MonsterSpawnArea Area, int Level)> WithoutCompetitors(
+        List<(MonsterSpawnArea Area, int Level)> band,
+        IReadOnlyList<HuntingSpot> competitorSpots)
+    {
+        var freeBand = band.Where(x => !HuntingSpotOccupancy.IsSpotOccupied(GroundCenter(x.Area), competitorSpots)).ToList();
+        return freeBand.Count > 0 ? freeBand : band;
+    }
+
+    /// <summary>
+    /// Picks a ground of the band at random, weighted by spawn quantity and proximity (see
+    /// <see cref="GroundWeight"/>): nearby, dense grounds are preferred because travel is time not spent
+    /// hunting, but the pick keeps enough variety to avoid a band of equal grounds always landing on one.
+    /// </summary>
+    /// <param name="band">The grounds of the chosen band.</param>
+    /// <param name="from">The point the bot measures the distance from.</param>
+    /// <returns>The chosen ground, or <c>null</c> if the band is empty.</returns>
+    internal static (MonsterSpawnArea Area, int Level)? PickWeighted(
+        IReadOnlyList<(MonsterSpawnArea Area, int Level)> band,
+        Point from)
+    {
+        if (band.Count == 0)
+        {
+            return null;
+        }
+
+        return band.SelectWeightedRandom(band.Select(x => GroundWeight(x.Area, from)));
+    }
+
+    /// <summary>
     /// Picks a walkable, non-safezone tile of a spawn area for the bot to walk to.
     /// </summary>
     /// <param name="map">The map.</param>
