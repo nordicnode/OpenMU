@@ -237,6 +237,20 @@
     }
   },
   {
+    "Name": "bots_alarm",
+    "InputSchema": {
+      "type": "object",
+      "properties": {}
+    },
+    "Annotations": {
+      "title": null,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    }
+  },
+  {
     "Name": "bots_list",
     "InputSchema": {
       "type": "object",

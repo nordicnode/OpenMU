@@ -121,6 +121,24 @@ public class BotReadOperationsTests
     }
 
     /// <summary>
+    /// The alarm answer a monitor polls carries the alarm and nothing else - no rows, so it stays small - and
+    /// the same facts the alarm node of the bot list carries.
+    /// </summary>
+    [Test]
+    public void ReportsOnlyTheAlarmWithoutTheRows()
+    {
+        var stuck = new BotReadOperations.BotRow(1, "bot-01", "Kain", 42, 7, "Idle", "a walk is in progress", 11 * 60, "Idle for 11:00 (a walk is in progress)", DateTime.UnixEpoch);
+        var hunting = new BotReadOperations.BotRow(1, "bot-02", "Lena", 55, 3, "Hunt", "monsters nearby", 60 * 60, "Hunt for 1:00:00 (monsters nearby)", DateTime.UnixEpoch);
+
+        var alarm = BotReadOperations.AlarmJson(BotReadOperations.ReportAlarm([stuck, hunting]));
+
+        Assert.That(alarm.ContainsKey("bots"), Is.False);
+        Assert.That(alarm["totalBots"]!.GetValue<int>(), Is.EqualTo(2));
+        Assert.That(alarm["stuckBots"]!.GetValue<int>(), Is.EqualTo(1));
+        Assert.That(alarm["line"]!.GetValue<string>(), Is.EqualTo("1 of 2 bots wait for more than 10 minutes: Idle 1."));
+    }
+
+    /// <summary>
     /// The alarm counts the whole list, not the requested page - a stuck bot does not stop being stuck by being
     /// on page two.
     /// </summary>
