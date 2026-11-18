@@ -92,3 +92,7 @@ can be refactored opportunistically when you're already touching it.
 
 Some parts of the codebase knowingly violate the rules and say so in a comment.
 Leave them alone unless fixing them is the task.
+
+## Essential
+
+When making changes to files, use the built in tools the harness provides. For example, do not use bash+python heredocs to edit a file. Use the edit tool.
