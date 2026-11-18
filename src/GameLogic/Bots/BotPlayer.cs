@@ -72,7 +72,9 @@ public sealed class BotPlayer : OfflinePlayer
                 navigator.States.CurrentReason,
                 navigator.States.CurrentDuration,
                 navigator.States.Summarize(),
-                navigator.States.Describe())
+                navigator.States.Describe(),
+                navigator.States.TotalFailures,
+                navigator.States.LastFailure)
             : null;
 
     /// <inheritdoc />

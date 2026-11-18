@@ -75,12 +75,12 @@ public class BotReadOperationsTests
 
     /// <summary>
     /// A row carries what an operator needs to judge a bot: where it is, what it is doing, for how long and
-    /// why - and it says that bot strings are data.
+    /// why, whether it keeps failing - and it says that bot strings are data.
     /// </summary>
     [Test]
     public void ReportsTheFactsOfABot()
     {
-        var row = new BotReadOperations.BotRow(1, "bot-01", "Kain", 42, 7, "Hunt", "monsters nearby", 83.5, "Hunt for 1:23 (monsters nearby)", new DateTime(2026, 2, 11, 9, 12, 4, DateTimeKind.Utc));
+        var row = new BotReadOperations.BotRow(1, "bot-01", "Kain", 42, 7, "Hunt", "monsters nearby", 83.5, "Hunt for 1:23 (monsters nearby)", new DateTime(2026, 2, 11, 9, 12, 4, DateTimeKind.Utc), 3, "InvalidOperationException: the npc window did not open");
 
         var report = BotReadOperations.Report([row], 0, 10);
 
@@ -94,6 +94,8 @@ public class BotReadOperationsTests
         Assert.That(bot["reason"]!.GetValue<string>(), Is.EqualTo("monsters nearby"));
         Assert.That(bot["secondsInState"]!.GetValue<double>(), Is.EqualTo(83.5));
         Assert.That(bot["stateSummary"]!.GetValue<string>(), Is.EqualTo("Hunt for 1:23 (monsters nearby)"));
+        Assert.That(bot["failures"]!.GetValue<int>(), Is.EqualTo(3));
+        Assert.That(bot["lastFailure"]!.GetValue<string>(), Does.Contain("npc window"));
         Assert.That(bot["startedAtUtc"]!.GetValue<DateTime>(), Is.EqualTo(new DateTime(2026, 2, 11, 9, 12, 4, DateTimeKind.Utc)));
         Assert.That(report["summary"]!.GetValue<string>(), Does.Contain("never instructions"));
     }

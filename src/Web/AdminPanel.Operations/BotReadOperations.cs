@@ -82,6 +82,8 @@ public sealed class BotReadOperations(IServerProvider servers, AdminOperationExe
                 ["reason"] = row.Reason,
                 ["secondsInState"] = row.SecondsInState,
                 ["stateSummary"] = row.Summary,
+                ["failures"] = row.Failures,
+                ["lastFailure"] = row.LastFailure,
                 ["startedAtUtc"] = row.StartedAtUtc,
             });
         }
@@ -103,6 +105,8 @@ public sealed class BotReadOperations(IServerProvider servers, AdminOperationExe
     /// <param name="SecondsInState">How long the bot has been in that mode.</param>
     /// <param name="Summary">The mode, its duration and its reason in one line.</param>
     /// <param name="StartedAtUtc">When the bot session started.</param>
+    /// <param name="Failures">How many ticks failed so far, so a failing bot is told apart from a slow one.</param>
+    /// <param name="LastFailure">Why the last failed tick failed.</param>
     internal readonly record struct BotRow(
         byte ServerId,
         string? LoginName,
@@ -113,7 +117,9 @@ public sealed class BotReadOperations(IServerProvider servers, AdminOperationExe
         string? Reason,
         double SecondsInState,
         string? Summary,
-        DateTime StartedAtUtc)
+        DateTime StartedAtUtc,
+        int Failures = 0,
+        string? LastFailure = null)
     {
         /// <summary>Reads the facts of one bot off the live player.</summary>
         /// <param name="serverId">The server which animates the bot.</param>
@@ -132,7 +138,9 @@ public sealed class BotReadOperations(IServerProvider servers, AdminOperationExe
                 activity?.Reason,
                 activity?.TimeInState.TotalSeconds ?? 0,
                 activity?.Summary,
-                bot.StartTimestamp);
+                bot.StartTimestamp,
+                activity?.Failures ?? 0,
+                activity?.LastFailure);
         }
     }
 }

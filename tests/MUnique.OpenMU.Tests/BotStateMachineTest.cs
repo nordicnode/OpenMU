@@ -235,6 +235,76 @@ public class BotStateMachineTest
     }
 
     /// <summary>
+    /// A failed tick is booked to the mode the bot was in, so a mode which keeps throwing is told apart from
+    /// one which is only slow.
+    /// </summary>
+    [Test]
+    public void BooksAFailureToTheModeTheBotWasIn()
+    {
+        var machine = CreateMachine(this._timeProvider);
+
+        machine.Enter(BotState.Shopping, "restocking potions");
+        machine.RecordFailure(new InvalidOperationException("the npc window did not open"));
+        machine.RecordFailure(new InvalidOperationException("the npc window did not open"));
+        machine.Enter(BotState.Hunt, "monsters nearby");
+        machine.RecordFailure(new TimeoutException("no route"));
+
+        Assert.That(machine.TotalFailures, Is.EqualTo(3));
+        Assert.That(machine.FailedCount(BotState.Shopping), Is.EqualTo(2));
+        Assert.That(machine.FailedCount(BotState.Hunt), Is.EqualTo(1));
+        Assert.That(machine.FailedCount(BotState.Travel), Is.Zero);
+        Assert.That(machine.LastFailure, Does.Contain("TimeoutException").And.Contain("no route"));
+    }
+
+    /// <summary>
+    /// The description names the failing modes and the last failure with its time, which is what a game
+    /// master needs to tell a stuck bot from one that is merely slow.
+    /// </summary>
+    [Test]
+    public void DescribesTheFailuresAndTheLastOne()
+    {
+        var machine = CreateMachine(this._timeProvider);
+
+        machine.Enter(BotState.Shopping, "restocking potions");
+        this._timeProvider.Advance(TimeSpan.FromSeconds(5));
+        machine.RecordFailure(new InvalidOperationException("the npc window did not open"));
+
+        var description = machine.Describe();
+        Assert.That(description, Does.Contain("failed 1x: Shopping 1x"));
+        Assert.That(description, Does.Contain("last failure 12:00:05: InvalidOperationException: the npc window did not open"));
+    }
+
+    /// <summary>
+    /// A clean bot reports no failure block at all, so the description stays short for the bots which are
+    /// fine.
+    /// </summary>
+    [Test]
+    public void ReportsNoFailureBlockForACleanBot()
+    {
+        var machine = CreateMachine(this._timeProvider);
+
+        machine.Enter(BotState.Hunt, "monsters nearby");
+
+        Assert.That(machine.TotalFailures, Is.Zero);
+        Assert.That(machine.LastFailure, Is.Null);
+        Assert.That(machine.Describe(), Does.Not.Contain("failed"));
+    }
+
+    /// <summary>
+    /// A very long exception message is cut, so the description stays a readable chat message.
+    /// </summary>
+    [Test]
+    public void CutsAVeryLongFailureMessage()
+    {
+        var machine = CreateMachine(this._timeProvider);
+
+        machine.RecordFailure(new InvalidOperationException(new string('x', 500)));
+
+        Assert.That(machine.LastFailure, Has.Length.LessThan(200));
+        Assert.That(machine.LastFailure, Does.EndWith("..."));
+    }
+
+    /// <summary>
     /// The states which finish before the routine resumes are told apart from the ones which suspend it -
     /// the classification the guard and any reader of the description rely on.
     /// </summary>

@@ -41,10 +41,13 @@ internal sealed class BotStateMachine
 
     private readonly Dictionary<BotState, int> _entered = new();
     private readonly Dictionary<BotState, TimeSpan> _spent = new();
+    private readonly Dictionary<BotState, int> _failed = new();
     private readonly Queue<BotStateTransition> _history = new();
 
     private DateTimeOffset _sinceUtc;
     private string _reason;
+    private string? _lastFailure;
+    private DateTimeOffset? _lastFailureUtc;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="BotStateMachine"/> class.
@@ -90,6 +93,16 @@ internal sealed class BotStateMachine
     internal int Reentries { get; private set; }
 
     /// <summary>
+    /// Gets how many ticks failed with an exception, over all states.
+    /// </summary>
+    internal int TotalFailures { get; private set; }
+
+    /// <summary>
+    /// Gets why the last failed tick failed, or <c>null</c> while no tick failed.
+    /// </summary>
+    internal string? LastFailure => this._lastFailure;
+
+    /// <summary>
     /// Reports the state the current tick put the bot in.
     /// </summary>
     /// <param name="next">The state the tick put the bot in.</param>
@@ -126,6 +139,22 @@ internal sealed class BotStateMachine
     }
 
     /// <summary>
+    /// Records a tick which threw while the bot was in its current state. A mode which looks slow can be told
+    /// apart from one which keeps failing: the counter belongs to the mode the bot was in, and the reason is
+    /// the exception which ended the tick.
+    /// </summary>
+    /// <param name="exception">The exception which ended the tick.</param>
+    internal void RecordFailure(Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+
+        this.TotalFailures++;
+        this._failed[this.Current] = this.FailedCount(this.Current) + 1;
+        this._lastFailure = FormatFailure(exception);
+        this._lastFailureUtc = this._timeProvider.GetUtcNow();
+    }
+
+    /// <summary>
     /// Gets how long the bot has been in the current state.
     /// </summary>
     /// <param name="now">The current time.</param>
@@ -146,6 +175,13 @@ internal sealed class BotStateMachine
     /// <param name="state">The state.</param>
     /// <returns>The number of transitions into the state.</returns>
     internal int EnteredCount(BotState state) => this._entered.GetValueOrDefault(state);
+
+    /// <summary>
+    /// Gets how many ticks failed while the bot was in the state.
+    /// </summary>
+    /// <param name="state">The state.</param>
+    /// <returns>The number of failed ticks in that state.</returns>
+    internal int FailedCount(BotState state) => this._failed.GetValueOrDefault(state);
 
     /// <summary>
     /// Gets the most recent transitions, oldest first.
@@ -187,6 +223,22 @@ internal sealed class BotStateMachine
             builder.Append(", errand bypassed ").Append(this.GuardViolations).Append('x');
         }
 
+        if (this.TotalFailures > 0)
+        {
+            var failed = Enum.GetValues<BotState>()
+                .Where(state => this.FailedCount(state) > 0)
+                .OrderByDescending(this.FailedCount)
+                .Select(state => state + " " + this.FailedCount(state) + "x")
+                .ToList();
+            builder.Append('\n').Append("failed ").Append(this.TotalFailures).Append("x: ").Append(string.Join(", ", failed));
+            if (this._lastFailure is { } lastFailure)
+            {
+                builder.Append('\n').Append("last failure ")
+                    .Append(this._lastFailureUtc?.ToString("HH:mm:ss", CultureInfo.InvariantCulture))
+                    .Append(": ").Append(lastFailure);
+            }
+        }
+
         var spent = Enum.GetValues<BotState>()
             .Select(state => (State: state, Time: this.SpentOf(state, now)))
             .Where(x => x.Time > TimeSpan.Zero)
@@ -209,6 +261,19 @@ internal sealed class BotStateMachine
 
     private static string Format(TimeSpan duration)
         => duration.ToString(duration.TotalHours >= 1 ? @"h\:mm\:ss" : @"m\:ss", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Formats a failure so that the line stays readable in a chat message: the type of the exception and its
+    /// message, cut at a length a game master can scan.
+    /// </summary>
+    /// <param name="exception">The exception which ended the tick.</param>
+    /// <returns>The formatted failure.</returns>
+    private static string FormatFailure(Exception exception)
+    {
+        const int MaximumLength = 160;
+        var text = exception.GetType().Name + ": " + exception.Message;
+        return text.Length <= MaximumLength ? text : text[..MaximumLength] + "...";
+    }
 
     private TimeSpan SpentOf(BotState state, DateTimeOffset now)
         => this._spent.GetValueOrDefault(state) + (state == this.Current ? now - this._sinceUtc : TimeSpan.Zero);

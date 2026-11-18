@@ -14,4 +14,6 @@ namespace MUnique.OpenMU.GameLogic.Bots;
 /// <param name="TimeInState">How long the bot has already been in that mode.</param>
 /// <param name="Summary">The mode, its duration and its reason in one line.</param>
 /// <param name="Detail">The long form: where the bot's time went, its recent transitions and its guard violations.</param>
-public sealed record BotActivity(string State, string Reason, TimeSpan TimeInState, string Summary, string Detail);
+/// <param name="Failures">How many ticks failed so far, over all modes.</param>
+/// <param name="LastFailure">Why the last failed tick failed, or <c>null</c> while no tick failed.</param>
+public sealed record BotActivity(string State, string Reason, TimeSpan TimeInState, string Summary, string Detail, int Failures = 0, string? LastFailure = null);
