@@ -1,0 +1,13 @@
+@* A warning about the bots which wait in one mode for too long, shown by the dashboard and the logged in page. *@
+@if (this.Line is { Length: > 0 } line)
+{
+    <div class="alert alert-warning" role="status" id="bots-stuck-alarm">@line</div>
+}
+
+@code {
+    /// <summary>
+    /// Gets or sets the alarm sentence, as the operations layer reports it; nothing is rendered while it is empty.
+    /// </summary>
+    [Parameter]
+    public string? Line { get; set; }
+}

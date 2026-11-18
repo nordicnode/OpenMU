@@ -7,6 +7,7 @@ namespace MUnique.OpenMU.Web.Tests.Dashboard;
 using System.Globalization;
 using System.Threading;
 using Bunit;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -145,6 +146,7 @@ public class IndexPageTests
         context.Services.AddSingleton<IPersistenceContextProvider>(contextProvider.Object);
         context.Services.AddSingleton(new DataUpdateService(contextProvider.Object, plugInManager));
         context.Services.AddSingleton(new CastleSiegeManagementService(serverProvider));
+        context.Services.AddSingleton(new BotAccountService(serverProvider, new MemoryCache(new MemoryCacheOptions())));
         context.Services.AddSingleton<NavigationHistory>();
         context.Services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
         return context;

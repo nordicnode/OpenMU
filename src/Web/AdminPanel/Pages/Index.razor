@@ -20,6 +20,8 @@
 </header>
 
 <div class="dashboard">
+    <BotStuckAlarmBanner Line="@this._stuckBotsAlarm" />
+
     <div class="dashboard-grid dashboard-statistics">
         <StatisticCard Title="@Resources.DashboardPlayersOnline" Icon="oi-people" Tone="blue">
             <Value>@ServerStatistics.GetOnlinePlayerCount(this._servers).ToString("N0")</Value>

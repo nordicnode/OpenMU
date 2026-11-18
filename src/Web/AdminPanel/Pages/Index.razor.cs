@@ -13,6 +13,7 @@ using MUnique.OpenMU.Interfaces;
 using MUnique.OpenMU.Persistence;
 using MUnique.OpenMU.Web.AdminPanel.Operations;
 using MUnique.OpenMU.Web.AdminPanel.Properties;
+using MUnique.OpenMU.Web.Shared.Services;
 
 /// <summary>
 /// The start page of the admin panel, which shows a dashboard with statistics about the server.
@@ -29,8 +30,13 @@ public partial class Index : IDisposable
 
     private bool _isGlobalMessageAvailable;
 
+    private string? _stuckBotsAlarm;
+
     [Inject]
     private IServerProvider ServerProvider { get; set; } = null!;
+
+    [Inject]
+    private BotAccountService BotService { get; set; } = null!;
 
     [Inject]
     private ServerReadOperations ReadOperations { get; set; } = null!;
@@ -133,6 +139,16 @@ public partial class Index : IDisposable
         catch (Exception ex)
         {
             this.Logger.LogWarning(ex, "Couldn't load the guild statistics.");
+        }
+
+        try
+        {
+            // Bots only exist inside a game server process, so this stays empty in a distributed deployment.
+            this._stuckBotsAlarm = await this.BotService.GetStuckAlarmAsync().ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            this.Logger.LogWarning(ex, "Couldn't load the bot alarm.");
         }
 
         this._isLoadingStatistics = false;

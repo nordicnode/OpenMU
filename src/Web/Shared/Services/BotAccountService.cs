@@ -60,6 +60,23 @@ public class BotAccountService : IDataService<BotAccount>
     /// </remarks>
     public async Task<List<BotAccount>> GetAsync(int offset, int count)
     {
+        var all = await this.EnsureLoadedAsync().ConfigureAwait(false);
+        return all.Skip(offset).Take(count).ToList();
+    }
+
+    /// <summary>
+    /// Gets the alarm about the bots which wait in one mode for too long, loading the bot list if it is not
+    /// cached yet - the answer for a page which shows the alarm without the table, like the dashboard.
+    /// </summary>
+    /// <returns>The alarm sentence, or <c>null</c> while no bot is stuck.</returns>
+    public async Task<string?> GetStuckAlarmAsync()
+    {
+        await this.EnsureLoadedAsync().ConfigureAwait(false);
+        return this.StuckAlarm;
+    }
+
+    private async Task<List<BotAccount>> EnsureLoadedAsync()
+    {
         if (!this._cache.TryGetValue<List<BotAccount>>(ListCacheKey, out var cached) || cached is null)
         {
             cached = await this.LoadAsync().ConfigureAwait(false);
@@ -70,7 +87,7 @@ public class BotAccountService : IDataService<BotAccount>
         var alarm = BotStuckAlarm.Describe(modes, cached.Count, BotStuckAlarm.Threshold);
         this.StuckAlarm = alarm.Length == 0 ? null : alarm;
 
-        return cached.Skip(offset).Take(count).ToList();
+        return cached;
     }
 
     private async Task<List<BotAccount>> LoadAsync()

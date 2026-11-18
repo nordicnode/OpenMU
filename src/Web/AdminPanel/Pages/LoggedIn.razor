@@ -120,10 +120,7 @@
   else if (this._activeTab == Tab.Bots)
   {
     <div class="w-100" role="tabpanel" id="panel-bots" aria-labelledby="tab-bots">
-      @if (this.BotService.StuckAlarm is { } stuck)
-      {
-        <div class="alert alert-warning" role="status" id="bots-stuck-alarm">@stuck</div>
-      }
+      <BotStuckAlarmBanner Line="@this.BotService.StuckAlarm" />
       <DataTable TItem=@BotAccount>
         <TableHeader>
           <th class="col-2">@typeof(Account).GetPropertyCaption(nameof(Account.LoginName))</th>
