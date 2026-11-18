@@ -1,0 +1,52 @@
+@using MUnique.OpenMU.DataModel
+@using MUnique.OpenMU.DataModel.Entities
+@using MUnique.OpenMU.Web.AdminPanel.Properties
+
+@* The bot table of the "Logged In" page. It is its own component so it can be rendered and checked without a
+   running game server: the page decides whether the tab exists, this panel shows what is in it. *@
+<BotStuckAlarmBanner Line="@this.AlarmLine" />
+<DataTable TItem=@BotAccount>
+    <TableHeader>
+        <th class="col-2">@typeof(Account).GetPropertyCaption(nameof(Account.LoginName))</th>
+        <th class="col-1">@Resources.Character</th>
+        <th class="col-1">@Resources.ServerID</th>
+        <th class="col-2">@Resources.BotState</th>
+        <th class="col-1">@Resources.BotHealth</th>
+        <th class="col-1">@Resources.Guild</th>
+        <th class="col-1">@Resources.Party</th>
+        <th class="col-2">@Resources.StartedAt</th>
+    </TableHeader>
+    <ItemTemplate Context="item">
+        <td>@item.LoginName</td>
+        <td>@(item.CharacterName ?? Resources.EmptyValue)</td>
+        <td>@item.ServerId</td>
+        <td title="@item.StateDetail">@(item.State ?? Resources.EmptyValue)</td>
+        <td>
+            @if (item.QuarantinedSeconds > 0)
+            {
+                <span class="badge bg-warning text-dark" title="@string.Format(Resources.BotQuarantined, this.QuarantineMinutes(item.QuarantinedSeconds))">@string.Format(Resources.BotQuarantined, this.QuarantineMinutes(item.QuarantinedSeconds))</span>
+            }
+            else if (item.Restarts > 0)
+            {
+                <span class="badge bg-secondary">@string.Format(Resources.BotRestarts, item.Restarts)</span>
+            }
+            else
+            {
+                @Resources.EmptyValue
+            }
+        </td>
+        <td>@(item.GuildName ?? Resources.EmptyValue)</td>
+        <td><PartyBadge PartyMaster="@item.PartyMaster" PartySize="@item.PartySize" /></td>
+        <td>@item.StartedAt.ToString("yyyy-MM-dd HH:mm:ss") UTC</td>
+    </ItemTemplate>
+</DataTable>
+
+@code {
+    /// <summary>
+    /// Gets or sets the alarm sentence about the bots which need attention, or <c>null</c> while none does.
+    /// </summary>
+    [Parameter]
+    public string? AlarmLine { get; set; }
+
+    private int QuarantineMinutes(double seconds) => Math.Max(1, (int)Math.Ceiling(seconds / 60));
+}

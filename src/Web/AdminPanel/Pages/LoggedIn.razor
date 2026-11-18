@@ -120,27 +120,7 @@
   else if (this._activeTab == Tab.Bots)
   {
     <div class="w-100" role="tabpanel" id="panel-bots" aria-labelledby="tab-bots">
-      <BotStuckAlarmBanner Line="@this.BotService.StuckAlarm" />
-      <DataTable TItem=@BotAccount>
-        <TableHeader>
-          <th class="col-2">@typeof(Account).GetPropertyCaption(nameof(Account.LoginName))</th>
-          <th class="col-1">@Resources.Character</th>
-          <th class="col-1">@Resources.ServerID</th>
-          <th class="col-3">@Resources.BotState</th>
-          <th class="col-1">@Resources.Guild</th>
-          <th class="col-1">@Resources.Party</th>
-          <th class="col-2">@Resources.StartedAt</th>
-        </TableHeader>
-        <ItemTemplate Context="item">
-          <td>@item.LoginName</td>
-          <td>@(item.CharacterName ?? Resources.EmptyValue)</td>
-          <td>@item.ServerId</td>
-          <td title="@item.StateDetail">@(item.State ?? Resources.EmptyValue)</td>
-          <td>@(item.GuildName ?? Resources.EmptyValue)</td>
-          <td><PartyBadge PartyMaster="@item.PartyMaster" PartySize="@item.PartySize" /></td>
-          <td>@item.StartedAt.ToString("yyyy-MM-dd HH:mm:ss") UTC</td>
-        </ItemTemplate>
-      </DataTable>
+      <BotListPanel AlarmLine="@this.BotService.StuckAlarm" />
     </div>
   }
 </div>

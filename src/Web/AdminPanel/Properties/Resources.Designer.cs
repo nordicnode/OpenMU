@@ -8321,5 +8321,32 @@ namespace MUnique.OpenMU.Web.AdminPanel.Properties {
                 return ResourceManager.GetString("ExcellentOptionsHint", resourceCulture);
             }
         }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Health.
+        /// </summary>
+        public static string BotHealth {
+            get {
+                return ResourceManager.GetString("BotHealth", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to {0}× restarts.
+        /// </summary>
+        public static string BotRestarts {
+            get {
+                return ResourceManager.GetString("BotRestarts", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to quarantined {0} min.
+        /// </summary>
+        public static string BotQuarantined {
+            get {
+                return ResourceManager.GetString("BotQuarantined", resourceCulture);
+            }
+        }
     }
 }

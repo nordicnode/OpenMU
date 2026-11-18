@@ -2759,4 +2759,13 @@
   <data name="ShopImportRejected" xml:space="preserve">
     <value>The shop was not changed, because the file contains entries which can't be imported: {0}</value>
   </data>
+  <data name="BotHealth" xml:space="preserve">
+    <value>Health</value>
+  </data>
+  <data name="BotRestarts" xml:space="preserve">
+    <value>{0}× restarts</value>
+  </data>
+  <data name="BotQuarantined" xml:space="preserve">
+    <value>quarantined {0} min</value>
+  </data>
 </root>
