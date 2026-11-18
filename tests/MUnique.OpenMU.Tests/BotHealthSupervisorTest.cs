@@ -149,6 +149,28 @@ public class BotHealthSupervisorTest
     }
 
     /// <summary>
+    /// A bot which keeps failing stops writing an error line per tick, and starts over once it ticks again.
+    /// </summary>
+    [Test]
+    public void AFailureStreakIsLoggedOnlyAtItsStart()
+    {
+        var supervisor = this.CreateSupervisor();
+
+        for (var i = 0; i < BotHealthPolicy.FaultsLoggedAtError; i++)
+        {
+            Assert.That(supervisor.ShouldLogFault(), Is.True, $"failure #{i + 1}");
+            supervisor.RecordFault(new NullReferenceException());
+        }
+
+        Assert.That(supervisor.ShouldLogFault(), Is.False);
+        supervisor.RecordFault(new NullReferenceException());
+        Assert.That(supervisor.ShouldLogFault(), Is.False);
+
+        supervisor.RecordTickSucceeded();
+        Assert.That(supervisor.ShouldLogFault(), Is.True);
+    }
+
+    /// <summary>
     /// The quarantine report is logged once, so a pass which visits the bot every second doesn't flood the log.
     /// </summary>
     [Test]

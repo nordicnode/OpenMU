@@ -451,6 +451,15 @@ public class OfflinePlayer : Player
         // Nothing to do for a plain offline player.
     }
 
+    /// <summary>
+    /// Determines whether a failed AI tick is worth an error log entry, or just a debug one. Always true here, so a
+    /// human's offline session logs every failure it has; a bot tunes it down once its ticks keep failing, because
+    /// a broken bot fails every two seconds at best and a 250 ms timer at worst (see
+    /// <see cref="Bots.BotHealthSupervisor"/>).
+    /// </summary>
+    /// <returns><c>true</c> if the failure belongs in the log at error level.</returns>
+    internal virtual bool ShouldLogAiTickFailure() => true;
+
     /// <inheritdoc />
     protected override async ValueTask InternalDisconnectAsync()
     {

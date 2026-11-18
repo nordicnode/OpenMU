@@ -91,6 +91,9 @@ public sealed class BotPlayer : OfflinePlayer
     }
 
     /// <inheritdoc />
+    internal override bool ShouldLogAiTickFailure() => this.Health.ShouldLogFault();
+
+    /// <inheritdoc />
     internal override void OnAiTickSucceeded() => this.Health.RecordTickSucceeded();
 
     /// <inheritdoc />

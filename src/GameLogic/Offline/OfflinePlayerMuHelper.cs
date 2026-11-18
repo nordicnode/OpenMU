@@ -154,7 +154,16 @@ public sealed class OfflinePlayerMuHelper : AsyncDisposable
         }
         catch (Exception ex)
         {
-            this._player.Logger.LogError(ex, "Error in offline player helper tick for {AccountLoginName}.", this._player.AccountLoginName);
+            if (this._player.ShouldLogAiTickFailure())
+            {
+                this._player.Logger.LogError(ex, "Error in offline player helper tick for {AccountLoginName}.", this._player.AccountLoginName);
+            }
+            else
+            {
+                // Repeating failure of a bot which is already being handled - see BotHealthSupervisor.
+                this._player.Logger.LogDebug(ex, "Error in offline player helper tick for {AccountLoginName} (repeated).", this._player.AccountLoginName);
+            }
+
             this._player.OnAiTickFailed(ex);
         }
     }

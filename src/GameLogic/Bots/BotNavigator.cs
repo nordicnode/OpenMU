@@ -1407,7 +1407,17 @@ internal sealed class BotNavigator : AsyncDisposable
         }
         catch (Exception ex)
         {
-            this._player.Logger.LogError(ex, "Bot navigator error for {Account}.", this._player.AccountLoginName);
+            if (this._player.ShouldLogAiTickFailure())
+            {
+                this._player.Logger.LogError(ex, "Bot navigator error for {Account}.", this._player.AccountLoginName);
+            }
+            else
+            {
+                // A bot which keeps failing fails every two seconds; the first failures are in the log already,
+                // and the health record of the account carries the count (see BotHealthSupervisor).
+                this._player.Logger.LogDebug(ex, "Bot navigator error for {Account} (repeated).", this._player.AccountLoginName);
+            }
+
             this._states.RecordFailure(ex);
             this._player.OnAiTickFailed(ex);
         }

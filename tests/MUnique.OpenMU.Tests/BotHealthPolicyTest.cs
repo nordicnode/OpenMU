@@ -102,6 +102,25 @@ public class BotHealthPolicyTest
         Assert.That(BotHealthPolicy.QuarantineFor(1000), Is.EqualTo(BotHealthPolicy.MaximumQuarantine));
     }
 
+    /// <summary>
+    /// A broken bot fails on two timers at once, so only the start of a streak and a trace every hundred failures
+    /// reach the log at error level - the flood would bury the diagnosis.
+    /// </summary>
+    [Test]
+    public void OnlyTheStartOfAFailureStreakIsLoggedLoudly()
+    {
+        for (var alreadyFailed = 0; alreadyFailed < BotHealthPolicy.FaultsLoggedAtError; alreadyFailed++)
+        {
+            Assert.That(BotHealthPolicy.ShouldLogFaultAtError(alreadyFailed), Is.True, $"failure #{alreadyFailed + 1}");
+        }
+
+        Assert.That(BotHealthPolicy.ShouldLogFaultAtError(BotHealthPolicy.FaultsLoggedAtError), Is.False);
+        Assert.That(BotHealthPolicy.ShouldLogFaultAtError(BotHealthPolicy.FaultsLoggedAtError + 1), Is.False);
+        Assert.That(BotHealthPolicy.ShouldLogFaultAtError(BotHealthPolicy.FaultsPerQuietLog), Is.True);
+        Assert.That(BotHealthPolicy.ShouldLogFaultAtError(BotHealthPolicy.FaultsPerQuietLog + 1), Is.False);
+        Assert.That(BotHealthPolicy.ShouldLogFaultAtError(BotHealthPolicy.FaultsPerQuietLog * 2), Is.True);
+    }
+
     private static Exception Create(Type exceptionType)
         => (Exception)Activator.CreateInstance(exceptionType)!;
 }

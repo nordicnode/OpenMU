@@ -68,7 +68,23 @@ internal static class BotHealthPolicy
     /// </summary>
     internal const int RestartsPerMaintenancePass = 5;
 
-    /// <summary>The quarantine after the first restart which did not stick; it doubles from there.</summary>
+    /// <summary>
+    /// How many failed ticks of a streak are logged at error level before only every
+    /// <see cref="FaultsPerQuietLog"/>th one is. A broken bot fails on two timers at once - the navigation tick every
+    /// two seconds and the MU Helper tick every few hundred milliseconds - so keeping every failure in the log would
+    /// bury the one line which matters.
+    /// </summary>
+    internal const int FaultsLoggedAtError = 3;
+
+    /// <summary>
+    /// After <see cref="FaultsLoggedAtError"/> failures of a streak, every this many failures is still logged at
+    /// error level, so a long streak leaves a trace instead of going silent.
+    /// </summary>
+    internal const int FaultsPerQuietLog = 100;
+
+    /// <summary>
+    /// The quarantine after the first restart which did not stick; it doubles from there.
+    /// </summary>
     internal static readonly TimeSpan BaseQuarantine = TimeSpan.FromMinutes(5);
 
     /// <summary>The longest quarantine - a bot isn't restarted for a while, but it is not written off either.</summary>
@@ -123,6 +139,14 @@ internal static class BotHealthPolicy
         var minutes = BaseQuarantine.TotalMinutes * Math.Pow(2, Math.Min(steps, 8));
         return TimeSpan.FromMinutes(Math.Min(minutes, MaximumQuarantine.TotalMinutes));
     }
+
+    /// <summary>
+    /// Determines whether a failure belongs in the log at error level, given how many ticks already failed in a row.
+    /// </summary>
+    /// <param name="consecutiveFaults">How many ticks of the current streak already failed.</param>
+    /// <returns><c>true</c> if the failure should be logged at error level, <c>false</c> to only debug it.</returns>
+    internal static bool ShouldLogFaultAtError(int consecutiveFaults)
+        => consecutiveFaults < FaultsLoggedAtError || consecutiveFaults % FaultsPerQuietLog == 0;
 
     /// <summary>
     /// Describes a fault kind for a log line or the operator surfaces.

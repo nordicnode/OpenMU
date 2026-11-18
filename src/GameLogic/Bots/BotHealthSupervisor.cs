@@ -185,6 +185,20 @@ internal sealed class BotHealthSupervisor
     }
 
     /// <summary>
+    /// Asks whether a failed tick belongs in the log at error level. A bot which keeps failing should leave one line
+    /// per streak - plus a trace every <see cref="BotHealthPolicy.FaultsPerQuietLog"/> failures - instead of one line
+    /// per tick: a broken bot fails on two timers at once, and the flood buries the diagnosis.
+    /// </summary>
+    /// <returns><c>true</c> if the failure should be logged at error level, <c>false</c> to only debug it.</returns>
+    internal bool ShouldLogFault()
+    {
+        lock (this._lock)
+        {
+            return BotHealthPolicy.ShouldLogFaultAtError(this._consecutiveFaults);
+        }
+    }
+
+    /// <summary>
     /// Records a successful AI tick: the bot is not broken, so its consecutive faults are forgotten and - if it
     /// has been ticking for <see cref="BotHealthPolicy.StreakForgiveness"/> since its last restart - its restart
     /// streak, which ends a quarantine escalation.
