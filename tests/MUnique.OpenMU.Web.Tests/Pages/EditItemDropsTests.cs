@@ -94,6 +94,8 @@ public class EditItemDropsTests
         var addButton = cut.FindAll("button").First(button => button.TextContent.Contains("Add drop item group"));
         addButton.Click();
 
-        Assert.That(this._map.DropItemGroups, Has.Count.EqualTo(1));
+        // The page settles asynchronously, so read the result once it has: a plain assertion here raced the render
+        // which installs the maps and failed intermittently in a full test run.
+        cut.WaitForAssertion(() => Assert.That(this._map.DropItemGroups, Has.Count.EqualTo(1)), TimeSpan.FromSeconds(10));
     }
 }
