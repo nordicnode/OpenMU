@@ -265,6 +265,48 @@ public class BotPartyHandlerTest
         Assert.That(bot.LastPartyRequester, Is.SameAs(requester));
     }
 
+    /// <summary>
+    /// The answer delay comes from the bot's own session source and stays inside the human-like window:
+    /// it never answers instantly and never after the inviter has given up.
+    /// </summary>
+    [Test]
+    public async ValueTask InviteAnswerDelayIsBoundedAsync()
+    {
+        var gameContext = GameContextTestHelper.CreateGameContext();
+        var bot = await CreateBotAsync(gameContext, "Bot").ConfigureAwait(false);
+        var requester = await CreateHumanAsync(gameContext, "Human").ConfigureAwait(false);
+        bot.SessionRandom = new BotSessionRandom(4242);
+
+        var scheduled = await BotPartyHandler.TryScheduleAcceptAsync(bot, requester, null).ConfigureAwait(false);
+
+        Assert.That(scheduled, Is.True);
+        Assert.That(bot.PendingPartyInvite, Is.Not.Null);
+        var delay = bot.PendingPartyInvite!.AcceptAtUtc - DateTime.UtcNow;
+        Assert.That(delay, Is.InRange(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(15)));
+    }
+
+    /// <summary>
+    /// The guardrail for a reported pattern: two bots with the same session seed and persona answer in the
+    /// same moment, so the logged seed replays the behavior.
+    /// </summary>
+    [Test]
+    public async ValueTask SameSeedAnswersInTheSameMomentAsync()
+    {
+        var gameContext = GameContextTestHelper.CreateGameContext();
+        var first = await CreateBotAsync(gameContext, "First").ConfigureAwait(false);
+        var second = await CreateBotAsync(gameContext, "Second").ConfigureAwait(false);
+        var requester = await CreateHumanAsync(gameContext, "Human").ConfigureAwait(false);
+        first.SessionRandom = new BotSessionRandom(9001);
+        second.SessionRandom = new BotSessionRandom(9001);
+
+        await BotPartyHandler.TryScheduleAcceptAsync(first, requester, null).ConfigureAwait(false);
+        await BotPartyHandler.TryScheduleAcceptAsync(second, requester, null).ConfigureAwait(false);
+
+        var firstDelay = first.PendingPartyInvite!.AcceptAtUtc - DateTime.UtcNow;
+        var secondDelay = second.PendingPartyInvite!.AcceptAtUtc - DateTime.UtcNow;
+        Assert.That((secondDelay - firstDelay).Duration(), Is.LessThan(TimeSpan.FromMilliseconds(250)));
+    }
+
     private static async ValueTask<OfflinePlayer> CreateBotAsync(IGameContext gameContext, string name, bool isBot = true)
     {
         var bot = await PlayerTestHelper.CreateOfflineLevelingPlayerAsync(gameContext).ConfigureAwait(false);

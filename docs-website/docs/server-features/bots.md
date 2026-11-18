@@ -111,6 +111,18 @@ The *Bots* feature plugin, in the "Feature Plugins" section of the
 - **`Equipment budget %`** — the share of its money a bot may spend on equipment
   per shopping trip (only used when buying equipment is enabled). A piece above
   it stays on the shelf, so the bot keeps its potion and warp money.
+- **`Persona mix`** — the weighted play styles the population is drawn from, as
+  `name:weight` pairs (default
+  `balanced:70,aggressive:10,cautious:10,trader:5,social:5`). A persona shifts
+  only bounded dials — how much damage a bot accepts per hit, how early it heads
+  to a merchant, how quickly it answers — and never changes what a bot may do.
+  Unknown names are ignored; when nothing valid is left, the default mix applies.
+  A character keeps the persona it was drawn with, across restarts.
+- **`Random seed salt`** — an optional server-wide salt for the per-bot random
+  seeds (0 by default). Each bot's seed is derived from its account, character
+  and this salt and logged when it starts, so a reported pattern can be
+  replayed exactly. Change it to give the same population different behavior
+  noise; keep it to keep sessions reproducible.
 - **`Reset bots`** — deletes the whole population and generates it again, then
   clears itself. With the number of accounts set to zero it deletes without
   generating anything.
@@ -497,6 +509,24 @@ one.
 Over the day, the presence rotation logs bots in and out: fewest in the early
 morning, most in the evening, and never more than one at a time, so the
 population ebbs and flows instead of appearing and vanishing in blocks.
+
+Within that rhythm, each bot has a play style (see **Persona mix**): a cautious
+bot fights monsters with more headroom and visits a merchant a few slots earlier,
+an aggressive one accepts bigger hits, a trader keeps its backpack emptier and a
+social one answers invitations and whispers sooner. The style is fixed per
+character and only moves those dials inside the ranges the bot already works in,
+so a persona can neither make a bot reckless nor break a routine — the safety
+checks, the experience floor and the party rules stay exactly as they are for a
+balanced bot.
+
+The bots' behavior noise — the ground and map it picks, the moment it answers an
+invitation, when it starts typing a reply — comes from a random source of its own,
+seeded from the account, the character and the configured salt. The seed is
+written to the log when the bot starts (`Bot '…' plays as <persona> (session seed
+…)`), which is all a report about a patterned bot needs to be replayed: set the
+same salt and the same bot draws the same values again. Chat lines and other
+engine randomness still use the shared source, so only the logged behavior paths
+are exact replays; for a full replay keep the bot population and its state.
 
 ### Talking
 

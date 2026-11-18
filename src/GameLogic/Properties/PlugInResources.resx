@@ -1392,6 +1392,10 @@
   <data name="BotConfiguration_BuyEquipment_Description" xml:space="preserve"><value>If enabled, bots buy equipment upgrades from the merchants they visit instead of only wearing what they find. Off by default: it changes the server economy the prices are balanced around.</value></data>
   <data name="BotConfiguration_EquipmentBudgetPercent_Name" xml:space="preserve"><value>Equipment budget %</value></data>
   <data name="BotConfiguration_EquipmentBudgetPercent_Description" xml:space="preserve"><value>Share of its money a bot may spend on equipment per shopping trip. Only used when buying equipment is enabled.</value></data>
+  <data name="BotConfiguration_PersonaMix_Name" xml:space="preserve"><value>Persona mix</value></data>
+  <data name="BotConfiguration_PersonaMix_Description" xml:space="preserve"><value>Weighted mix of play styles, e.g. balanced:70,aggressive:10,cautious:10,trader:5,social:5. A persona only shifts bounded dials (how much damage a bot accepts, when it shops, how fast it answers) - it never changes what a bot may do. Unknown entries are ignored.</value></data>
+  <data name="BotConfiguration_RandomSeed_Name" xml:space="preserve"><value>Random seed salt</value></data>
+  <data name="BotConfiguration_RandomSeed_Description" xml:space="preserve"><value>Optional server-wide salt for the per-bot random seeds. Each bot's seed is derived from its account, character and this salt, and logged when it starts, so a report can be replayed exactly. 0 is the default.</value></data>
   <data name="BotConfiguration_MasterPointBankingCap_Name" xml:space="preserve"><value>Master point banking cap</value></data>
   <data name="BotConfiguration_MasterPointBankingCap_Description" xml:space="preserve"><value>How many master points a bot may save up for a master skill which costs several points at once. 0 invests every point immediately.</value></data>
   <data name="BotConfiguration_UseEnemyDebuffs_Name" xml:space="preserve"><value>Use enemy debuffs</value></data>

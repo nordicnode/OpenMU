@@ -163,6 +163,27 @@ public class BotConfiguration
     public int EquipmentBudgetPercent { get; set; } = 50;
 
     /// <summary>
+    /// Gets or sets the weighted mix of play style personas the population is drawn from, e.g.
+    /// <c>balanced:70,aggressive:10,cautious:10,trader:5,social:5</c>. A persona only shifts a few bounded
+    /// dials (combat headroom, shopping trigger, reaction delay) - it never changes what a bot may do.
+    /// Unknown names and empty entries are ignored; when nothing valid is left, the default mix is used.
+    /// The persona of a character is derived from its account and name, so it stays the same across
+    /// restarts and can be named in a report.
+    /// </summary>
+    [Display(Name = nameof(MUnique.OpenMU.GameLogic.Properties.PlugInResources.BotConfiguration_PersonaMix_Name), Description = nameof(MUnique.OpenMU.GameLogic.Properties.PlugInResources.BotConfiguration_PersonaMix_Description), ResourceType = typeof(MUnique.OpenMU.GameLogic.Properties.PlugInResources))]
+    public string PersonaMix { get; set; } = BotPersonaProfile.DefaultMix;
+
+    /// <summary>
+    /// Gets or sets an optional server-wide salt for the per-bot random seeds. The seed of a bot session
+    /// is derived from its account, its character name and this salt, and logged when the bot starts, so a
+    /// report can be replayed exactly. Change it to give an identical population a different behavior
+    /// noise; keep it to keep the sessions reproducible.
+    /// </summary>
+    [Display(Name = nameof(MUnique.OpenMU.GameLogic.Properties.PlugInResources.BotConfiguration_RandomSeed_Name), Description = nameof(MUnique.OpenMU.GameLogic.Properties.PlugInResources.BotConfiguration_RandomSeed_Description), ResourceType = typeof(MUnique.OpenMU.GameLogic.Properties.PlugInResources))]
+    [Range(0, 1000000)]
+    public int RandomSeed { get; set; }
+
+    /// <summary>
     /// Gets or sets the maps bots never warp to: they don't pick them as hunting grounds, don't follow
     /// a party leader there, don't enter events held on them, and a bot which logs in on one leaves it.
     /// Players are not affected. Empty by default; servers use it for maps where a bot does more harm

@@ -117,6 +117,7 @@ internal static class BotMapChoicePlanner
     /// runners-up the rest of the time (see <see cref="BotHuntingGroundSelector.PickByRank"/>).
     /// </summary>
     /// <param name="candidates">The candidates, unordered.</param>
+    /// <param name="randomizer">The bot's session random source, so its route can be replayed; <c>null</c> for the shared one.</param>
     /// <returns>The picked candidate, or <c>null</c> if there is none.</returns>
     /// <remarks>
     /// Always taking the single strongest map emptied the world: the maps of a level band differ by a few
@@ -125,7 +126,7 @@ internal static class BotMapChoicePlanner
     /// map still wins most of the picks; the runners-up share the rest, so the population spreads over the
     /// maps a player of that band would choose between.
     /// </remarks>
-    internal static MapChoice? PickStrongest(IReadOnlyList<MapChoice> candidates)
+    internal static MapChoice? PickStrongest(IReadOnlyList<MapChoice> candidates, IRandomizer? randomizer = null)
     {
         if (candidates.Count == 0)
         {
@@ -133,7 +134,7 @@ internal static class BotMapChoicePlanner
         }
 
         var ranked = candidates.OrderByDescending(candidate => candidate.Level).ToList();
-        return ranked[BotHuntingGroundSelector.PickByRank(ranked.Count)];
+        return ranked[BotHuntingGroundSelector.PickByRank(ranked.Count, randomizer)];
     }
 
     /// <summary>

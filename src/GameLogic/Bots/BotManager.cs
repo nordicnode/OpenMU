@@ -92,6 +92,18 @@ public sealed class BotManager
             // as such, so the next restart escalation continues instead of starting over.
             bot.Health = this.HealthFor(loginName);
 
+            // The behavior persona and the session seed are derived from the identity, so a bot keeps its
+            // style across restarts and a report can be replayed exactly from the logged seed.
+            var configuration = BotFeaturePlugIn.GetConfiguration(gameContext);
+            bot.Persona = BotPersonaProfile.PickPersona(configuration?.PersonaMix, loginName, character.Name);
+            var seed = BotPersonaProfile.DeriveSeed(loginName, character.Name, configuration?.RandomSeed ?? 0);
+            bot.SessionRandom = new BotSessionRandom(seed);
+            bot.Logger.LogInformation(
+                "Bot {Character} plays as {Persona} (session seed {Seed}).",
+                character.Name,
+                bot.Persona,
+                seed);
+
             if (!await bot.InitializeAsync(loginName, character.Name).ConfigureAwait(false))
             {
                 await this.RemoveAndDisposeAsync(key, bot).ConfigureAwait(false);

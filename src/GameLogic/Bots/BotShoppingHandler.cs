@@ -68,7 +68,7 @@ internal static class BotShoppingHandler
             return false;
         }
 
-        if (IsUnderSlotPressure(inventory) && GetSellableJunk(player, inventory).Count > 0)
+        if (IsUnderSlotPressure(inventory, player) && GetSellableJunk(player, inventory).Count > 0)
         {
             return true;
         }
@@ -608,6 +608,13 @@ internal static class BotShoppingHandler
     private static bool Matches(Item item, ItemIdentifier identifier)
         => item.Definition is { } definition && identifier == new ItemIdentifier(definition.Number, definition.Group);
 
-    private static bool IsUnderSlotPressure(IStorage inventory)
-        => inventory.FreeSlots.Count() < FreeSlotPressure;
+    /// <summary>
+    /// Whether the backpack is running out of free slots. A <see cref="BotPersona.Trader" /> - or a
+    /// cautious bot, which rather restocks than runs out in a fight - heads off a few slots earlier.
+    /// </summary>
+    /// <param name="inventory">The inventory.</param>
+    /// <param name="player">The player whose persona shifts the threshold; <c>null</c> for the plain threshold.</param>
+    /// <returns><c>true</c>, if the backpack is under slot pressure.</returns>
+    private static bool IsUnderSlotPressure(IStorage inventory, Player? player = null)
+        => inventory.FreeSlots.Count() < FreeSlotPressure + (player is null ? 0 : BotPersonaProfile.For(player).ShoppingSlotBonus);
 }

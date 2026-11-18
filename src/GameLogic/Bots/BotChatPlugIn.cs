@@ -721,7 +721,7 @@ public class BotChatPlugIn
         var values = BotChatValues.Create(bot);
         values["player"] = _ => senderName;
         var language = BotChatComposer.GetLanguage(message, configuration);
-        RunLater(bot.GameContext, BotChatTiming.TypingDelay(answer), () => BotChatAudience.IsAvailable(bot) ? BotChatSpeaker.SayAsync(bot, answer, values, language, toward: sender) : ValueTask.CompletedTask);
+        RunLater(bot.GameContext, BotChatTiming.TypingDelay(answer, (bot as OfflinePlayer)?.SessionRandom), () => BotChatAudience.IsAvailable(bot) ? BotChatSpeaker.SayAsync(bot, answer, values, language, toward: sender) : ValueTask.CompletedTask);
     }
 
     /// <summary>
@@ -737,7 +737,7 @@ public class BotChatPlugIn
         var values = BotChatValues.Create(bot);
         var requesterName = requester.SelectedCharacter?.Name ?? string.Empty;
         values["player"] = _ => requesterName;
-        RunLater(bot.GameContext, line is null ? BotChatTiming.RandomDelay(BotChatTiming.TypingReactionSeconds) : BotChatTiming.TypingDelay(line.Text), async () =>
+        RunLater(bot.GameContext, line is null ? BotChatTiming.RandomDelay(BotChatTiming.TypingReactionSeconds, (bot as OfflinePlayer)?.SessionRandom) : BotChatTiming.TypingDelay(line.Text, (bot as OfflinePlayer)?.SessionRandom), async () =>
         {
             if (refuse is not null)
             {

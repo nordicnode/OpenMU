@@ -1861,6 +1861,42 @@ namespace MUnique.OpenMU.GameLogic.Properties {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Weighted mix of play styles, e.g. balanced:70,aggressive:10,cautious:10,trader:5,social:5. A persona only shifts bounded dials (how much damage a bot accepts, when it shops, how fast it answers) - it never changes what a bot may do. Unknown entries are ignored..
+        /// </summary>
+        public static string BotConfiguration_PersonaMix_Description {
+            get {
+                return ResourceManager.GetString("BotConfiguration_PersonaMix_Description", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Persona mix.
+        /// </summary>
+        public static string BotConfiguration_PersonaMix_Name {
+            get {
+                return ResourceManager.GetString("BotConfiguration_PersonaMix_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Optional server-wide salt for the per-bot random seeds. Each bot&apos;s seed is derived from its account, character and this salt, and logged when it starts, so a report can be replayed exactly. 0 is the default..
+        /// </summary>
+        public static string BotConfiguration_RandomSeed_Description {
+            get {
+                return ResourceManager.GetString("BotConfiguration_RandomSeed_Description", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Random seed salt.
+        /// </summary>
+        public static string BotConfiguration_RandomSeed_Name {
+            get {
+                return ResourceManager.GetString("BotConfiguration_RandomSeed_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to How many master points a bot may save up for a master skill which costs several points at once. 0 invests every point immediately..
         /// </summary>
         public static string BotConfiguration_MasterPointBankingCap_Description {

@@ -249,7 +249,7 @@ public sealed class CombatHandler
         }
 
         var netHit = Math.Max(0f, averageDamage - attributes[Stats.DefensePvm]) * GetExpectedHitShare(player, monsterAttackRate);
-        if (netHit > SafeHitHealthShare * Math.Max(1f, attributes[Stats.MaximumHealth]))
+        if (netHit > SafeHitHealthShare * BotPersonaProfile.For(player).CombatTolerance * Math.Max(1f, attributes[Stats.MaximumHealth]))
         {
             return false;
         }

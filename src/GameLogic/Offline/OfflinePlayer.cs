@@ -5,6 +5,7 @@
 namespace MUnique.OpenMU.GameLogic.Offline;
 
 using MUnique.OpenMU.DataModel.Entities;
+using MUnique.OpenMU.GameLogic.Bots;
 using MUnique.OpenMU.GameLogic.MuHelper;
 using MUnique.OpenMU.GameLogic.Views;
 using MUnique.OpenMU.Pathfinding;
@@ -111,6 +112,19 @@ public class OfflinePlayer : Player
     /// enumerating it.
     /// </summary>
     internal System.Collections.Concurrent.ConcurrentQueue<Func<ValueTask>> PendingBotActions { get; } = new();
+
+    /// <summary>
+    /// Gets or sets the play style persona of this bot. Assigned at spawn from the configured mix, derived
+    /// from the account and character name, so it is stable across restarts. A plain offline session keeps
+    /// <see cref="BotPersona.Balanced"/>.
+    /// </summary>
+    internal BotPersona Persona { get; set; } = BotPersona.Balanced;
+
+    /// <summary>
+    /// Gets or sets the random source of this bot session (see <see cref="BotSessionRandom"/>). Assigned at
+    /// spawn and logged with its seed, so a report about a patterned bot can be replayed exactly.
+    /// </summary>
+    internal BotSessionRandom SessionRandom { get; set; } = new(0x5EED);
 
     /// <summary>
     /// Gets the player who most recently attacked this bot (self-defense target), if the aggression

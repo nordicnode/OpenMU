@@ -63,8 +63,7 @@ internal static class BotPartyHandler
             return false;
         }
 
-        var delay = acceptDelay
-            ?? MinAcceptDelay + TimeSpan.FromMilliseconds(Rand.NextInt(0, (int)(MaxAcceptDelay - MinAcceptDelay).TotalMilliseconds + 1));
+        var delay = acceptDelay ?? GetAcceptDelay(bot);
 
         // Blocks a second concurrent inviter (the request action treats a set requester like a busy
         // player) and is cleared again when the invitation is answered or dropped.
@@ -223,5 +222,20 @@ internal static class BotPartyHandler
     private static bool IsRequesterEligible(Player requester)
     {
         return requester.IsAlive && requester.PlayerState.CurrentState == PlayerState.EnteredWorld;
+    }
+
+    /// <summary>
+    /// Draws the delay before the bot answers an invitation from its own session random source - so the
+    /// same bot answers the same way when a reported session is replayed - and lets the persona shift it
+    /// inside hard bounds: a social bot answers soon, a cautious one takes its time, but nobody answers
+    /// instantly or after the inviter has given up.
+    /// </summary>
+    /// <param name="bot">The invited bot.</param>
+    /// <returns>The delay.</returns>
+    private static TimeSpan GetAcceptDelay(OfflinePlayer bot)
+    {
+        var drawn = bot.SessionRandom.NextTimeSpan(MinAcceptDelay, MaxAcceptDelay);
+        var scaled = drawn.TotalMilliseconds * BotPersonaProfile.For(bot).SocialDelayFactor;
+        return TimeSpan.FromMilliseconds(Math.Clamp(scaled, MinAcceptDelay.TotalMilliseconds, MaxAcceptDelay.TotalMilliseconds * 3));
     }
 }

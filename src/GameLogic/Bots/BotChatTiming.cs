@@ -97,27 +97,30 @@ internal static class BotChatTiming
     /// English text stands in for all translations - they are about as long.
     /// </summary>
     /// <param name="text">The text of the answer.</param>
+    /// <param name="randomizer">The bot's session random source, so its reaction can be replayed; <c>null</c> for the shared one.</param>
     /// <returns>The typing delay.</returns>
-    internal static TimeSpan TypingDelay(LocalizedString text)
+    internal static TimeSpan TypingDelay(LocalizedString text, IRandomizer? randomizer = null)
         => GetTypingTime(
             text.ValueInNeutralLanguage.Length,
-            RandomDelay(TypingReactionSeconds),
-            TimeSpan.FromMilliseconds(Rand.NextInt(TypingMillisecondsPerCharacter.Min, TypingMillisecondsPerCharacter.Max)));
+            RandomDelay(TypingReactionSeconds, randomizer),
+            TimeSpan.FromMilliseconds((randomizer ?? Rand.GetRandomizer()).NextInt(TypingMillisecondsPerCharacter.Min, TypingMillisecondsPerCharacter.Max)));
 
     /// <summary>
     /// Draws a random delay between the bounds.
     /// </summary>
     /// <param name="min">The inclusive minimum.</param>
     /// <param name="max">The exclusive maximum.</param>
+    /// <param name="randomizer">The bot's session random source, so its reaction can be replayed; <c>null</c> for the shared one.</param>
     /// <returns>The delay.</returns>
-    internal static TimeSpan RandomDelay(TimeSpan min, TimeSpan max)
-        => max <= min ? min : min + TimeSpan.FromMilliseconds(Rand.NextDouble() * (max - min).TotalMilliseconds);
+    internal static TimeSpan RandomDelay(TimeSpan min, TimeSpan max, IRandomizer? randomizer = null)
+        => max <= min ? min : min + TimeSpan.FromMilliseconds((randomizer ?? Rand.GetRandomizer()).NextDouble() * (max - min).TotalMilliseconds);
 
     /// <summary>
     /// Draws a random delay between the bounds, in seconds.
     /// </summary>
     /// <param name="seconds">The inclusive minimum and exclusive maximum, in seconds.</param>
+    /// <param name="randomizer">The bot's session random source, so its reaction can be replayed; <c>null</c> for the shared one.</param>
     /// <returns>The delay.</returns>
-    internal static TimeSpan RandomDelay((int Min, int Max) seconds)
-        => RandomDelay(TimeSpan.FromSeconds(seconds.Min), TimeSpan.FromSeconds(seconds.Max));
+    internal static TimeSpan RandomDelay((int Min, int Max) seconds, IRandomizer? randomizer = null)
+        => RandomDelay(TimeSpan.FromSeconds(seconds.Min), TimeSpan.FromSeconds(seconds.Max), randomizer);
 }

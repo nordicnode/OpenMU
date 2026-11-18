@@ -1322,7 +1322,8 @@ internal sealed class BotNavigator : AsyncDisposable
                 band,
                 this._player.Position,
                 competitorSpots,
-                area => this._groundMemory.GetWeightFactor(map.Definition, BotHuntingGroundSelector.GroundCenter(area))) is not { } chosen)
+                area => this._groundMemory.GetWeightFactor(map.Definition, BotHuntingGroundSelector.GroundCenter(area)),
+                this._player.SessionRandom) is not { } chosen)
         {
             return false;
         }
@@ -3379,7 +3380,7 @@ internal sealed class BotNavigator : AsyncDisposable
         // of bots on Vulcanus while Tarkan, Karutan and Kanturu, which their level opens, see nobody. The
         // strongest map still wins most of the picks (see BestCandidateShare); the runners-up share the
         // rest, so the population spreads over the maps a player of that band would choose between.
-        var picked = BotMapChoicePlanner.PickStrongest(this.GetBetterMapCandidates(escape, minimumMonsterLevel, escapeFloor));
+        var picked = BotMapChoicePlanner.PickStrongest(this.GetBetterMapCandidates(escape, minimumMonsterLevel, escapeFloor), this._player.SessionRandom);
         if (picked is not { } choice)
         {
             return false;

@@ -180,12 +180,14 @@ internal static class BotHuntingGroundSelector
     /// everything else.
     /// </summary>
     /// <param name="count">The number of ranked candidates.</param>
+    /// <param name="randomizer">The bot's session random source, so its route can be replayed; <c>null</c> for the shared one.</param>
     /// <returns>The index of the picked candidate.</returns>
-    internal static int PickByRank(int count)
+    internal static int PickByRank(int count, IRandomizer? randomizer = null)
     {
+        var source = randomizer ?? Rand.GetRandomizer();
         for (var rank = 0; rank < count - 1; rank++)
         {
-            if (Rand.NextDouble() < BestCandidateShare)
+            if (source.NextDouble() < BestCandidateShare)
             {
                 return rank;
             }
@@ -259,19 +261,21 @@ internal static class BotHuntingGroundSelector
     /// <param name="from">The point the bot measures the distance from.</param>
     /// <param name="competitorSpots">The spots of bots outside the party; <c>null</c> for none.</param>
     /// <param name="weightFactor">An additional, per-ground factor (e.g. the bot's own bad memories); <c>null</c> for none.</param>
+    /// <param name="randomizer">The bot's session random source, so its route can be replayed; <c>null</c> for the shared one.</param>
     /// <returns>The chosen ground, or <c>null</c> if the band is empty.</returns>
     internal static (MonsterSpawnArea Area, int Level)? PickWeighted(
         IReadOnlyList<(MonsterSpawnArea Area, int Level)> band,
         Point from,
         IReadOnlyList<HuntingSpot>? competitorSpots = null,
-        Func<MonsterSpawnArea, float>? weightFactor = null)
+        Func<MonsterSpawnArea, float>? weightFactor = null,
+        IRandomizer? randomizer = null)
     {
         if (band.Count == 0)
         {
             return null;
         }
 
-        return band.SelectWeightedRandom(band.Select(x => WeightOf(x.Area, from, competitorSpots, weightFactor)));
+        return band.SelectWeightedRandom(band.Select(x => WeightOf(x.Area, from, competitorSpots, weightFactor)), randomizer ?? Rand.GetRandomizer());
     }
 
     /// <summary>
