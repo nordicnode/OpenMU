@@ -1927,7 +1927,7 @@ internal sealed class BotNavigator : AsyncDisposable
     {
         if (this._chaosMachineTarget is { } target)
         {
-            if (this._player.GetDistanceTo(target) > BotTownTripPlanner.NpcInteractionRange)
+            if (BotTownTripPlanner.PlanTargetStep(this._player.GetDistanceTo(target)) == BotTownTripPlanner.TripStep.WalkToNpc)
             {
                 if (!await this.TravelTowardAsync(map, this._chaosMachineStandingPoint, cancellationToken).ConfigureAwait(false))
                 {
@@ -1990,13 +1990,16 @@ internal sealed class BotNavigator : AsyncDisposable
             return false;
         }
 
-        // The goblin stands in town: when out in the field, warp to the map's safezone first.
-        if (!inSafezone
-            && map.Definition.ExitGates.Where(g => g.IsSpawnGate).SelectRandom() is { } townGate)
+        // The goblin stands in town: when out in the field, warp to the map's safezone first. The trip
+        // planner decides that, so the rule for "get to town" is the same one the shopping and buff trips
+        // use - the goblin is on this map, so the home fallback can't apply.
+        var townGate = BotTownTripPlanner.FindTownGate(map.Definition);
+        if (BotTownTripPlanner.PlanTrip(needsErrand: true, goblinPosition, inSafezone, townGate is not null, canWarpHome: false)
+            == BotTownTripPlanner.TripStep.WarpToSafezone)
         {
             this._travelPath = null;
             this._hasDestination = false;
-            await this._player.WarpToAsync(townGate).ConfigureAwait(false);
+            await this._player.WarpToAsync(townGate!).ConfigureAwait(false);
         }
 
         // The bot leaves its hunting ground for the trip; its claim would keep other bots off it meanwhile.
@@ -2031,12 +2034,10 @@ internal sealed class BotNavigator : AsyncDisposable
     /// <returns>True, if there is one.</returns>
     private bool TryGetChaosMachineWarp(long mixPrice, [MaybeNullWhen(false)] out WarpInfo warp)
     {
-        warp = this._player.GameContext.Configuration.Maps
-            .Where(m => m.MonsterSpawns.Any(s => s.MonsterDefinition is { } npc && BotChaosMachineHandler.IsChaosMachine(npc)))
-            .SelectMany(this.GetLegalWarps)
-            .Where(w => this._player.Money >= w.Costs + mixPrice)
-            .OrderBy(w => w.Costs)
-            .FirstOrDefault();
+        warp = BotChaosMachineHandler.PickWarp(
+            this._player.GameContext.Configuration.Maps.SelectMany(this.GetLegalWarps),
+            this._player.Money,
+            mixPrice);
         return warp is not null;
     }
 

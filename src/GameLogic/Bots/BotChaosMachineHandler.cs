@@ -93,6 +93,33 @@ internal static class BotChaosMachineHandler
         => configuration.Monsters.FirstOrDefault(IsChaosMachine);
 
     /// <summary>
+    /// Whether the map has a chaos machine NPC the bot could use.
+    /// </summary>
+    /// <param name="map">The map definition.</param>
+    /// <returns><c>True</c>, if a chaos machine stands on the map.</returns>
+    public static bool HasChaosMachine(GameMapDefinition map)
+        => map.MonsterSpawns.Any(s => s.MonsterDefinition is { } npc && IsChaosMachine(npc));
+
+    /// <summary>
+    /// Picks the warp the bot takes to reach a chaos machine when its own map has none - the cheapest one
+    /// to a map which has one, and only as long as the bot can still pay the mix after the fare.
+    /// </summary>
+    /// <param name="legalWarps">The warps the bot may legally take (see <see cref="BotEventMeetingPlanner.GetLegalWarps"/>).</param>
+    /// <param name="money">The Zen the bot carries.</param>
+    /// <param name="mixPrice">The price of the planned mix.</param>
+    /// <returns>The warp, or <c>null</c> if there is none the bot could afford without losing the mix.</returns>
+    /// <remarks>
+    /// The fare is a real cost here, unlike on a shopping trip: a bot which spends its last Zen on the
+    /// warp arrives at the goblin with nothing to mix, so it is better off not going at all.
+    /// </remarks>
+    public static WarpInfo? PickWarp(IEnumerable<WarpInfo> legalWarps, long money, long mixPrice)
+        => legalWarps
+            .Where(w => w.Gate?.Map is { } map && HasChaosMachine(map))
+            .Where(w => money >= w.Costs + mixPrice)
+            .OrderBy(w => w.Costs)
+            .FirstOrDefault();
+
+    /// <summary>
     /// Finds a chaos machine NPC on the map.
     /// </summary>
     /// <param name="map">The map.</param>
