@@ -83,7 +83,9 @@ public class BotAccountService : IDataService<BotAccount>
                     r.Player.StartTimestamp,
                     guildId is { } id ? guilds.GetValueOrDefault(id)?.Name : null,
                     partyMaster,
-                    partySize);
+                    partySize,
+                    r.Player.StateSummary,
+                    r.Player.StateDetail);
             })
             .OrderPartyGrouped()
             .ToList();

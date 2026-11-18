@@ -61,10 +61,17 @@ public sealed class BotPlayer : OfflinePlayer
     public bool AwaitsFaultRestart { get; set; }
 
     /// <summary>
-    /// Gets the navigator which drives this bot, while the bot is in the world - the source of the state a
-    /// game master asks about with the state command (see <see cref="BotStateMachine.Describe"/>).
+    /// Gets what this bot is doing right now - its state, how long it has been in it and why - or <c>null</c>
+    /// while it isn't navigating (not in the world). The administration surfaces show it next to the bot
+    /// (see <see cref="BotStateMachine.Summarize"/>).
     /// </summary>
-    internal BotNavigator? Navigator => this._navigator;
+    public string? StateSummary => this._navigator?.States.Summarize();
+
+    /// <summary>
+    /// Gets the detailed state description of this bot, including where its time went and the transitions it
+    /// took before - or <c>null</c> while it isn't navigating (see <see cref="BotStateMachine.Describe"/>).
+    /// </summary>
+    public string? StateDetail => this._navigator?.States.Describe();
 
     /// <inheritdoc />
     /// <remarks>

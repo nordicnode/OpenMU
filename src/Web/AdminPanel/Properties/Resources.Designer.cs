@@ -7873,6 +7873,15 @@ namespace MUnique.OpenMU.Web.AdminPanel.Properties {
         }
 
         /// <summary>
+        ///   Looks up a localized string similar to State.
+        /// </summary>
+        public static string BotState {
+            get {
+                return ResourceManager.GetString("BotState", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to Start install.
         /// </summary>
         public static string StartInstall {

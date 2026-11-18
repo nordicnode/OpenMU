@@ -46,13 +46,13 @@ public class BotStateChatCommandPlugIn : IChatCommandPlugIn
             return;
         }
 
-        if (bot.Navigator is not { } navigator)
+        if (bot.StateDetail is not { } state)
         {
             await player.ShowBlueMessageAsync($"{bot.Name} is not navigating (it is not in the world).").ConfigureAwait(false);
             return;
         }
 
-        using var reader = new StringReader(navigator.States.Describe());
+        using var reader = new StringReader(state);
         while (await reader.ReadLineAsync().ConfigureAwait(false) is { } line)
         {
             await player.ShowBlueMessageAsync(line).ConfigureAwait(false);

@@ -609,6 +609,9 @@
   <data name="StartedAt" xml:space="preserve">
     <value>Started At</value>
   </data>
+  <data name="BotState" xml:space="preserve">
+    <value>State</value>
+  </data>
   <data name="ActiveOfflinePlayer" xml:space="preserve">
     <value>Active Offline Player</value>
   </data>

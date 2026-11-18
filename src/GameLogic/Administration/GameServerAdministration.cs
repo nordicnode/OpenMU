@@ -104,7 +104,7 @@ public sealed partial class GameServerAdministration(IGameContext context) : IGa
         // List projections are best-effort scalar snapshots. Saves must not stall population reads.
         var position = player.Position;
         var attributes = player.Attributes;
-        var botState = player is BotPlayer { Navigator: { } navigator } ? navigator.States.Summarize() : null;
+        var botState = player is BotPlayer bot ? bot.StateSummary : null;
         var info = new LivePlayerInfo(character.Id, account.LoginName, character.Name, player.CurrentMap?.MapId, position.X, position.Y, (int)(attributes?[Stats.Level] ?? 0), (int)(attributes?[Stats.MasterLevel] ?? 0), player.GuildStatus?.GuildId, character.CharacterStatus == CharacterStatus.GameMaster || account.State is not (AccountState.Normal or AccountState.Banned or AccountState.TemporarilyBanned), botState);
         return ReferenceEquals(player.SelectedCharacter, character) && ReferenceEquals(player.Account, account) && IsAvailable(player) ? info : null;
     }
