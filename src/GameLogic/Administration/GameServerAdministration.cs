@@ -91,7 +91,19 @@ public sealed partial class GameServerAdministration(IGameContext context) : IGa
             ? GameMasterEventActions.StartAsync(context, type, restart, cancellationToken, expectedEvent)
             : ValueTask.FromResult(new GameServerAdminResult(false, "Unknown event type. Use events_schedule to find its invariant name."));
 
-    private static bool IsAvailable(Player player) => player is not OfflinePlayer && player.IsConnected
+    /// <summary>
+    /// Tells whether the player is a live character the administration can report on: a connected player who
+    /// entered the world with a character and an account.
+    /// </summary>
+    /// <remarks>
+    /// Bots count as live characters even though they share their base with the offline leveling players - they
+    /// play in the world, and an operator asking what a bot is doing asks through the same projection. The
+    /// connection-less offline sessions stay out of it, they are a different feature with its own views.
+    /// </remarks>
+    /// <param name="player">The player.</param>
+    /// <returns><c>true</c>, if the player is reported.</returns>
+    private static bool IsAvailable(Player player)
+        => (player is BotPlayer || player is not OfflinePlayer) && player.IsConnected
         && player.PlayerState.CurrentState == PlayerState.EnteredWorld && player.SelectedCharacter is not null && player.Account is not null;
 
     private static LivePlayerInfo? ReadPlayer(Player player)

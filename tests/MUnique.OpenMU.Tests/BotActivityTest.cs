@@ -4,6 +4,8 @@
 
 namespace MUnique.OpenMU.Tests;
 
+using System.Threading;
+using MUnique.OpenMU.GameLogic.Administration;
 using MUnique.OpenMU.GameLogic.Bots;
 
 /// <summary>
@@ -26,5 +28,65 @@ public class BotActivityTest
         Assert.That(bot.Activity?.Summary, Is.Null);
         Assert.That(bot.Activity?.Detail, Is.Null);
         Assert.That(bot.Activity?.State, Is.Null);
+    }
+
+    /// <summary>
+    /// A bot which entered the world reports the mode it is in, why, for how long and the long form - the
+    /// whole state surface, not just the null case above - and keeps reporting it while it navigates.
+    /// </summary>
+    [Test]
+    public async Task ABotInTheWorldReportsWhatItIsDoingAsync()
+    {
+        var gameContext = GameContextTestHelper.CreateGameContext();
+        await using var bot = await BotPlayerFixture.CreateBotAsync(gameContext).ConfigureAwait(false);
+
+        var activity = bot.Activity;
+        Assert.That(activity, Is.Not.Null);
+        Assert.That(activity!.State, Is.EqualTo(nameof(BotState.Idle)));
+        Assert.That(activity.Reason, Is.EqualTo("started"));
+        Assert.That(activity.Summary, Does.StartWith("Idle for ").And.Contain("(started)"));
+        Assert.That(activity.Detail, Does.Contain("Idle"));
+
+        await Task.Delay(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+
+        var later = bot.Activity;
+        Assert.That(later, Is.Not.Null);
+        Assert.That(later!.TimeInState, Is.GreaterThanOrEqualTo(TimeSpan.FromSeconds(4)));
+        Assert.That(BotNavigator.DeclaredClaims.Select(state => state.ToString()), Does.Contain(later.State), "the reported mode must be one the tick can claim");
+    }
+
+    /// <summary>
+    /// The started bot really is a player of its game context - the administration surfaces find the bots of a
+    /// server by walking its players, so a bot which is not in that list is invisible to them.
+    /// </summary>
+    [Test]
+    public async Task AStartedBotIsAPlayerOfItsGameContextAsync()
+    {
+        var gameContext = GameContextTestHelper.CreateGameContext();
+        await using var bot = await BotPlayerFixture.CreateBotAsync(gameContext).ConfigureAwait(false);
+
+        var players = await gameContext.GetPlayersAsync().ConfigureAwait(false);
+
+        Assert.That(players, Does.Contain(bot));
+        Assert.That(bot.SelectedCharacter?.Name, Is.EqualTo(BotPlayerFixture.DefaultCharacterName));
+    }
+
+    /// <summary>
+    /// The live player projection - what the admin panel and the MCP tools read - carries the bot's state for a
+    /// real bot, not just for the fake players the surface tests use.
+    /// </summary>
+    [Test]
+    public async Task TheLivePlayerProjectionCarriesTheStateOfARealBotAsync()
+    {
+        var gameContext = GameContextTestHelper.CreateGameContext();
+        await using var bot = await BotPlayerFixture.CreateBotAsync(gameContext).ConfigureAwait(false);
+        var administration = new GameServerAdministration(gameContext);
+
+        var info = await administration.GetPlayerAsync(BotPlayerFixture.DefaultCharacterName, CancellationToken.None).ConfigureAwait(false);
+
+        Assert.That(info, Is.Not.Null, "a bot in the world is an available live player");
+        Assert.That(info!.Account, Is.EqualTo(BotPlayerFixture.DefaultLoginName));
+        Assert.That(info.BotState, Is.EqualTo(bot.Activity!.Summary));
+        Assert.That(info.BotState, Does.StartWith("Idle for "));
     }
 }
