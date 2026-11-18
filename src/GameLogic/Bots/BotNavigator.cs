@@ -253,6 +253,7 @@ internal sealed class BotNavigator : AsyncDisposable
     private readonly OfflinePlayer _player;
     private readonly TimeProvider _timeProvider;
     private readonly BotDangerZoneTracker _dangerZones;
+    private readonly BotStateMachine _states;
 
     private readonly CancellationTokenSource _cts = new();
 
@@ -347,8 +348,14 @@ internal sealed class BotNavigator : AsyncDisposable
         this._player = player;
         this._timeProvider = timeProvider;
         this._dangerZones = new BotDangerZoneTracker(player, timeProvider, this.GetHuntingZones);
+        this._states = new BotStateMachine(timeProvider, this.IsErrandClaimed);
         this._player.Died += this.OnDied;
     }
+
+    /// <summary>
+    /// Gets the state machine which records what the bot does in each navigation tick.
+    /// </summary>
+    internal BotStateMachine States => this._states;
 
     /// <summary>
     /// Starts the periodic navigation evaluation. The start delay is jittered per bot, so hundreds of
@@ -1413,6 +1420,7 @@ internal sealed class BotNavigator : AsyncDisposable
         // (shopping, revenge, warping, ground picking) must not run.
         if (this._player.CurrentMiniGame is not null)
         {
+            this.Claim(BotState.MiniGame, "mini-game event");
             await this.EvaluateInsideMiniGameAsync(map, cancellationToken).ConfigureAwait(false);
             return;
         }
@@ -1435,10 +1443,12 @@ internal sealed class BotNavigator : AsyncDisposable
             this._emptyGroundSince = null;
             if (tick.LeaderToFollow is not null && ReferenceEquals(tick.LeaderToFollow.CurrentMap, map))
             {
+                this.Claim(BotState.Recover, "wedged, walking back to the leader");
                 await this.TravelTowardAsync(map, tick.LeaderToFollow.Position, cancellationToken).ConfigureAwait(false);
                 return;
             }
 
+            this.Claim(BotState.Recover, "wedged, picking a new ground");
             await this.PickGroundAndTravelAsync(map, cancellationToken).ConfigureAwait(false);
             return;
         }
@@ -1446,6 +1456,7 @@ internal sealed class BotNavigator : AsyncDisposable
         // A walk (travel hop or local combat move) is already in progress.
         if (this._player.IsWalking)
         {
+            this.Claim(BotState.Idle, "walk in progress");
             return;
         }
 
@@ -1454,6 +1465,7 @@ internal sealed class BotNavigator : AsyncDisposable
         // errands and the party follow below - and a due reset, which would change its level.
         if (await this.TryEventMeetingAsync(map, tick.InSafezone, cancellationToken).ConfigureAwait(false))
         {
+            this.Claim(BotState.EventMeeting, "announced event meeting");
             return;
         }
 
@@ -1461,6 +1473,7 @@ internal sealed class BotNavigator : AsyncDisposable
         // BotMerchantPlugIn) - its customers have to find it there, like the players of an event meeting.
         if (await this.TryMarketShiftAsync(map, cancellationToken).ConfigureAwait(false))
         {
+            this.Claim(BotState.MarketShift, "market shift");
             return;
         }
 
@@ -1470,6 +1483,7 @@ internal sealed class BotNavigator : AsyncDisposable
         // cycle (see BotResetHandler).
         if (await this.TryResetCharacterAsync().ConfigureAwait(false))
         {
+            this.Claim(BotState.Reset, "character reset");
             return;
         }
 
@@ -1487,6 +1501,7 @@ internal sealed class BotNavigator : AsyncDisposable
         // back to the leader mid-trade.
         if (await this.TryShoppingAsync(map, tick.InSafezone, cancellationToken).ConfigureAwait(false))
         {
+            this.Claim(BotState.Shopping, "town errand: selling and restocking");
             return;
         }
 
@@ -1495,6 +1510,7 @@ internal sealed class BotNavigator : AsyncDisposable
         // the follow logic below pulling the bot back to the leader mid-visit.
         if (await this.TryBuffTripAsync(map, tick.InSafezone, cancellationToken).ConfigureAwait(false))
         {
+            this.Claim(BotState.Buff, "town errand: claiming a buff");
             return;
         }
 
@@ -1502,6 +1518,7 @@ internal sealed class BotNavigator : AsyncDisposable
         // others: it completes even for party members.
         if (await this.TryChaosMachineTripAsync(map, tick.InSafezone, cancellationToken).ConfigureAwait(false))
         {
+            this.Claim(BotState.ChaosMachine, "town errand: mixing at the chaos machine");
             return;
         }
 
@@ -1512,6 +1529,7 @@ internal sealed class BotNavigator : AsyncDisposable
         // back into the routine (and a follower rejoins its group).
         if (await this.TryRevengeMarchAsync(map, cancellationToken).ConfigureAwait(false))
         {
+            this.Claim(BotState.Revenge, "revenge march");
             return;
         }
 
@@ -1526,9 +1544,11 @@ internal sealed class BotNavigator : AsyncDisposable
         {
             if (await this.TryHandleCrossMapLeaderFollowAsync(map, tick.LeaderToFollow, cancellationToken).ConfigureAwait(false))
             {
+                this.Claim(BotState.FollowLeader, "following the leader to his map");
                 return;
             }
 
+            this.Claim(BotState.FollowLeader, "following the leader");
             await this.EvaluateFollowerHuntingAsync(map, tick.LeaderToFollow, tick.InSafezone, cancellationToken).ConfigureAwait(false);
             return;
         }
@@ -1543,6 +1563,7 @@ internal sealed class BotNavigator : AsyncDisposable
             && !tick.IsSavingForFollowFare
             && await this.TryWarpToBetterMapAsync().ConfigureAwait(false))
         {
+            this.Claim(BotState.Travel, "warping to a better map");
             return;
         }
 
@@ -1551,6 +1572,7 @@ internal sealed class BotNavigator : AsyncDisposable
         if (!tick.InSafezone && tick.MonstersNearby > 0)
         {
             this._emptyGroundSince = null;
+            this.Claim(BotState.Hunt, "monsters nearby");
             return;
         }
 
@@ -1569,6 +1591,7 @@ internal sealed class BotNavigator : AsyncDisposable
             if (await this.TravelTowardAsync(map, monsterGround, cancellationToken).ConfigureAwait(false))
             {
                 this._emptyGroundSince = null;
+                this.Claim(BotState.Hunt, "walking to a monster");
                 return;
             }
 
@@ -1591,6 +1614,10 @@ internal sealed class BotNavigator : AsyncDisposable
                 this._hasDestination = false;
                 this._emptyGroundSince ??= DateTime.UtcNow;
             }
+            else
+            {
+                this.Claim(BotState.Travel, "walking to the ground");
+            }
 
             return;
         }
@@ -1603,6 +1630,7 @@ internal sealed class BotNavigator : AsyncDisposable
             this._emptyGroundSince ??= DateTime.UtcNow;
             if (DateTime.UtcNow - this._emptyGroundSince < EmptyGroundGrace)
             {
+                this.Claim(BotState.Idle, "empty area, waiting for monsters");
                 return;
             }
         }
@@ -1611,11 +1639,50 @@ internal sealed class BotNavigator : AsyncDisposable
 
         if (tick.LeaderToFollow is null && !tick.IsSavingForFollowFare && await this.TryWarpToBetterMapAsync().ConfigureAwait(false))
         {
+            this.Claim(BotState.Travel, "warping to a better map, nothing left here");
             return;
         }
 
+        this.Claim(BotState.Hunt, "picked a new ground");
         await this.PickGroundAndTravelAsync(map, cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Reports the state the current tick puts the bot in - for the state command (see
+    /// <see cref="BotStateMachine.Describe"/>) and, at debug level, for the log of a bot which has to be
+    /// looked at later.
+    /// </summary>
+    /// <param name="state">The state the tick puts the bot in.</param>
+    /// <param name="reason">Why the tick puts it there.</param>
+    private void Claim(BotState state, string reason)
+    {
+        var previous = this._states.Current;
+        this._states.Enter(state, reason);
+        if (previous != state)
+        {
+            this._player.Logger.LogDebug("Bot {Character} is now {State}: {Reason}", this._player.Name, state, reason);
+        }
+    }
+
+    /// <summary>
+    /// Tells whether a routine state is being entered while the player still carries the flags of an
+    /// unfinished errand - a navigation branch which bypassed the errand it left running (see
+    /// <see cref="BotStateMachine.GuardViolations"/>).
+    /// </summary>
+    /// <param name="next">The state the tick is about to claim.</param>
+    /// <returns><c>true</c>, if an errand is still unfinished.</returns>
+    private bool IsErrandClaimed(BotState next)
+        => !next.IsErrand() && !next.IsSuspended() && this.HasPendingErrand();
+
+    /// <summary>
+    /// Gets a value indicating whether the player carries the flags of an unfinished errand.
+    /// </summary>
+    private bool HasPendingErrand()
+        => this._player.IsOnShoppingTrip
+            || this._player.IsOnBuffTrip
+            || this._player.IsOnChaosMachineTrip
+            || this._player.MarketShift is not null
+            || this._player.EventMeeting is not null;
 
     /// <summary>
     /// Drives a shopping trip: when the backpack fills up or potions run low, the bot heads to a town

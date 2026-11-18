@@ -60,6 +60,12 @@ public sealed class BotPlayer : OfflinePlayer
     /// </summary>
     public bool AwaitsFaultRestart { get; set; }
 
+    /// <summary>
+    /// Gets the navigator which drives this bot, while the bot is in the world - the source of the state a
+    /// game master asks about with the state command (see <see cref="BotStateMachine.Describe"/>).
+    /// </summary>
+    internal BotNavigator? Navigator => this._navigator;
+
     /// <inheritdoc />
     /// <remarks>
     /// A bot opens its store only on a market shift (see <see cref="BotMarketShift"/>): a store which was

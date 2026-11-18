@@ -2995,6 +2995,24 @@ namespace MUnique.OpenMU.GameLogic.Properties {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Chat command: /botstate.
+        /// </summary>
+        public static string BotStateChatCommandPlugIn_Name {
+            get {
+                return ResourceManager.GetString("BotStateChatCommandPlugIn_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Handles the chat command &apos;/botstate &lt;bot&gt;&apos;...
+        /// </summary>
+        public static string BotStateChatCommandPlugIn_Description {
+            get {
+                return ResourceManager.GetString("BotStateChatCommandPlugIn_Description", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Makes server-side bots fight back when a player attacks them..
         /// </summary>
         public static string BotSelfDefensePlugIn_Description {
