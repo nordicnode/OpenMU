@@ -91,7 +91,7 @@ public sealed class GameServerAdministrationHttpTests
         var server = new Mock<IGameServer>();
         server.SetupGet(s => s.Id).Returns(4);
         var live = server.As<IGameServerAdministration>();
-        var hero = new LivePlayerInfo(Guid.NewGuid(), "tester", "Hero", 0, 1, 2, 10, 0, null, false);
+        var hero = new LivePlayerInfo(Guid.NewGuid(), "tester", "Hero", 0, 1, 2, 10, 0, null, false, null);
         live.Setup(s => s.GetPlayerSnapshotAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new[] { hero });
         live.Setup(s => s.GiveItemAsync("Hero", hero.CharacterId, It.IsAny<ItemSpecification>(), It.IsAny<CancellationToken>())).ReturnsAsync(GameServerAdminResult.Success);
         await using var app = await CreateHostAsync(server.Object, TestToken).ConfigureAwait(false);

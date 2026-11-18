@@ -47,7 +47,7 @@ public sealed class LiveGameIntegrationTests
         server.SetupGet(s => s.Type).Returns(ServerType.GameServer);
         server.SetupGet(s => s.ServerState).Returns(ServerState.Started);
         this._live = server.As<IGameServerAdministration>();
-        this._player = new(Guid.NewGuid(), "tester", "Hero", 0, 100, 100, 10, 2, 42, false);
+        this._player = new(Guid.NewGuid(), "tester", "Hero", 0, 100, 100, 10, 2, 42, false, null);
         this._live.Setup(s => s.GetPlayerAsync("Hero", It.IsAny<CancellationToken>())).ReturnsAsync(() => this._player);
         this._live.Setup(s => s.GetPlayerSnapshotAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new[] { this._player });
@@ -226,6 +226,26 @@ public sealed class LiveGameIntegrationTests
         Assert.That((await client.CallToolAsync("players_get", new Dictionary<string, object?> { ["characterName"] = "Hero" }).ConfigureAwait(false)).IsError, Is.Not.True);
         Assert.That((await client.CallToolAsync("events_schedule", new Dictionary<string, object?> { ["serverId"] = 4 }).ConfigureAwait(false)).IsError, Is.Not.True);
         Assert.ThrowsAsync<McpProtocolException>(async () => await client.CallToolAsync("players_set_level", new Dictionary<string, object?> { ["characterName"] = "Hero", ["level"] = 100 }).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// A bot's live projection carries what it is doing right now, so an operator can tell a stuck bot from a
+    /// busy one without reading its log - the player list is the place a bot hunt starts.
+    /// </summary>
+    [Test]
+    public async Task LiveProjectionCarriesTheBotStateAsync()
+    {
+        var bot = this._player with { BotState = "Hunt for 1:23 (monsters nearby)" };
+        this._live.Setup(s => s.GetPlayerSnapshotAsync(It.IsAny<CancellationToken>())).ReturnsAsync([bot]);
+        this._live.Setup(s => s.GetPlayerAsync("Hero", It.IsAny<CancellationToken>())).ReturnsAsync(() => bot);
+        await using var client = await this._host.ConnectAsync().ConfigureAwait(false);
+
+        var listed = await client.CallToolAsync("players_list", new Dictionary<string, object?> { ["mapNumber"] = 0 }).ConfigureAwait(false);
+        var fetched = await client.CallToolAsync("players_get", new Dictionary<string, object?> { ["characterName"] = "Hero" }).ConfigureAwait(false);
+
+        Assert.That(listed.IsError, Is.Not.True, JsonSerializer.Serialize(listed));
+        Assert.That(JsonSerializer.Serialize(listed), Does.Contain("Hunt for 1:23 (monsters nearby)"));
+        Assert.That(JsonSerializer.Serialize(fetched), Does.Contain("Hunt for 1:23 (monsters nearby)"));
     }
 
     /// <summary>The read-only guard blocks writes and previews even when the tool was registered earlier.</summary>

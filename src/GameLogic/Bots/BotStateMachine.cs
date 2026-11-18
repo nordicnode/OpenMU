@@ -148,6 +148,22 @@ internal sealed class BotStateMachine
     internal IReadOnlyList<BotStateTransition> RecentTransitions() => this._history.ToArray();
 
     /// <summary>
+    /// Summarizes the state of the bot in one line - the state, how long it has been in it and why - for the
+    /// projections which have room for a single field, like the live player list of the admin panel.
+    /// </summary>
+    /// <returns>The one-line summary.</returns>
+    internal string Summarize()
+    {
+        var now = this._timeProvider.GetUtcNow();
+        return string.Format(
+            CultureInfo.InvariantCulture,
+            "{0} for {1} ({2})",
+            this.Current,
+            Format(this.TimeInCurrent(now)),
+            this._reason);
+    }
+
+    /// <summary>
     /// Describes the state of the bot in the few lines a game master asks for when a bot looks wedged, idle
     /// or never joins an event: what it does, since when, why, where the time went and what it did before.
     /// </summary>

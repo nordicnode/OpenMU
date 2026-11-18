@@ -107,7 +107,7 @@ public sealed class ServerReadOperations(
                 {
                     if (player is not OfflinePlayer && player.Account?.LoginName is { } loginName)
                     {
-                        live[loginName] = new(player.SelectedCharacter?.Id ?? Guid.Empty, loginName, player.Name, player.CurrentMap?.MapId, player.Position.X, player.Position.Y, player.Level, (int)(player.Attributes?[Stats.MasterLevel] ?? 0), player.GuildStatus?.GuildId, false);
+                        live[loginName] = new(player.SelectedCharacter?.Id ?? Guid.Empty, loginName, player.Name, player.CurrentMap?.MapId, player.Position.X, player.Position.Y, player.Level, (int)(player.Attributes?[Stats.MasterLevel] ?? 0), player.GuildStatus?.GuildId, false, null);
                     }
                 }
             }
@@ -149,6 +149,7 @@ public sealed class ServerReadOperations(
                 y = player?.Y,
                 level = player?.Level,
                 guildId = player?.GuildId,
+                botState = player?.BotState,
             };
         });
         return AdminReadResult.Page(rows, matches.Count, offset, limit);

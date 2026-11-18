@@ -205,6 +205,21 @@ public class BotStateMachineTest
     }
 
     /// <summary>
+    /// The one-line summary names the state, how long the bot has been in it and why - the single field the
+    /// live player list of the admin panel has room for.
+    /// </summary>
+    [Test]
+    public void SummarizesTheStateInOneLine()
+    {
+        var machine = CreateMachine(this._timeProvider);
+
+        machine.Enter(BotState.Hunt, "monsters nearby");
+        this._timeProvider.Advance(TimeSpan.FromSeconds(83));
+
+        Assert.That(machine.Summarize(), Is.EqualTo("Hunt for 1:23 (monsters nearby)"));
+    }
+
+    /// <summary>
     /// The states which finish before the routine resumes are told apart from the ones which suspend it -
     /// the classification the guard and any reader of the description rely on.
     /// </summary>

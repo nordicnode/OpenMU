@@ -15,4 +15,5 @@ namespace MUnique.OpenMU.Interfaces;
 /// <param name="MasterLevel">The live master level.</param>
 /// <param name="GuildId">The live guild identifier.</param>
 /// <param name="Privileged">Whether changing this character requires Administrator.</param>
-public sealed record LivePlayerInfo(Guid CharacterId, string Account, string Character, ushort? Map, byte X, byte Y, int Level, int MasterLevel, uint? GuildId, bool Privileged);
+/// <param name="BotState">What a server-side bot is doing right now - its state, how long it has been in it and why - or <c>null</c> for a player.</param>
+public sealed record LivePlayerInfo(Guid CharacterId, string Account, string Character, ushort? Map, byte X, byte Y, int Level, int MasterLevel, uint? GuildId, bool Privileged, string? BotState);
