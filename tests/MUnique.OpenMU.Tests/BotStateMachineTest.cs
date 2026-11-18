@@ -117,6 +117,21 @@ public class BotStateMachineTest
     }
 
     /// <summary>
+    /// The duration a bot reports measures the current stay on the machine's own clock, which is what the
+    /// administration surfaces sort the bots by - the one stuck longest first.
+    /// </summary>
+    [Test]
+    public void ReportsHowLongTheCurrentStayLasted()
+    {
+        var machine = CreateMachine(this._timeProvider);
+
+        machine.Enter(BotState.Idle, "walk in progress");
+        this._timeProvider.Advance(TimeSpan.FromSeconds(83));
+
+        Assert.That(machine.CurrentDuration, Is.EqualTo(TimeSpan.FromSeconds(83)));
+    }
+
+    /// <summary>
     /// A transition without a reason is a bug in the reporting call, not a state - it is rejected instead of
     /// being recorded as an unexplained change.
     /// </summary>
