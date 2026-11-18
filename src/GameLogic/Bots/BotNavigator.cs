@@ -3379,11 +3379,15 @@ internal sealed class BotNavigator : AsyncDisposable
     private readonly record struct TickClaim(BotState State, string Reason);
 
     /// <summary>
-    /// One step of a tick: the state it claims when it consumes the tick (see <see cref="TickClaim"/>), and
-    /// what it does. <paramref name="State"/> is <c>null</c> for a step which claims no state of its own.
+    /// One step of a tick: the state it claims when it consumes the tick (see <see cref="TickClaim"/>), the
+    /// states it can claim, and what it does. <paramref name="State"/> is <c>null</c> for a step which claims
+    /// no state of its own.
     /// </summary>
     /// <param name="State">The state the step claims; <c>null</c> if it claims none.</param>
     /// <param name="Reason">Why the bot is in that state.</param>
+    /// <param name="Claims">
+    /// Every state the step can report, so <see cref="DeclaredClaims"/> can prove that no mode is forgotten.
+    /// </param>
     /// <param name="Handle">What the step does; it returns whether it consumed the tick.</param>
     private readonly record struct TickStep(
         BotState? State,
