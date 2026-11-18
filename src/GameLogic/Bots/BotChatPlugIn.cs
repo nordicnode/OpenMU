@@ -76,6 +76,7 @@ public class BotChatPlugIn
 
     private readonly ConditionalWeakTable<IGameContext, BotChatThrottle> _throttles = new();
     private readonly BotChatEventAnnouncer _events;
+    private readonly BotChatConversationResponder _conversations;
 
     /// <summary>
     /// The parsed <see cref="BotChatConfiguration.NotableMonsterNumbers"/>, with the text they were
@@ -93,7 +94,10 @@ public class BotChatPlugIn
     /// Initializes a new instance of the <see cref="BotChatPlugIn"/> class.
     /// </summary>
     public BotChatPlugIn()
-        => this._events = new BotChatEventAnnouncer(() => this.Configuration, this.GetThrottle, this.MayTalkUnasked);
+    {
+        this._events = new BotChatEventAnnouncer(() => this.Configuration, this.GetThrottle, this.MayTalkUnasked);
+        this._conversations = new BotChatConversationResponder(this.GetThrottle);
+    }
 
     /// <inheritdoc />
     public BotChatConfiguration? Configuration { get; set; }
@@ -159,7 +163,7 @@ public class BotChatPlugIn
             && this.GetThrottle(receiver.GameContext).GetOpenPartyOffer(partyBot, DateTime.UtcNow) is { } offer
             && ReferenceEquals(offer.Requester, sender))
         {
-            this.AnswerMeetingPlace(partyBot, sender, message, partyConfiguration);
+            this._conversations.AnswerMeetingPlace(partyBot, sender, message, partyConfiguration);
             return;
         }
 
@@ -183,7 +187,7 @@ public class BotChatPlugIn
         var values = BotChatValues.Create(receiver);
         var senderName = sender.SelectedCharacter?.Name ?? string.Empty;
         values["player"] = _ => senderName;
-        var language = GetMessageLanguage(message, configuration);
+        var language = BotChatComposer.GetLanguage(message, configuration);
         RunLater(
             receiver.GameContext,
             BotChatTiming.TypingDelay(text),
@@ -362,7 +366,7 @@ public class BotChatPlugIn
         var text = GetAnswerText(bot, line.Text, configuration);
         var values = BotChatValues.Create(bot);
         values["player"] = _ => senderName;
-        var language = GetMessageLanguage(message, configuration);
+        var language = BotChatComposer.GetLanguage(message, configuration);
         RunLater(
             bot.GameContext,
             BotChatTiming.TypingDelay(text),
@@ -620,27 +624,6 @@ public class BotChatPlugIn
     ];
 
     /// <summary>
-    /// Gets the language a player's message is written in, to answer in it - or <c>null</c> to answer
-    /// in the player's own language.
-    /// </summary>
-    private static CultureInfo? GetMessageLanguage(string message, BotChatConfiguration configuration)
-    {
-        if (BotChatComposer.DetectLanguage(message, configuration.MessageLanguages) is not { } code)
-        {
-            return null;
-        }
-
-        try
-        {
-            return CultureInfo.GetCultureInfo(code);
-        }
-        catch (CultureNotFoundException)
-        {
-            return null;
-        }
-    }
-
-    /// <summary>
     /// Gets the text a bot answers with: the chosen reply - unless it names the bot's wings and the
     /// bot has none, then one of the <see cref="BotChatConfiguration.WithoutWingsLines"/>.
     /// </summary>
@@ -674,66 +657,6 @@ public class BotChatPlugIn
     /// off and waits for the invitation (see <see cref="BotEventMeeting"/>); a place it may not go to
     /// is declined, and a whisper without a place gets asked again.
     /// </summary>
-    private void AnswerMeetingPlace(OfflinePlayer bot, Player requester, string message, BotChatConfiguration configuration)
-    {
-        var throttle = this.GetThrottle(bot.GameContext);
-        var values = BotChatValues.Create(bot);
-        var requesterName = requester.SelectedCharacter?.Name ?? string.Empty;
-        values["player"] = _ => requesterName;
-        var language = GetMessageLanguage(message, configuration);
-
-        // A named map wins over "here": "i'm here, devias 215 40" names the place.
-        var place = BotChatComposer.FindPlace(message, bot.GameContext.Configuration.Maps, bot.GameContext.Configuration.WarpList);
-        if (place is null
-            && BotChatComposer.ContainsAnyKeyword(message, configuration.PartyHereKeywords)
-            && requester.CurrentMap is { } requesterMap)
-        {
-            place = (requesterMap.Definition, null, requester.Position);
-        }
-
-        if (place is not { } found)
-        {
-            if (throttle.TryReserveWhisperReply(bot, DateTime.UtcNow, configuration.WhisperReplyCooldown)
-                && BotChatReplySelector.PickLineFor(throttle, requester, configuration.PartyAskWhereLines) is { } askLine)
-            {
-                this.WhisperLater(bot, requester, askLine, values, language);
-            }
-
-            return;
-        }
-
-        var (map, warp, position) = found;
-
-        // "devias3" is told back as the player wrote it, not as the map ("Devias").
-        var placeName = warp?.Name ?? map.Name;
-        values["map"] = culture => placeName.GetTranslation(culture) ?? string.Empty;
-        values["location"] = culture => BotChatComposer.FormatLocation(placeName.GetTranslation(culture), position);
-        if (!BotChatAudience.IsAvailable(bot) || !BotChatAudience.IsFreeToMeet(bot))
-        {
-            // Taken into another party, or busy otherwise, since it answered: it lets the player be.
-            throttle.RemovePartyOffer(bot);
-            return;
-        }
-
-        if (BotEventMeetingPlanner.FindMeetingEntry(bot, map, warp, position) is not { } entry)
-        {
-            // The offer stays open: the player may name another place until it expires.
-            if (BotChatComposer.PickCurrentLine(configuration.PartyCantGoLines) is { } cantGoLine)
-            {
-                this.WhisperLater(bot, requester, cantGoLine, values, language);
-            }
-
-            return;
-        }
-
-        throttle.RemovePartyOffer(bot);
-        bot.EventMeeting = new BotEventMeeting(map, entry.Position, DateTime.UtcNow + configuration.PartyMeetingWaitTime, entry.Gate);
-        if (BotChatComposer.PickCurrentLine(configuration.PartyOnTheWayLines) is { } onTheWayLine)
-        {
-            this.WhisperLater(bot, requester, onTheWayLine, values, language);
-        }
-    }
-
     /// <summary>
     /// Answers a player's message in the party chat: the bot of the party whose name the message
     /// mentions answers like to a whisper; without a name, one bot of the party answers only a
@@ -764,7 +687,7 @@ public class BotChatPlugIn
         var text = GetAnswerText(speaker, line.Text, configuration);
         var values = BotChatValues.Create(speaker);
         values["player"] = _ => senderName;
-        var language = GetMessageLanguage(message, configuration);
+        var language = BotChatComposer.GetLanguage(message, configuration);
         RunLater(speaker.GameContext, BotChatTiming.TypingDelay(text), () => BotChatSpeaker.PartySayAsync(speaker, party, text, values, language, line.Gesture, sender));
     }
 
@@ -797,7 +720,7 @@ public class BotChatPlugIn
 
         var values = BotChatValues.Create(bot);
         values["player"] = _ => senderName;
-        var language = GetMessageLanguage(message, configuration);
+        var language = BotChatComposer.GetLanguage(message, configuration);
         RunLater(bot.GameContext, BotChatTiming.TypingDelay(answer), () => BotChatAudience.IsAvailable(bot) ? BotChatSpeaker.SayAsync(bot, answer, values, language, toward: sender) : ValueTask.CompletedTask);
     }
 

@@ -26,6 +26,65 @@ public class BotMeetingPlaceTest
     private const byte LostTowerNumber = 4;
 
     /// <summary>
+    /// A named map wins over "here": a player who writes "i'm here, devias 215 40" names the place, even
+    /// though the bot would otherwise take the map the player stands on.
+    /// </summary>
+    [Test]
+    public void ANamedPlaceWinsOverHere()
+    {
+        var devias = new GameMapDefinition { Number = 2, Name = "Devias" };
+        var lostTower = new GameMapDefinition { Number = LostTowerNumber, Name = "Lost Tower" };
+
+        var place = BotChatConversationResponder.ResolveMeetingPlace(
+            "i'm here, devias 215 40",
+            new BotChatConfiguration(),
+            lostTower,
+            new Point(100, 100),
+            [devias, lostTower],
+            []);
+
+        Assert.That(place, Is.Not.Null);
+        Assert.That(place!.Value.Map.Number, Is.EqualTo(devias.Number));
+        Assert.That(place.Value.Position, Is.EqualTo(new Point(215, 40)));
+    }
+
+    /// <summary>
+    /// Without a name, "here" means the map and the spot the player stands on.
+    /// </summary>
+    [Test]
+    public void ABareHereMeansWhereThePlayerStands()
+    {
+        var lostTower = new GameMapDefinition { Number = LostTowerNumber, Name = "Lost Tower" };
+
+        var place = BotChatConversationResponder.ResolveMeetingPlace(
+            "come here pls",
+            new BotChatConfiguration(),
+            lostTower,
+            new Point(100, 100),
+            [lostTower],
+            []);
+
+        Assert.That(place, Is.Not.Null);
+        Assert.That(place!.Value.Map.Number, Is.EqualTo(lostTower.Number));
+        Assert.That(place.Value.Position, Is.EqualTo(new Point(100, 100)));
+        Assert.That(place.Value.Warp, Is.Null);
+    }
+
+    /// <summary>
+    /// A message without a place - and without "here" - leaves the place open, so the bot asks where to meet
+    /// instead of agreeing to something it didn't understand.
+    /// </summary>
+    [Test]
+    public void AMessageWithoutAPlaceResolvesToNothing()
+    {
+        var devias = new GameMapDefinition { Number = 2, Name = "Devias" };
+
+        Assert.That(
+            BotChatConversationResponder.ResolveMeetingPlace("let's go", new BotChatConfiguration(), devias, new Point(100, 100), [devias], []),
+            Is.Null);
+    }
+
+    /// <summary>
     /// A warp of the warp list names the place as well as a map: "devias3 227 227" is Devias, through
     /// the warp Devias3. "devias" alone is the map - the warp of the same name doesn't take its place.
     /// </summary>

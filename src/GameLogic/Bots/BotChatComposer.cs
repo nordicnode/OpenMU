@@ -166,6 +166,30 @@ internal static class BotChatComposer
     }
 
     /// <summary>
+    /// Gets the language a player's message is written in, to answer in it - or <c>null</c> to answer in
+    /// the player's own language.
+    /// </summary>
+    /// <param name="message">The player's message.</param>
+    /// <param name="configuration">The chat configuration with the language hints.</param>
+    /// <returns>The culture of the message, or <c>null</c> when the message doesn't tell.</returns>
+    internal static CultureInfo? GetLanguage(string message, BotChatConfiguration configuration)
+    {
+        if (DetectLanguage(message, configuration.MessageLanguages) is not { } code)
+        {
+            return null;
+        }
+
+        try
+        {
+            return CultureInfo.GetCultureInfo(code);
+        }
+        catch (CultureNotFoundException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Determines whether the message mentions the name as a whole word, ignoring case and
     /// punctuation - "hi Serael!" mentions Serael, "Seraelion" does not.
     /// </summary>
