@@ -41,34 +41,87 @@
   </ItemGroup>
 
   <!--
-    The packet test classes are generated from the packet definitions and checked in, because CI builds
-    without running the transformation (see the $(ci) condition below). Each definition gets its own target
-    with its inputs and outputs, so a build only regenerates the file whose definition or template changed -
-    otherwise every build would rewrite all four files, which both dirties a clean working tree and forces
-    the test project to compile again.
+    The packet test classes are generated from the packet definitions and checked in, because CI builds with
+    -p:ci=true and compiles the committed files instead of generating them (see docs/CODING_RULES.md, rule 2).
+    A committed file which is older than its definition is a stale copy: the tests of a packet are simply
+    missing, and nothing says so. That is why the transformation never writes to the repository unchecked -
+    it writes to the intermediate directory, and
+
+      * a normal build copies the result back, but only when it differs, so a build of unchanged definitions
+        leaves the working tree and the timestamps alone;
+      * a CI build does not copy anything back, but fails when the committed file differs from the freshly
+        generated one, which turns a forgotten regeneration into a build error instead of a silent gap.
   -->
-  <Target Name="GenerateClientToServerPacketTests" BeforeTargets="PreBuildEvent" Condition="'$(ci)'!='true'"
-          Inputs="..\..\src\Network\Packets\ClientToServer\ClientToServerPackets.xml;..\..\src\Network\Packets\GenerateTests.xslt"
-          Outputs="ClientToServerPacketTests.cs">
-    <XslTransformation OutputPaths="ClientToServerPacketTests.cs" XmlInputPaths="..\..\src\Network\Packets\ClientToServer\ClientToServerPackets.xml" XslInputPath="..\..\src\Network\Packets\GenerateTests.xslt" Parameters="&lt;Parameter Name='resultFileName' Value='ClientToServerPacketTests.cs'/&gt;&lt;Parameter Name='subNamespace' Value='ClientToServer'/&gt;" />
+  <PropertyGroup>
+    <PacketTestTemplate>..\..\src\Network\Packets\GenerateTests.xslt</PacketTestTemplate>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <GeneratedPacketTest Include="ClientToServerPacketTests.cs">
+      <Definition>..\..\src\Network\Packets\ClientToServer\ClientToServerPackets.xml</Definition>
+      <SubNamespace>ClientToServer</SubNamespace>
+    </GeneratedPacketTest>
+    <GeneratedPacketTest Include="ServerToClientPacketTests.cs">
+      <Definition>..\..\src\Network\Packets\ServerToClient\ServerToClientPackets.xml</Definition>
+      <SubNamespace>ServerToClient</SubNamespace>
+    </GeneratedPacketTest>
+    <GeneratedPacketTest Include="ChatServerPacketTests.cs">
+      <Definition>..\..\src\Network\Packets\ChatServer\ChatServerPackets.xml</Definition>
+      <SubNamespace>ChatServer</SubNamespace>
+    </GeneratedPacketTest>
+    <GeneratedPacketTest Include="ConnectServerPacketTests.cs">
+      <Definition>..\..\src\Network\Packets\ConnectServer\ConnectServerPackets.xml</Definition>
+      <SubNamespace>ConnectServer</SubNamespace>
+    </GeneratedPacketTest>
+  </ItemGroup>
+
+  <Target Name="GeneratePacketTests" BeforeTargets="PreBuildEvent"
+          Inputs="%(GeneratedPacketTest.Definition);$(PacketTestTemplate)"
+          Outputs="$(IntermediateOutputPath)Generated\%(GeneratedPacketTest.Identity)">
+    <MakeDir Directories="$(IntermediateOutputPath)Generated\" />
+    <XslTransformation OutputPaths="$(IntermediateOutputPath)Generated\%(GeneratedPacketTest.Identity)" XmlInputPaths="%(GeneratedPacketTest.Definition)" XslInputPath="$(PacketTestTemplate)" Parameters="&lt;Parameter Name='resultFileName' Value='%(GeneratedPacketTest.Identity)'/&gt;&lt;Parameter Name='subNamespace' Value='%(GeneratedPacketTest.SubNamespace)'/&gt;" />
   </Target>
 
-  <Target Name="GenerateServerToClientPacketTests" BeforeTargets="PreBuildEvent" Condition="'$(ci)'!='true'"
-          Inputs="..\..\src\Network\Packets\ServerToClient\ServerToClientPackets.xml;..\..\src\Network\Packets\GenerateTests.xslt"
-          Outputs="ServerToClientPacketTests.cs">
-    <XslTransformation OutputPaths="ServerToClientPacketTests.cs" XmlInputPaths="..\..\src\Network\Packets\ServerToClient\ServerToClientPackets.xml" XslInputPath="..\..\src\Network\Packets\GenerateTests.xslt" Parameters="&lt;Parameter Name='resultFileName' Value='ServerToClientPacketTests.cs'/&gt;&lt;Parameter Name='subNamespace' Value='ServerToClient'/&gt;" />
+  <!--
+    Takes the generated files into the repository. The copy is skipped when the file is unchanged, so a build
+    of unchanged definitions leaves the working tree and the file timestamps alone.
+  -->
+  <Target Name="SyncPacketTests" AfterTargets="GeneratePacketTests" BeforeTargets="BeforeCompile" Condition="'$(ci)'!='true'">
+    <Copy SourceFiles="$(IntermediateOutputPath)Generated\%(GeneratedPacketTest.Identity)" DestinationFiles="%(GeneratedPacketTest.Identity)" SkipUnchangedFiles="true" />
   </Target>
 
-  <Target Name="GenerateChatServerPacketTests" BeforeTargets="PreBuildEvent" Condition="'$(ci)'!='true'"
-          Inputs="..\..\src\Network\Packets\ChatServer\ChatServerPackets.xml;..\..\src\Network\Packets\GenerateTests.xslt"
-          Outputs="ChatServerPacketTests.cs">
-    <XslTransformation OutputPaths="ChatServerPacketTests.cs" XmlInputPaths="..\..\src\Network\Packets\ChatServer\ChatServerPackets.xml" XslInputPath="..\..\src\Network\Packets\GenerateTests.xslt" Parameters="&lt;Parameter Name='resultFileName' Value='ChatServerPacketTests.cs'/&gt;&lt;Parameter Name='subNamespace' Value='ChatServer'/&gt;" />
-  </Target>
-
-  <Target Name="GenerateConnectServerPacketTests" BeforeTargets="PreBuildEvent" Condition="'$(ci)'!='true'"
-          Inputs="..\..\src\Network\Packets\ConnectServer\ConnectServerPackets.xml;..\..\src\Network\Packets\GenerateTests.xslt"
-          Outputs="ConnectServerPacketTests.cs">
-    <XslTransformation OutputPaths="ConnectServerPacketTests.cs" XmlInputPaths="..\..\src\Network\Packets\ConnectServer\ConnectServerPackets.xml" XslInputPath="..\..\src\Network\Packets\GenerateTests.xslt" Parameters="&lt;Parameter Name='resultFileName' Value='ConnectServerPacketTests.cs'/&gt;&lt;Parameter Name='subNamespace' Value='ConnectServer'/&gt;" />
+  <!--
+    Fails a CI build when a committed test file differs from a fresh generation, which is what a forgotten
+    regeneration after a packet definition change looks like. It compares the files one by one instead of
+    batching over the item, because a batched comparison would mix the hashes of all files into one property.
+  -->
+  <Target Name="VerifyPacketTests" BeforeTargets="BeforeCompile" Condition="'$(ci)'=='true'">
+    <GetFileHash Files="$(IntermediateOutputPath)Generated\ClientToServerPacketTests.cs" Algorithm="SHA256">
+      <Output TaskParameter="Hash" PropertyName="_GeneratedClientToServerHash" />
+    </GetFileHash>
+    <GetFileHash Files="ClientToServerPacketTests.cs" Algorithm="SHA256">
+      <Output TaskParameter="Hash" PropertyName="_CommittedClientToServerHash" />
+    </GetFileHash>
+    <GetFileHash Files="$(IntermediateOutputPath)Generated\ServerToClientPacketTests.cs" Algorithm="SHA256">
+      <Output TaskParameter="Hash" PropertyName="_GeneratedServerToClientHash" />
+    </GetFileHash>
+    <GetFileHash Files="ServerToClientPacketTests.cs" Algorithm="SHA256">
+      <Output TaskParameter="Hash" PropertyName="_CommittedServerToClientHash" />
+    </GetFileHash>
+    <GetFileHash Files="$(IntermediateOutputPath)Generated\ChatServerPacketTests.cs" Algorithm="SHA256">
+      <Output TaskParameter="Hash" PropertyName="_GeneratedChatServerHash" />
+    </GetFileHash>
+    <GetFileHash Files="ChatServerPacketTests.cs" Algorithm="SHA256">
+      <Output TaskParameter="Hash" PropertyName="_CommittedChatServerHash" />
+    </GetFileHash>
+    <GetFileHash Files="$(IntermediateOutputPath)Generated\ConnectServerPacketTests.cs" Algorithm="SHA256">
+      <Output TaskParameter="Hash" PropertyName="_GeneratedConnectServerHash" />
+    </GetFileHash>
+    <GetFileHash Files="ConnectServerPacketTests.cs" Algorithm="SHA256">
+      <Output TaskParameter="Hash" PropertyName="_CommittedConnectServerHash" />
+    </GetFileHash>
+    <Error Condition="'$(_GeneratedClientToServerHash)' != '$(_CommittedClientToServerHash)' or '$(_GeneratedServerToClientHash)' != '$(_CommittedServerToClientHash)' or '$(_GeneratedChatServerHash)' != '$(_CommittedChatServerHash)' or '$(_GeneratedConnectServerHash)' != '$(_CommittedConnectServerHash)'"
+           Text="A generated packet test file is out of date with its packet definition. Build tests/MUnique.OpenMU.Network.Packets.Tests locally without -p:ci=true and commit the regenerated files together with the definitions." />
   </Target>
 
 </Project>
