@@ -42,7 +42,7 @@ public class IndexPageTests
 
         page.WaitForAssertion(() =>
         {
-            var values = page.FindAll(".statistic-value").Select(v => v.TextContent.Trim()).ToList();
+            var values = page.FindAll(".stat-card__value").Select(v => v.TextContent.Trim()).ToList();
             Assert.That(values[0], Is.EqualTo(15.ToString("N0")));
             Assert.That(values[1], Does.StartWith("2").And.EndWith("/ 3"));
             Assert.That(values[2], Is.EqualTo(1234.ToString("N0")));
@@ -99,7 +99,7 @@ public class IndexPageTests
         var page = context.Render<Index>();
         page.WaitForAssertion(() =>
         {
-            var values = page.FindAll(".statistic-value").Select(v => v.TextContent.Trim()).ToList();
+            var values = page.FindAll(".stat-card__value").Select(v => v.TextContent.Trim()).ToList();
             Assert.That(values[accountFailure ? 3 : 2], Is.EqualTo((accountFailure ? 56 : 1234).ToString("N0", CultureInfo.CurrentCulture)));
             Assert.That(values[accountFailure ? 2 : 3], Is.EqualTo(Resources.DashboardNotAvailable));
         });

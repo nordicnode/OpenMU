@@ -61,9 +61,9 @@ public class NetworkAnalyzerLinkTests
         var toast = new Mock<MUnique.OpenMU.Web.Shared.Components.Toast.IToastService>();
         context.Services.AddSingleton(toast.Object);
         var component = context.Render<LoggedIn>();
-        await component.Find("button.btn-warning").ClickAsync(new Microsoft.AspNetCore.Components.Web.MouseEventArgs()).ConfigureAwait(false);
+        await component.Find("button.admin-table-action--warning").ClickAsync(new Microsoft.AspNetCore.Components.Web.MouseEventArgs()).ConfigureAwait(false);
         toast.Verify(t => t.ShowError(It.Is<string>(message => message.Contains("Audit storage is unavailable", StringComparison.Ordinal)), null), Times.Once);
-        Assert.That(component.Find("h1"), Is.Not.Null);
+        Assert.That(component.Find("h3.admin-page-heading").TextContent, Does.Contain(MUnique.OpenMU.Web.AdminPanel.Properties.Resources.OnlineAccounts));
     }
 
     private static BunitContext CreateContext(IPacketCaptureService? captureService = null)

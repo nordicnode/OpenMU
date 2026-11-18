@@ -91,7 +91,7 @@ public sealed class CastleSiegePanelErrorTests
         toast.Verify(t => t.ShowError(It.Is<string>(message => message.Contains(guidance, StringComparison.Ordinal)), null), Times.Once);
         toast.Verify(t => t.ShowSuccess(It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
         Assert.That(plugin.GetContext(game)!.CurrentState, Is.EqualTo(uncertainOutcome ? targetState : initial.State));
-        Assert.That(component.Find("h1"), Is.Not.Null);
+        Assert.That(component.Find("h3").TextContent, Does.Contain(MUnique.OpenMU.Web.AdminPanel.Properties.Resources.CastleSiege));
         if (uncertainOutcome)
         {
             Assert.That((await audit.ReadAsync(0, 100).ConfigureAwait(false)).Items.Single().Outcome, Is.EqualTo("Pending"));

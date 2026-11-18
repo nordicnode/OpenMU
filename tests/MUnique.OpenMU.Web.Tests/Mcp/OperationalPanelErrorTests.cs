@@ -30,9 +30,9 @@ using MUnique.OpenMU.Web.Tests.NetworkAnalyzer;
 public sealed class OperationalPanelErrorTests
 {
     /// <summary>Audit failures in start, stop and confirmed delete handlers show a toast without losing the circuit.</summary>
-    [TestCase(ServerState.Stopped, "btn-success")]
-    [TestCase(ServerState.Started, "btn-warning")]
-    [TestCase(ServerState.Stopped, "btn-danger")]
+    [TestCase(ServerState.Stopped, "admin-table-action--success")]
+    [TestCase(ServerState.Started, "admin-table-action--warning")]
+    [TestCase(ServerState.Stopped, "admin-table-action--danger")]
     public async Task ServerControlsContainAuditFailuresAsync(ServerState state, string buttonClass)
     {
         using var context = new BunitContext();
