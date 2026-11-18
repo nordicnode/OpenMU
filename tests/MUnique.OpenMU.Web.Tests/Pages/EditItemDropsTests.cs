@@ -85,8 +85,10 @@ public class EditItemDropsTests
     {
         var cut = this._context.Render<EditItemDrops>();
 
+        // The button is part of the initial markup and is disabled until the maps are loaded, so clicking it
+        // waits for the page instead of racing the load - a click before that would add the group to nothing.
         cut.WaitForState(
-            () => cut.FindAll("button").Any(button => button.TextContent.Contains("Add drop item group")),
+            () => cut.FindAll("button").Any(button => button.TextContent.Contains("Add drop item group") && !button.HasAttribute("disabled")),
             TimeSpan.FromSeconds(10));
 
         var addButton = cut.FindAll("button").First(button => button.TextContent.Contains("Add drop item group"));

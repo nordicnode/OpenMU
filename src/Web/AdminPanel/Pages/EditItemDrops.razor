@@ -101,7 +101,7 @@
                         OnMapsChanged="@this.StateHasChanged"
                         OnRemove="@this.OnDeleteGroupAsync"
                         RemoveTitle="@Resources.Delete" />
-    <button type="button" class="btn btn-sm btn-outline-primary" @onclick="this.OnAddMapGroup">
+    <button type="button" class="btn btn-sm btn-outline-primary" disabled="@(this._maps.Count == 0)" @onclick="this.OnAddMapGroup">
         <span class="oi oi-plus" aria-hidden="true"></span> @Resources.AddDropItemGroup
     </button>
 </CollapsibleSection>
