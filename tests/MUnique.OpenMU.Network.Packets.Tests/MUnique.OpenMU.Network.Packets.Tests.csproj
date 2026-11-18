@@ -40,11 +40,34 @@
     <ProjectReference Include="..\..\src\Network\Packets\MUnique.OpenMU.Network.Packets.csproj" />
   </ItemGroup>
 
-  <Target Name="PreBuild" BeforeTargets="PreBuildEvent" Condition="'$(ci)'!='true'">
-    <!-- Generate test files from XML packet definitions -->
+  <!--
+    The packet test classes are generated from the packet definitions and checked in, because CI builds
+    without running the transformation (see the $(ci) condition below). Each definition gets its own target
+    with its inputs and outputs, so a build only regenerates the file whose definition or template changed -
+    otherwise every build would rewrite all four files, which both dirties a clean working tree and forces
+    the test project to compile again.
+  -->
+  <Target Name="GenerateClientToServerPacketTests" BeforeTargets="PreBuildEvent" Condition="'$(ci)'!='true'"
+          Inputs="..\..\src\Network\Packets\ClientToServer\ClientToServerPackets.xml;..\..\src\Network\Packets\GenerateTests.xslt"
+          Outputs="ClientToServerPacketTests.cs">
     <XslTransformation OutputPaths="ClientToServerPacketTests.cs" XmlInputPaths="..\..\src\Network\Packets\ClientToServer\ClientToServerPackets.xml" XslInputPath="..\..\src\Network\Packets\GenerateTests.xslt" Parameters="&lt;Parameter Name='resultFileName' Value='ClientToServerPacketTests.cs'/&gt;&lt;Parameter Name='subNamespace' Value='ClientToServer'/&gt;" />
+  </Target>
+
+  <Target Name="GenerateServerToClientPacketTests" BeforeTargets="PreBuildEvent" Condition="'$(ci)'!='true'"
+          Inputs="..\..\src\Network\Packets\ServerToClient\ServerToClientPackets.xml;..\..\src\Network\Packets\GenerateTests.xslt"
+          Outputs="ServerToClientPacketTests.cs">
     <XslTransformation OutputPaths="ServerToClientPacketTests.cs" XmlInputPaths="..\..\src\Network\Packets\ServerToClient\ServerToClientPackets.xml" XslInputPath="..\..\src\Network\Packets\GenerateTests.xslt" Parameters="&lt;Parameter Name='resultFileName' Value='ServerToClientPacketTests.cs'/&gt;&lt;Parameter Name='subNamespace' Value='ServerToClient'/&gt;" />
+  </Target>
+
+  <Target Name="GenerateChatServerPacketTests" BeforeTargets="PreBuildEvent" Condition="'$(ci)'!='true'"
+          Inputs="..\..\src\Network\Packets\ChatServer\ChatServerPackets.xml;..\..\src\Network\Packets\GenerateTests.xslt"
+          Outputs="ChatServerPacketTests.cs">
     <XslTransformation OutputPaths="ChatServerPacketTests.cs" XmlInputPaths="..\..\src\Network\Packets\ChatServer\ChatServerPackets.xml" XslInputPath="..\..\src\Network\Packets\GenerateTests.xslt" Parameters="&lt;Parameter Name='resultFileName' Value='ChatServerPacketTests.cs'/&gt;&lt;Parameter Name='subNamespace' Value='ChatServer'/&gt;" />
+  </Target>
+
+  <Target Name="GenerateConnectServerPacketTests" BeforeTargets="PreBuildEvent" Condition="'$(ci)'!='true'"
+          Inputs="..\..\src\Network\Packets\ConnectServer\ConnectServerPackets.xml;..\..\src\Network\Packets\GenerateTests.xslt"
+          Outputs="ConnectServerPacketTests.cs">
     <XslTransformation OutputPaths="ConnectServerPacketTests.cs" XmlInputPaths="..\..\src\Network\Packets\ConnectServer\ConnectServerPackets.xml" XslInputPath="..\..\src\Network\Packets\GenerateTests.xslt" Parameters="&lt;Parameter Name='resultFileName' Value='ConnectServerPacketTests.cs'/&gt;&lt;Parameter Name='subNamespace' Value='ConnectServer'/&gt;" />
   </Target>
 
