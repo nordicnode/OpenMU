@@ -46,8 +46,12 @@ The packet structures, their send extension methods, their markdown documentatio
   `true`**, and CI builds with `-p:ci=true`. That means the generated files are
   committed and **CI will not regenerate them for you** — build the
   `MUnique.OpenMU.Network.Packets` project and the packets test project locally
-  and commit the result alongside the XML. The markdown generation additionally
-  needs NodeJS (it shells out to `npx xslt3`).
+  and commit the result alongside the XML. A local build only rewrites a
+  generated file when its definition or template changed, and a CI build fails
+  when a committed generated file is behind its definition, so a forgotten
+  regeneration is reported instead of silently shipping stale structs. The
+  markdown generation additionally needs NodeJS (it shells out to `npx xslt3`)
+  and only runs when a definition or a template changed.
 * Fill in `SentWhen` and `CausedReaction`. They are the documentation.
 * `docs/Packets/*.md` is pinned to LF in `.gitattributes` — don't fight it.
 
