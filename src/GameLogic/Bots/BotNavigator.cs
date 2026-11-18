@@ -1124,6 +1124,73 @@ internal sealed class BotNavigator : AsyncDisposable
         return gate is not null;
     }
 
+    /// <summary>
+    /// Picks a hunting ground point from the map's monster spawn areas, preferring the strongest monsters
+    /// the bot can safely fight (see <see cref="CombatHandler.IsSafeTarget"/>) - best experience without
+    /// being slaughtered. If nothing on the map is safe, it falls back to the weakest monsters available
+    /// (the bot should warp away anyway).
+    /// </summary>
+    /// <param name="map">The map the bot hunts on.</param>
+    /// <param name="ground">The chosen ground point.</param>
+    /// <param name="groundLevel">The monster level of the chosen ground.</param>
+    /// <returns><c>True</c>, if a ground was picked; otherwise, <c>false</c>.</returns>
+    internal bool TryPickHuntingGround(GameMap map, out Point ground, out int groundLevel)
+    {
+        ground = default;
+        groundLevel = 0;
+
+        // Only grounds in the part of the map the bot can walk to: on the Lost Tower, the strongest
+        // monsters stand on a floor above, and picking them made every walk fail and the bot stand idle.
+        // A bot which stands on a blocked tile - on the gate it landed on, or next to a wall - is judged by
+        // the region next to it; without a walkable tile at all, no ground of the map can be walked to.
+        var mapRegions = BotMapRegions.Get(map.Definition);
+        var region = mapRegions.GetRegionNear(this._player.Position, RegionSearchRadius);
+        if (region == 0)
+        {
+            return false;
+        }
+
+        int[] regions = [region];
+        var isAvoided = this.GetAvoidedGroundFilter(map.Definition);
+        var candidates = map.Definition.MonsterSpawns
+            .Where(BotHuntingGroundSelector.IsPermanentMonsterSpawn)
+            .Where(a => mapRegions.IsAreaWithin(a, regions, BotHuntingGroundSelector.GroundScatterSpan, HuntingRange))
+            .Where(a => isAvoided is null || !isAvoided(a))
+            .Select(a => (Area: a, Level: BotHuntingGroundSelector.GetMonsterLevel(a.MonsterDefinition!)))
+            .Where(x => x.Level > 0)
+            .ToList();
+        if (candidates.Count == 0)
+        {
+            return false;
+        }
+
+        // Prefer the strongest monsters the bot can safely handle (best experience); if none on this map
+        // pass the safety check, fall back to the weakest available (the bot should warp away anyway).
+        var safe = candidates.Where(x => CombatHandler.IsSafeTarget(this._player, x.Area.MonsterDefinition!)).ToList();
+
+        var floor = this.MasterExperienceFloor();
+        var band = BotHuntingGroundSelector.SelectLevelBand(candidates, safe, floor);
+
+        // After repeated deaths against the same player, the area around the death site is off the
+        // menu for a while (see OfflinePlayer.TryGetDeathSiteToAvoid): drop grounds close to it, so
+        // the bot farms somewhere else instead of walking back into the same lost fight.
+        Point? siteToAvoid = this._player.TryGetDeathSiteToAvoid(map.Definition, out var avoidPoint) ? avoidPoint : null;
+        band = BotHuntingGroundSelector.WithoutDeathSite(band, siteToAvoid);
+
+        // Grounds another bot outside the party already works are dropped first, so two independent
+        // bots do not farm the same monsters.
+        var competitorSpots = HuntingSpotOccupancy.GetCompetitorSpots(this._player, map.GetPlayers(), map.Definition.Number);
+        band = BotHuntingGroundSelector.WithoutCompetitors(band, competitorSpots);
+
+        if (BotHuntingGroundSelector.PickWeighted(band, this._player.Position) is not { } chosen)
+        {
+            return false;
+        }
+
+        groundLevel = chosen.Level;
+        return BotHuntingGroundSelector.TryPickWalkablePoint(map, chosen.Area, siteToAvoid, competitorSpots, mapRegions, region, out ground);
+    }
+
     /// <inheritdoc />
     protected override async ValueTask DisposeAsyncCore()
     {
@@ -2997,69 +3064,6 @@ internal sealed class BotNavigator : AsyncDisposable
         mapDefinition = choice.Map;
         monsterLevel = choice.Level;
         return true;
-    }
-
-    /// <summary>
-    /// Picks a hunting ground point from the map's monster spawn areas, preferring the strongest monsters
-    /// the bot can safely fight (see <see cref="CombatHandler.IsSafeTarget"/>) - best experience without
-    /// being slaughtered. If nothing on the map is safe, it falls back to the weakest monsters available
-    /// (the bot should warp away anyway).
-    /// </summary>
-    internal bool TryPickHuntingGround(GameMap map, out Point ground, out int groundLevel)
-    {
-        ground = default;
-        groundLevel = 0;
-
-        // Only grounds in the part of the map the bot can walk to: on the Lost Tower, the strongest
-        // monsters stand on a floor above, and picking them made every walk fail and the bot stand idle.
-        // A bot which stands on a blocked tile - on the gate it landed on, or next to a wall - is judged by
-        // the region next to it; without a walkable tile at all, no ground of the map can be walked to.
-        var mapRegions = BotMapRegions.Get(map.Definition);
-        var region = mapRegions.GetRegionNear(this._player.Position, RegionSearchRadius);
-        if (region == 0)
-        {
-            return false;
-        }
-
-        int[] regions = [region];
-        var isAvoided = this.GetAvoidedGroundFilter(map.Definition);
-        var candidates = map.Definition.MonsterSpawns
-            .Where(BotHuntingGroundSelector.IsPermanentMonsterSpawn)
-            .Where(a => mapRegions.IsAreaWithin(a, regions, BotHuntingGroundSelector.GroundScatterSpan, HuntingRange))
-            .Where(a => isAvoided is null || !isAvoided(a))
-            .Select(a => (Area: a, Level: BotHuntingGroundSelector.GetMonsterLevel(a.MonsterDefinition!)))
-            .Where(x => x.Level > 0)
-            .ToList();
-        if (candidates.Count == 0)
-        {
-            return false;
-        }
-
-        // Prefer the strongest monsters the bot can safely handle (best experience); if none on this map
-        // pass the safety check, fall back to the weakest available (the bot should warp away anyway).
-        var safe = candidates.Where(x => CombatHandler.IsSafeTarget(this._player, x.Area.MonsterDefinition!)).ToList();
-
-        var floor = this.MasterExperienceFloor();
-        var band = BotHuntingGroundSelector.SelectLevelBand(candidates, safe, floor);
-
-        // After repeated deaths against the same player, the area around the death site is off the
-        // menu for a while (see OfflinePlayer.TryGetDeathSiteToAvoid): drop grounds close to it, so
-        // the bot farms somewhere else instead of walking back into the same lost fight.
-        Point? siteToAvoid = this._player.TryGetDeathSiteToAvoid(map.Definition, out var avoidPoint) ? avoidPoint : null;
-        band = BotHuntingGroundSelector.WithoutDeathSite(band, siteToAvoid);
-
-        // Grounds another bot outside the party already works are dropped first, so two independent
-        // bots do not farm the same monsters.
-        var competitorSpots = HuntingSpotOccupancy.GetCompetitorSpots(this._player, map.GetPlayers(), map.Definition.Number);
-        band = BotHuntingGroundSelector.WithoutCompetitors(band, competitorSpots);
-
-        if (BotHuntingGroundSelector.PickWeighted(band, this._player.Position) is not { } chosen)
-        {
-            return false;
-        }
-
-        groundLevel = chosen.Level;
-        return BotHuntingGroundSelector.TryPickWalkablePoint(map, chosen.Area, siteToAvoid, competitorSpots, mapRegions, region, out ground);
     }
 
     /// <summary>

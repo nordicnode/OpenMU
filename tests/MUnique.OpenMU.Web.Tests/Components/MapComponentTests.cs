@@ -62,10 +62,13 @@ public class MapComponentTests
             .Returns(() => new ValueTask<IMapController>(creation.Task));
         this._context.Services.AddSingleton(factory.Object);
 
-        this._context.Render<MapComponent>(parameters => parameters
+        var component = this._context.Render<MapComponent>(parameters => parameters
             .Add(p => p.Server, new Mock<IObservableGameServer>().Object)
             .Add(p => p.MapId, Guid.NewGuid()));
-        factory.Verify(f => f.CreateMapAsync(It.IsAny<IObservableGameServer>(), It.IsAny<Guid>()), Times.Once);
+
+        // The component creates the map lazily, when the live map asks for it after its first render -
+        // so the call may still be on its way here, especially on a loaded machine.
+        component.WaitForAssertion(() => factory.Verify(f => f.CreateMapAsync(It.IsAny<IObservableGameServer>(), It.IsAny<Guid>()), Times.Once));
 
         await this._context.DisposeComponentsAsync().ConfigureAwait(false);
         creation.SetResult(controller.Object);
