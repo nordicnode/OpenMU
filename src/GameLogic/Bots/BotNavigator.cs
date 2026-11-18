@@ -250,6 +250,71 @@ internal sealed class BotNavigator : AsyncDisposable
 
     private static readonly ConcurrentBag<PathFinder> TravelPathFinders = CreateTravelPathFinderPool();
 
+    /// <summary>
+    /// The steps a tick is made of, in their priority order: the first one which consumes the tick decides
+    /// what the bot does in it, and the ones after it don't run. The table is the bot's priority order in one
+    /// place - an announced event meeting or a market shift outranks the errands, the errands outrank the
+    /// errands below them and following the party leader, and <see cref="RoutineStepAsync"/> is what happens
+    /// when nothing else claimed the tick. A step which doesn't consume the tick lets the next one try.
+    /// </summary>
+    private static readonly TickStep[] TickSteps =
+    [
+
+        // A bot which announced an opened event waits at the meeting point until the entrance closes (see
+        // BotChatPlugIn): it said where it would be, so it must be found there. This outranks the errands and
+        // the party follow, and a due reset, which would change its level.
+        new(BotState.EventMeeting, "announced event meeting", (navigator, map, tick, cancellationToken) => navigator.EventMeetingStepAsync(map, tick, cancellationToken)),
+
+        // A bot on a market shift sells the goods of its personal store at its stall (see BotMerchantPlugIn) -
+        // its customers have to find it there, like the players of an event meeting.
+        new(BotState.MarketShift, "market shift", (navigator, map, _, cancellationToken) => navigator.MarketShiftStepAsync(map, cancellationToken)),
+
+        // On servers with the reset feature, a due character reset outranks the whole routine below: the bot
+        // has reached the required level, so hunting on only gains it nothing until it resets. It keeps
+        // fighting normally through the random grace delay, then resets and starts its next cycle (see
+        // BotResetHandler).
+        new(BotState.Reset, "character reset", (navigator, _, _, _) => navigator.ResetStepAsync()),
+
+        // A master bot invests freshly earned master points (one per master level). Queued into the MuHelper
+        // tick like the level-up progression - learning a skill mutates the skill list, which must never
+        // happen while the combat handler enumerates it (see PendingBotActions). The master evolution itself
+        // is handled by the feature plugin's maintenance pass because it restarts the bot. This step is
+        // upkeep: it never consumes a tick.
+        new(null, string.Empty, (navigator, _, _, _) => QueueMasterPointsStepAsync(navigator)),
+
+        // A shopping trip (selling junk loot, restocking potions with Zen) runs before the errands below, so
+        // it completes even for party members - the follow logic would otherwise pull them back to the leader
+        // mid-trade.
+        new(BotState.Shopping, "town errand: selling and restocking", (navigator, map, tick, cancellationToken) => navigator.ShoppingStepAsync(map, tick, cancellationToken)),
+
+        // A buff trip (claiming the free defense/damage buff a dialog NPC like the Elf Soldier offers) is an
+        // errand like shopping - it also completes even for party members, and does not mix with the follow
+        // logic pulling the bot back to the leader mid-visit.
+        new(BotState.Buff, "town errand: claiming a buff", (navigator, map, tick, cancellationToken) => navigator.BuffStepAsync(map, tick, cancellationToken)),
+
+        // A chaos machine trip (upgrading a lucky +9..+14 piece at the goblin) is an errand like the others:
+        // it completes even for party members.
+        new(BotState.ChaosMachine, "town errand: mixing at the chaos machine", (navigator, map, tick, cancellationToken) => navigator.ChaosMachineStepAsync(map, tick, cancellationToken)),
+
+        // Armed revenge (a player killed this bot; it respawned on the same map) overrides the whole normal
+        // routine, including following the party leader: the bot marches back to the place of its death.
+        new(BotState.Revenge, "revenge march", (navigator, map, _, cancellationToken) => navigator.RevengeStepAsync(map, cancellationToken)),
+
+        // Party members follow their leader instead of roaming on their own - to the leader's map when it
+        // warped away (this step), and around him while on the same map (the step below).
+        new(BotState.FollowLeader, "following the leader to his map", (navigator, map, tick, cancellationToken) => navigator.FollowLeaderCrossMapStepAsync(map, tick, cancellationToken)),
+        new(BotState.FollowLeader, "following the leader", (navigator, map, tick, cancellationToken) => navigator.FollowLeaderStepAsync(map, tick, cancellationToken)),
+
+        // A bot whose map is no longer the best it could safely hunt warps away before it fights what is left
+        // (see WarpToBetterMapStepAsync).
+        new(BotState.Travel, "warping to a better map", (navigator, map, tick, cancellationToken) => navigator.WarpToBetterMapStepAsync(map, tick, cancellationToken)),
+
+        // The routine: hunt what is around, walk to what is worth walking to, relocate when nothing is left.
+        // It always consumes the tick, so it is the last step - and it claims its own state, because which
+        // one it ends in depends on what it finds (see RoutineStepAsync).
+        new(null, string.Empty, (navigator, map, tick, cancellationToken) => navigator.RoutineStepAsync(map, tick, cancellationToken)),
+    ];
+
     private readonly OfflinePlayer _player;
     private readonly TimeProvider _timeProvider;
     private readonly BotDangerZoneTracker _dangerZones;
@@ -351,6 +416,12 @@ internal sealed class BotNavigator : AsyncDisposable
         this._states = new BotStateMachine(timeProvider, this.IsErrandClaimed);
         this._player.Died += this.OnDied;
     }
+
+    /// <summary>
+    /// Gets the states a tick tries, in their priority order - the declared order of <see cref="TickSteps"/>,
+    /// with <c>null</c> for the steps which claim no state of their own (the upkeep and the routine).
+    /// </summary>
+    internal static IReadOnlyList<BotState?> TickStepOrder { get; } = TickSteps.Select(step => step.State).ToList();
 
     /// <summary>
     /// Gets the state machine which records what the bot does in each navigation tick.
@@ -1253,6 +1324,22 @@ internal sealed class BotNavigator : AsyncDisposable
     }
 
     /// <summary>
+    /// The upkeep step which queues the spending of freshly earned master points (see <see cref="TickSteps"/>).
+    /// It never consumes a tick.
+    /// </summary>
+    /// <param name="navigator">The navigator whose bot earns the points.</param>
+    /// <returns>Always <c>false</c> - the tick stays free for the steps after this one.</returns>
+    private static ValueTask<bool> QueueMasterPointsStepAsync(BotNavigator navigator)
+    {
+        if (BotMasterHandler.HasMasterPointsToSpend(navigator._player))
+        {
+            navigator._player.PendingBotActions.Enqueue(() => BotMasterHandler.TrySpendMasterPointsAsync(navigator._player));
+        }
+
+        return ValueTask.FromResult(false);
+    }
+
+    /// <summary>
     /// Returns the time of the next buff consideration, spread around <see cref="BuffCooldown"/> so that bots
     /// which just went to the buff NPC together don't line up there again.
     /// </summary>
@@ -1399,10 +1486,16 @@ internal sealed class BotNavigator : AsyncDisposable
 
     /// <summary>
     /// One evaluation tick: the bot decides what it does next, from what <see cref="PrepareTickAsync"/>
-    /// gathered. The order of the branches is the priority order of the bot - an announced event meeting or
-    /// a market shift outranks the errands, the errands outrank following the leader, and hunting is what
-    /// happens when nothing else claimed the tick.
+    /// gathered.
     /// </summary>
+    /// <remarks>
+    /// A tick has three parts. The preconditions decide whether the bot may act at all, and whether a state
+    /// outranks the whole routine: a mini-game event, a wedged position, or a walk which is still running.
+    /// Then <see cref="TickSteps"/> is walked in its declared order - the priority order of the bot, kept in
+    /// one place instead of spread over the length of this method. The first step which consumes the tick
+    /// returns the state the bot is in, and nothing after it runs. The last step is the routine, which is
+    /// what happens when no event, errand or leader claimed the tick.
+    /// </remarks>
     /// <param name="cancellationToken">The token which aborts the tick on shutdown.</param>
     private async ValueTask EvaluateAsync(CancellationToken cancellationToken)
     {
@@ -1420,7 +1513,7 @@ internal sealed class BotNavigator : AsyncDisposable
         // (shopping, revenge, warping, ground picking) must not run.
         if (this._player.CurrentMiniGame is not null)
         {
-            this.Claim(BotState.MiniGame, "mini-game event");
+            this.Claim(new TickClaim(BotState.MiniGame, "mini-game event"));
             await this.EvaluateInsideMiniGameAsync(map, cancellationToken).ConfigureAwait(false);
             return;
         }
@@ -1432,148 +1525,204 @@ internal sealed class BotNavigator : AsyncDisposable
         // around - standing still next to monsters usually just means fighting, but if the position stays
         // frozen well beyond that, something is wedged (e.g. a monster in range that cannot be reached).
         var stuckTimeout = tick.MonstersNearby > 0 ? StuckWithMonstersTimeout : StuckTimeout;
-        var stuck = DateTime.UtcNow - this._lastMoveUtc > stuckTimeout;
-        if (stuck)
+        if (DateTime.UtcNow - this._lastMoveUtc > stuckTimeout)
         {
-            // Break free: pick a fresh hunting ground and walk to it now. Issuing the walk resets the wedged
-            // walker, and a new destination avoids re-stalling on the same blocked path. A follower
-            // regroups on its leader instead of roaming to a random ground - the leader decides where
-            // the party hunts.
-            this._lastMoveUtc = DateTime.UtcNow;
-            this._emptyGroundSince = null;
-            if (tick.LeaderToFollow is not null && ReferenceEquals(tick.LeaderToFollow.CurrentMap, map))
-            {
-                this.Claim(BotState.Recover, "wedged, walking back to the leader");
-                await this.TravelTowardAsync(map, tick.LeaderToFollow.Position, cancellationToken).ConfigureAwait(false);
-                return;
-            }
-
-            this.Claim(BotState.Recover, "wedged, picking a new ground");
-            await this.PickGroundAndTravelAsync(map, cancellationToken).ConfigureAwait(false);
+            this.Claim(await this.BreakFreeAsync(map, tick, cancellationToken).ConfigureAwait(false));
             return;
         }
 
         // A walk (travel hop or local combat move) is already in progress.
         if (this._player.IsWalking)
         {
-            this.Claim(BotState.Idle, "walk in progress");
+            this.Claim(new TickClaim(BotState.Idle, "walk in progress"));
             return;
         }
 
-        // A bot which announced an opened event waits at the meeting point until the entrance closes
-        // (see BotChatPlugIn): it said where it would be, so it must be found there. This outranks the
-        // errands and the party follow below - and a due reset, which would change its level.
-        if (await this.TryEventMeetingAsync(map, tick.InSafezone, cancellationToken).ConfigureAwait(false))
+        foreach (var step in TickSteps)
         {
-            this.Claim(BotState.EventMeeting, "announced event meeting");
-            return;
-        }
-
-        // A bot on a market shift sells the goods of its personal store at its stall (see
-        // BotMerchantPlugIn) - its customers have to find it there, like the players of an event meeting.
-        if (await this.TryMarketShiftAsync(map, cancellationToken).ConfigureAwait(false))
-        {
-            this.Claim(BotState.MarketShift, "market shift");
-            return;
-        }
-
-        // On servers with the reset feature, a due character reset outranks the whole routine below:
-        // the bot has reached the required level, so hunting on only gains it nothing until it resets.
-        // It keeps fighting normally through the random grace delay, then resets and starts its next
-        // cycle (see BotResetHandler).
-        if (await this.TryResetCharacterAsync().ConfigureAwait(false))
-        {
-            this.Claim(BotState.Reset, "character reset");
-            return;
-        }
-
-        // A master bot invests freshly earned master points (one per master level). Queued into the
-        // MuHelper tick like the level-up progression - learning a skill mutates the skill list, which
-        // must never happen while the combat handler enumerates it (see PendingBotActions). The master
-        // evolution itself is handled by the feature plugin's maintenance pass because it restarts the bot.
-        if (BotMasterHandler.HasMasterPointsToSpend(this._player))
-        {
-            this._player.PendingBotActions.Enqueue(() => BotMasterHandler.TrySpendMasterPointsAsync(this._player));
-        }
-
-        // A shopping trip (selling junk loot, restocking potions with Zen) runs before everything else,
-        // so it completes even for party members - the follow logic below would otherwise pull them
-        // back to the leader mid-trade.
-        if (await this.TryShoppingAsync(map, tick.InSafezone, cancellationToken).ConfigureAwait(false))
-        {
-            this.Claim(BotState.Shopping, "town errand: selling and restocking");
-            return;
-        }
-
-        // A buff trip (claiming the free defense/damage buff a dialog NPC like the Elf Soldier offers)
-        // is an errand like shopping - it also completes even for party members, and does not mix with
-        // the follow logic below pulling the bot back to the leader mid-visit.
-        if (await this.TryBuffTripAsync(map, tick.InSafezone, cancellationToken).ConfigureAwait(false))
-        {
-            this.Claim(BotState.Buff, "town errand: claiming a buff");
-            return;
-        }
-
-        // A chaos machine trip (upgrading a lucky +9..+14 piece at the goblin) is an errand like the
-        // others: it completes even for party members.
-        if (await this.TryChaosMachineTripAsync(map, tick.InSafezone, cancellationToken).ConfigureAwait(false))
-        {
-            this.Claim(BotState.ChaosMachine, "town errand: mixing at the chaos machine");
-            return;
-        }
-
-        // Armed revenge (a player killed this bot; it respawned on the same map) overrides the
-        // whole normal routine below, including following the party leader: the bot marches back to
-        // the place of its death. A leader on a revenge march still drags its followers along - the
-        // posse a wronged player would bring. Once the revenge is spent or times out, the bot falls
-        // back into the routine (and a follower rejoins its group).
-        if (await this.TryRevengeMarchAsync(map, cancellationToken).ConfigureAwait(false))
-        {
-            this.Claim(BotState.Revenge, "revenge march");
-            return;
-        }
-
-        // Party members follow their leader instead of roaming on their own: to the leader's map when
-        // it warped away (see TryHandleCrossMapLeaderFollowAsync), and around him while on the same map (see
-        // EvaluateFollowerHuntingAsync - hunt within range while there is something to fight, regroup
-        // into formation when idle). Followers never roam to independent hunting grounds, warp on
-        // their own, or step down barren maps - the leader (the lowest-level member, so it only ever
-        // picks maps the whole group can hunt on) decides where the party goes. Trade-off, by design:
-        // if the leader idles in town or is wedged, its followers idle with him.
-        if (tick.LeaderToFollow is not null)
-        {
-            if (await this.TryHandleCrossMapLeaderFollowAsync(map, tick.LeaderToFollow, cancellationToken).ConfigureAwait(false))
+            if (!await step.Handle(this, map, tick, cancellationToken).ConfigureAwait(false))
             {
-                this.Claim(BotState.FollowLeader, "following the leader to his map");
-                return;
+                continue;
             }
 
-            this.Claim(BotState.FollowLeader, "following the leader");
-            await this.EvaluateFollowerHuntingAsync(map, tick.LeaderToFollow, tick.InSafezone, cancellationToken).ConfigureAwait(false);
+            if (step.State is { } state)
+            {
+                this.Claim(new TickClaim(state, step.Reason));
+            }
+
             return;
         }
+    }
 
-        // A bot whose map is no longer the best it could safely hunt warps away with priority - even
-        // though trivial monsters are still around. Without this, the nearest-monster homing always
-        // finds SOMETHING huntable on the starter map, the warp logic below is never reached, and
-        // high-level bots farm level-5 mobs on Lorencia forever (with the experience penalty) instead
-        // of moving on to their level's maps. TryWarpToBetterMapAsync itself only fires when another
-        // map is meaningfully better (margin + cooldown), so a bot on an adequate map stays put.
-        if (tick.LeaderToFollow is null
-            && !tick.IsSavingForFollowFare
-            && await this.TryWarpToBetterMapAsync().ConfigureAwait(false))
+    /// <summary>
+    /// Breaks the bot free from a position it was wedged on: it picks a fresh hunting ground and walks to it
+    /// now. Issuing the walk resets the wedged walker, and a new destination avoids re-stalling on the same
+    /// blocked path. A follower regroups on its leader instead of roaming to a random ground - the leader
+    /// decides where the party hunts.
+    /// </summary>
+    /// <param name="map">The map the bot is on.</param>
+    /// <param name="tick">What this tick gathered.</param>
+    /// <param name="cancellationToken">The token which aborts the tick on shutdown.</param>
+    /// <returns>The state the bot is in.</returns>
+    private async ValueTask<TickClaim> BreakFreeAsync(GameMap map, TickContext tick, CancellationToken cancellationToken)
+    {
+        this._lastMoveUtc = DateTime.UtcNow;
+        this._emptyGroundSince = null;
+        if (tick.LeaderToFollow is not null && ReferenceEquals(tick.LeaderToFollow.CurrentMap, map))
         {
-            this.Claim(BotState.Travel, "warping to a better map");
-            return;
+            await this.TravelTowardAsync(map, tick.LeaderToFollow.Position, cancellationToken).ConfigureAwait(false);
+            return new TickClaim(BotState.Recover, "wedged, walking back to the leader");
         }
 
+        await this.PickGroundAndTravelAsync(map, cancellationToken).ConfigureAwait(false);
+        return new TickClaim(BotState.Recover, "wedged, picking a new ground");
+    }
+
+    /// <summary>
+    /// The step of an announced event: the bot walks to the meeting point and waits there until the entrance
+    /// closes (see BotChatPlugIn).
+    /// </summary>
+    /// <param name="map">The map the bot is on.</param>
+    /// <param name="tick">What this tick gathered.</param>
+    /// <param name="cancellationToken">The token which aborts the tick on shutdown.</param>
+    /// <returns>True, if the step consumed the tick.</returns>
+    private async ValueTask<bool> EventMeetingStepAsync(GameMap map, TickContext tick, CancellationToken cancellationToken)
+        => await this.TryEventMeetingAsync(map, tick.InSafezone, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// The step of a market shift: the bot sells the goods of its personal store at its stall (see
+    /// BotMerchantPlugIn).
+    /// </summary>
+    /// <param name="map">The map the bot is on.</param>
+    /// <param name="cancellationToken">The token which aborts the tick on shutdown.</param>
+    /// <returns>True, if the step consumed the tick.</returns>
+    private async ValueTask<bool> MarketShiftStepAsync(GameMap map, CancellationToken cancellationToken)
+        => await this.TryMarketShiftAsync(map, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// The step of a due character reset (see BotResetHandler).
+    /// </summary>
+    /// <returns>True, if the step consumed the tick.</returns>
+    private async ValueTask<bool> ResetStepAsync()
+        => await this.TryResetCharacterAsync().ConfigureAwait(false);
+
+    /// <summary>
+    /// The step of a shopping trip (selling junk loot, restocking potions with Zen).
+    /// </summary>
+    /// <param name="map">The map the bot is on.</param>
+    /// <param name="tick">What this tick gathered.</param>
+    /// <param name="cancellationToken">The token which aborts the tick on shutdown.</param>
+    /// <returns>True, if the step consumed the tick.</returns>
+    private async ValueTask<bool> ShoppingStepAsync(GameMap map, TickContext tick, CancellationToken cancellationToken)
+        => await this.TryShoppingAsync(map, tick.InSafezone, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// The step of a buff trip: claiming the free defense/damage buff a dialog NPC like the Elf Soldier
+    /// offers.
+    /// </summary>
+    /// <param name="map">The map the bot is on.</param>
+    /// <param name="tick">What this tick gathered.</param>
+    /// <param name="cancellationToken">The token which aborts the tick on shutdown.</param>
+    /// <returns>True, if the step consumed the tick.</returns>
+    private async ValueTask<bool> BuffStepAsync(GameMap map, TickContext tick, CancellationToken cancellationToken)
+        => await this.TryBuffTripAsync(map, tick.InSafezone, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// The step of a chaos machine trip: upgrading a lucky +9..+14 piece at the goblin.
+    /// </summary>
+    /// <param name="map">The map the bot is on.</param>
+    /// <param name="tick">What this tick gathered.</param>
+    /// <param name="cancellationToken">The token which aborts the tick on shutdown.</param>
+    /// <returns>True, if the step consumed the tick.</returns>
+    private async ValueTask<bool> ChaosMachineStepAsync(GameMap map, TickContext tick, CancellationToken cancellationToken)
+        => await this.TryChaosMachineTripAsync(map, tick.InSafezone, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// The step of an armed revenge: a player killed this bot and it respawned on the same map, so it marches
+    /// back to the place of its death. This overrides the whole normal routine, including following the party
+    /// leader - a leader on a revenge march still drags its followers along, the posse a wronged player would
+    /// bring. Once the revenge is spent or times out, the bot falls back into the routine (and a follower
+    /// rejoins its group).
+    /// </summary>
+    /// <param name="map">The map the bot is on.</param>
+    /// <param name="cancellationToken">The token which aborts the tick on shutdown.</param>
+    /// <returns>True, if the step consumed the tick.</returns>
+    private async ValueTask<bool> RevengeStepAsync(GameMap map, CancellationToken cancellationToken)
+        => await this.TryRevengeMarchAsync(map, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// The step of a party member whose leader is on another map: it warps after the leader (see
+    /// <see cref="TryHandleCrossMapLeaderFollowAsync"/>).
+    /// </summary>
+    /// <param name="map">The map the bot is on.</param>
+    /// <param name="tick">What this tick gathered.</param>
+    /// <param name="cancellationToken">The token which aborts the tick on shutdown.</param>
+    /// <returns>True, if the step consumed the tick.</returns>
+    private async ValueTask<bool> FollowLeaderCrossMapStepAsync(GameMap map, TickContext tick, CancellationToken cancellationToken)
+        => tick.LeaderToFollow is { } leader
+            && await this.TryHandleCrossMapLeaderFollowAsync(map, leader, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// The step of a party member on the map of its leader: it follows the leader instead of roaming on its
+    /// own - hunt within range while there is something to fight, regroup into formation when idle (see
+    /// <see cref="EvaluateFollowerHuntingAsync"/>). Followers never roam to independent hunting grounds, warp
+    /// on their own, or step down barren maps - the leader (the lowest-level member, so it only ever picks maps
+    /// the whole group can hunt on) decides where the party goes. Trade-off, by design: if the leader idles in
+    /// town or is wedged, its followers idle with him.
+    /// </summary>
+    /// <param name="map">The map the bot is on.</param>
+    /// <param name="tick">What this tick gathered.</param>
+    /// <param name="cancellationToken">The token which aborts the tick on shutdown.</param>
+    /// <returns>True, if the step consumed the tick.</returns>
+    private async ValueTask<bool> FollowLeaderStepAsync(GameMap map, TickContext tick, CancellationToken cancellationToken)
+    {
+        if (tick.LeaderToFollow is not { } leader)
+        {
+            return false;
+        }
+
+        await this.EvaluateFollowerHuntingAsync(map, leader, tick.InSafezone, cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    /// <summary>
+    /// The step of a bot whose map is no longer the best it could safely hunt: it warps away with priority -
+    /// even though trivial monsters are still around. Without this, the nearest-monster homing always finds
+    /// SOMETHING huntable on the starter map, the warp logic is never reached, and high-level bots farm level-5
+    /// mobs on Lorencia forever (with the experience penalty) instead of moving on to their level's maps.
+    /// <see cref="TryWarpToBetterMapAsync"/> itself only fires when another map is meaningfully better (margin +
+    /// cooldown), so a bot on an adequate map stays put.
+    /// </summary>
+    /// <param name="map">The map the bot is on.</param>
+    /// <param name="tick">What this tick gathered.</param>
+    /// <param name="cancellationToken">The token which aborts the tick on shutdown.</param>
+    /// <returns>True, if the step consumed the tick.</returns>
+    private async ValueTask<bool> WarpToBetterMapStepAsync(GameMap map, TickContext tick, CancellationToken cancellationToken)
+    {
+        if (tick.LeaderToFollow is not null || tick.IsSavingForFollowFare)
+        {
+            return false;
+        }
+
+        return await this.TryWarpToBetterMapAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The routine, and the step every tick ends in: hunt what is around, walk to what is worth walking to,
+    /// and relocate when there is nothing left here.
+    /// </summary>
+    /// <param name="map">The map the bot is on.</param>
+    /// <param name="tick">What this tick gathered.</param>
+    /// <param name="cancellationToken">The token which aborts the tick on shutdown.</param>
+    /// <returns>Always <c>true</c> - the routine is the last step and always consumes the tick.</returns>
+    private async ValueTask<bool> RoutineStepAsync(GameMap map, TickContext tick, CancellationToken cancellationToken)
+    {
         // Inside the safezone the bot can't fight anyway, so it must keep walking out of town instead of
         // freezing at the gate when a monster is just outside. Only stop to fight once it has left the safezone.
         if (!tick.InSafezone && tick.MonstersNearby > 0)
         {
             this._emptyGroundSince = null;
-            this.Claim(BotState.Hunt, "monsters nearby");
-            return;
+            return this.ClaimAndConsume(BotState.Hunt, "monsters nearby");
         }
 
         // Home in on a nearby live monster instead of walking to a random tile in a map-sized spawn area
@@ -1591,8 +1740,7 @@ internal sealed class BotNavigator : AsyncDisposable
             if (await this.TravelTowardAsync(map, monsterGround, cancellationToken).ConfigureAwait(false))
             {
                 this._emptyGroundSince = null;
-                this.Claim(BotState.Hunt, "walking to a monster");
-                return;
+                return this.ClaimAndConsume(BotState.Hunt, "walking to a monster");
             }
 
             // Unreachable monster (e.g. across a river): drop it and fall through to pick a spawn-area ground
@@ -1605,21 +1753,18 @@ internal sealed class BotNavigator : AsyncDisposable
         // ground in this same tick instead of standing still.
         if (this._hasDestination && this._player.GetDistanceTo(this._destination) > HuntingRange)
         {
-            if (!await this.TravelTowardAsync(map, this._destination, cancellationToken).ConfigureAwait(false))
+            if (await this.TravelTowardAsync(map, this._destination, cancellationToken).ConfigureAwait(false))
             {
-                // Impossible route: drop the destination and wait out the empty-ground grace before
-                // picking another one. Re-picking immediately turned a pocket of unreachable picks
-                // into a full-tick churn - a new far-away ground every second, hammering the path
-                // finder without the bot ever moving.
-                this._hasDestination = false;
-                this._emptyGroundSince ??= DateTime.UtcNow;
-            }
-            else
-            {
-                this.Claim(BotState.Travel, "walking to the ground");
+                return this.ClaimAndConsume(BotState.Travel, "walking to the ground");
             }
 
-            return;
+            // Impossible route: drop the destination and wait out the empty-ground grace before picking
+            // another one. Re-picking immediately turned a pocket of unreachable picks into a full-tick
+            // churn - a new far-away ground every second, hammering the path finder without the bot ever
+            // moving.
+            this._hasDestination = false;
+            this._emptyGroundSince ??= DateTime.UtcNow;
+            return this.ClaimAndConsume(BotState.Idle, "no route to the ground");
         }
 
         // Arrived (or no destination) and the area is empty: wait out a short grace, then pick a new ground.
@@ -1630,8 +1775,7 @@ internal sealed class BotNavigator : AsyncDisposable
             this._emptyGroundSince ??= DateTime.UtcNow;
             if (DateTime.UtcNow - this._emptyGroundSince < EmptyGroundGrace)
             {
-                this.Claim(BotState.Idle, "empty area, waiting for monsters");
-                return;
+                return this.ClaimAndConsume(BotState.Idle, "empty area, waiting for monsters");
             }
         }
 
@@ -1639,12 +1783,11 @@ internal sealed class BotNavigator : AsyncDisposable
 
         if (tick.LeaderToFollow is null && !tick.IsSavingForFollowFare && await this.TryWarpToBetterMapAsync().ConfigureAwait(false))
         {
-            this.Claim(BotState.Travel, "warping to a better map, nothing left here");
-            return;
+            return this.ClaimAndConsume(BotState.Travel, "warping to a better map, nothing left here");
         }
 
-        this.Claim(BotState.Hunt, "picked a new ground");
         await this.PickGroundAndTravelAsync(map, cancellationToken).ConfigureAwait(false);
+        return this.ClaimAndConsume(BotState.Hunt, "picked a new ground");
     }
 
     /// <summary>
@@ -1652,16 +1795,28 @@ internal sealed class BotNavigator : AsyncDisposable
     /// <see cref="BotStateMachine.Describe"/>) and, at debug level, for the log of a bot which has to be
     /// looked at later.
     /// </summary>
-    /// <param name="state">The state the tick puts the bot in.</param>
-    /// <param name="reason">Why the tick puts it there.</param>
-    private void Claim(BotState state, string reason)
+    /// <param name="claim">The state the tick puts the bot in, and why.</param>
+    private void Claim(TickClaim claim)
     {
         var previous = this._states.Current;
-        this._states.Enter(state, reason);
-        if (previous != state)
+        this._states.Enter(claim.State, claim.Reason);
+        if (previous != claim.State)
         {
-            this._player.Logger.LogDebug("Bot {Character} is now {State}: {Reason}", this._player.Name, state, reason);
+            this._player.Logger.LogDebug("Bot {Character} is now {State}: {Reason}", this._player.Name, claim.State, claim.Reason);
         }
+    }
+
+    /// <summary>
+    /// Claims the state of the routine step, which consumes the tick whatever it ends up doing (see
+    /// <see cref="TickSteps"/>).
+    /// </summary>
+    /// <param name="state">The state the routine put the bot in.</param>
+    /// <param name="reason">Why the routine put it there.</param>
+    /// <returns>Always <c>true</c>.</returns>
+    private bool ClaimAndConsume(BotState state, string reason)
+    {
+        this.Claim(new TickClaim(state, reason));
+        return true;
     }
 
     /// <summary>
@@ -3182,6 +3337,25 @@ internal sealed class BotNavigator : AsyncDisposable
         bool IsTetheredToLeader,
         bool IsSavingForFollowFare,
         int MonstersNearby);
+
+    /// <summary>
+    /// What a step of <see cref="TickSteps"/> consumed the tick with: the state the bot is in, and why.
+    /// </summary>
+    /// <param name="State">The state the bot is in.</param>
+    /// <param name="Reason">Why the bot is in it.</param>
+    private readonly record struct TickClaim(BotState State, string Reason);
+
+    /// <summary>
+    /// One step of a tick: the state it claims when it consumes the tick (see <see cref="TickClaim"/>), and
+    /// what it does. <paramref name="State"/> is <c>null</c> for a step which claims no state of its own.
+    /// </summary>
+    /// <param name="State">The state the step claims; <c>null</c> if it claims none.</param>
+    /// <param name="Reason">Why the bot is in that state.</param>
+    /// <param name="Handle">What the step does; it returns whether it consumed the tick.</param>
+    private readonly record struct TickStep(
+        BotState? State,
+        string Reason,
+        Func<BotNavigator, GameMap, TickContext, CancellationToken, ValueTask<bool>> Handle);
 
     /// <summary>
     /// A Manhattan distance heuristic (the pathfinder applies its own estimate multiplier), used to turn the
