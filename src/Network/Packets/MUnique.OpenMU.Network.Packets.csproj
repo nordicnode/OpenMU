@@ -41,34 +41,150 @@
     </Content>
   </ItemGroup>
 
-  <Target Name="PreBuild" BeforeTargets="PreBuildEvent" Condition="'$(ci)'!='true'">
-    <!-- We only run the transformation locally on our dev environment with visual studio.
-        The CI environment is identified by the parameter 'ci'. It's set in the azure pipelines and Dockerfile.
-        If you run into errors here under Linux/Mac OS, it might help to add this parameter, too. -->
-    <XslTransformation OutputPaths="PacketHeaders.cs" XmlInputPaths="PacketHeaders.xml" XslInputPath="GenerateStructs.xslt" Parameters="&lt;Parameter Name='resultFileName' Value='PacketHeaders.cs'/&gt;" />
-    <XslTransformation OutputPaths="PacketHeadersRef.cs" XmlInputPaths="PacketHeaders.xml" XslInputPath="GenerateRefStructs.xslt" Parameters="&lt;Parameter Name='resultFileName' Value='PacketHeadersRef.cs'/&gt;" />
-    <XslTransformation OutputPaths="CommonEnums.cs" XmlInputPaths="CommonEnums.xml" XslInputPath="GenerateStructs.xslt" Parameters="&lt;Parameter Name='resultFileName' Value='CommonEnums.cs'/&gt;" />
-    
-    <XslTransformation OutputPaths="ClientToServer\ClientToServerPacketsRef.cs" XmlInputPaths="ClientToServer\ClientToServerPackets.xml" XslInputPath="GenerateRefStructs.xslt" Parameters="&lt;Parameter Name='resultFileName' Value='ClientToServerPacketsRef.cs'/&gt;&lt;Parameter Name='subNamespace' Value='ClientToServer'/&gt;" />
-    <XslTransformation OutputPaths="ServerToClient\ServerToClientPacketsRef.cs" XmlInputPaths="ServerToClient\ServerToClientPackets.xml" XslInputPath="GenerateRefStructs.xslt" Parameters="&lt;Parameter Name='resultFileName' Value='ServerToClientPacketsRef.cs'/&gt;&lt;Parameter Name='subNamespace' Value='ServerToClient'/&gt;" />
-    <XslTransformation OutputPaths="ChatServer\ChatServerPacketsRef.cs" XmlInputPaths="ChatServer\ChatServerPackets.xml" XslInputPath="GenerateRefStructs.xslt" Parameters="&lt;Parameter Name='resultFileName' Value='ChatServerPacketsRef.cs'/&gt;&lt;Parameter Name='subNamespace' Value='ChatServer'/&gt;" />
-    <XslTransformation OutputPaths="ConnectServer\ConnectServerPacketsRef.cs" XmlInputPaths="ConnectServer\ConnectServerPackets.xml" XslInputPath="GenerateRefStructs.xslt" Parameters="&lt;Parameter Name='resultFileName' Value='ConnectServerPacketsRef.cs'/&gt;&lt;Parameter Name='subNamespace' Value='ConnectServer'/&gt;" />
-    
-    <XslTransformation OutputPaths="ClientToServer\ClientToServerPackets.cs" XmlInputPaths="ClientToServer\ClientToServerPackets.xml" XslInputPath="GenerateStructs.xslt" Parameters="&lt;Parameter Name='resultFileName' Value='ClientToServerPackets.cs'/&gt;&lt;Parameter Name='subNamespace' Value='ClientToServer'/&gt;" />
-    <XslTransformation OutputPaths="ServerToClient\ServerToClientPackets.cs" XmlInputPaths="ServerToClient\ServerToClientPackets.xml" XslInputPath="GenerateStructs.xslt" Parameters="&lt;Parameter Name='resultFileName' Value='ServerToClientPackets.cs'/&gt;&lt;Parameter Name='subNamespace' Value='ServerToClient'/&gt;" />
-    <XslTransformation OutputPaths="ChatServer\ChatServerPackets.cs" XmlInputPaths="ChatServer\ChatServerPackets.xml" XslInputPath="GenerateStructs.xslt" Parameters="&lt;Parameter Name='resultFileName' Value='ChatServerPackets.cs'/&gt;&lt;Parameter Name='subNamespace' Value='ChatServer'/&gt;" />
-    <XslTransformation OutputPaths="ConnectServer\ConnectServerPackets.cs" XmlInputPaths="ConnectServer\ConnectServerPackets.xml" XslInputPath="GenerateStructs.xslt" Parameters="&lt;Parameter Name='resultFileName' Value='ConnectServerPackets.cs'/&gt;&lt;Parameter Name='subNamespace' Value='ConnectServer'/&gt;" />
+  <!--
+    The packet structs, their ref variants, the connection extensions and the markdown documentation are generated
+    from the packet definitions and committed, because CI builds with -p:ci=true and compiles the committed files
+    instead of generating them (see docs/CODING_RULES.md, rule 2).
 
-    <XslTransformation OutputPaths="ClientToServer\ConnectionExtensions.cs" XmlInputPaths="ClientToServer\ClientToServerPackets.xml" XslInputPath="GenerateExtensions.xslt" Parameters="&lt;Parameter Name='subNamespace' Value='ClientToServer'/&gt;" />
-    <XslTransformation OutputPaths="ServerToClient\ConnectionExtensions.cs" XmlInputPaths="ServerToClient\ServerToClientPackets.xml" XslInputPath="GenerateExtensions.xslt" Parameters="&lt;Parameter Name='subNamespace' Value='ServerToClient'/&gt;" />
-    <XslTransformation OutputPaths="ChatServer\ConnectionExtensions.cs" XmlInputPaths="ChatServer\ChatServerPackets.xml" XslInputPath="GenerateExtensions.xslt" Parameters="&lt;Parameter Name='subNamespace' Value='ChatServer'/&gt;" />
-    <XslTransformation OutputPaths="ConnectServer\ConnectionExtensions.cs" XmlInputPaths="ConnectServer\ConnectServerPackets.xml" XslInputPath="GenerateExtensions.xslt" Parameters="&lt;Parameter Name='subNamespace' Value='ConnectServer'/&gt;" />
+    A build may therefore not simply overwrite them:
 
-    <Exec Command="npx rimraf@3.0.2 ../../../docs/Packets/C*.md"></Exec>
-    <Exec Command="npx xslt3 -xsl:GenerateMarkdownDocs.xslt -o:../../../docs/Packets/ClientToServer.md -s:ClientToServer/ClientToServerPackets.xml"></Exec>
-    <Exec Command="npx xslt3 -xsl:GenerateMarkdownDocs.xslt -o:../../../docs/Packets/ServerToClient.md -s:ServerToClient/ServerToClientPackets.xml"></Exec>
-    <Exec Command="npx xslt3 -xsl:GenerateMarkdownDocs.xslt -o:../../../docs/Packets/ConnectServer.md -s:ConnectServer/ConnectServerPackets.xml"></Exec>
-    <Exec Command="npx xslt3 -xsl:GenerateMarkdownDocs.xslt -o:../../../docs/Packets/ChatServer.md -s:ChatServer/ChatServerPackets.xml"></Exec>
+      * generation writes to the intermediate directory, and only what changed is copied into the working tree, so
+        a build of unchanged definitions neither dirties the tree nor forces the dependent projects to recompile;
+      * a CI build copies nothing back and instead fails when a committed file differs from a fresh generation,
+        which turns a forgotten regeneration into a build error instead of silently stale structs.
+
+    The markdown documentation needs NodeJS and is a single step, so it is generated only when a definition or a
+    template changed, and it is not verified by the CI check above.
+  -->
+  <PropertyGroup>
+    <!-- A stable directory: $(IntermediateOutputPath) is only known to the targets, not here. -->
+    <PacketGeneratedDirectory>$(BaseIntermediateOutputPath)Generated\</PacketGeneratedDirectory>
+    <PacketDocsDirectory>..\..\..\docs\Packets</PacketDocsDirectory>
+    <PacketDefinitions>ClientToServer\ClientToServerPackets.xml;ServerToClient\ServerToClientPackets.xml;ChatServer\ChatServerPackets.xml;ConnectServer\ConnectServerPackets.xml</PacketDefinitions>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <GeneratedPacketSource Include="PacketHeaders.cs">
+      <Xml>PacketHeaders.xml</Xml>
+      <Template>GenerateStructs.xslt</Template>
+      <Parameters>&lt;Parameter Name='resultFileName' Value='PacketHeaders.cs'/&gt;</Parameters>
+    </GeneratedPacketSource>
+    <GeneratedPacketSource Include="PacketHeadersRef.cs">
+      <Xml>PacketHeaders.xml</Xml>
+      <Template>GenerateRefStructs.xslt</Template>
+      <Parameters>&lt;Parameter Name='resultFileName' Value='PacketHeadersRef.cs'/&gt;</Parameters>
+    </GeneratedPacketSource>
+    <GeneratedPacketSource Include="CommonEnums.cs">
+      <Xml>CommonEnums.xml</Xml>
+      <Template>GenerateStructs.xslt</Template>
+      <Parameters>&lt;Parameter Name='resultFileName' Value='CommonEnums.cs'/&gt;</Parameters>
+    </GeneratedPacketSource>
+    <GeneratedPacketSource Include="ClientToServer\ClientToServerPackets.cs">
+      <Xml>ClientToServer\ClientToServerPackets.xml</Xml>
+      <Template>GenerateStructs.xslt</Template>
+      <Parameters>&lt;Parameter Name='resultFileName' Value='ClientToServerPackets.cs'/&gt;&lt;Parameter Name='subNamespace' Value='ClientToServer'/&gt;</Parameters>
+    </GeneratedPacketSource>
+    <GeneratedPacketSource Include="ServerToClient\ServerToClientPackets.cs">
+      <Xml>ServerToClient\ServerToClientPackets.xml</Xml>
+      <Template>GenerateStructs.xslt</Template>
+      <Parameters>&lt;Parameter Name='resultFileName' Value='ServerToClientPackets.cs'/&gt;&lt;Parameter Name='subNamespace' Value='ServerToClient'/&gt;</Parameters>
+    </GeneratedPacketSource>
+    <GeneratedPacketSource Include="ChatServer\ChatServerPackets.cs">
+      <Xml>ChatServer\ChatServerPackets.xml</Xml>
+      <Template>GenerateStructs.xslt</Template>
+      <Parameters>&lt;Parameter Name='resultFileName' Value='ChatServerPackets.cs'/&gt;&lt;Parameter Name='subNamespace' Value='ChatServer'/&gt;</Parameters>
+    </GeneratedPacketSource>
+    <GeneratedPacketSource Include="ConnectServer\ConnectServerPackets.cs">
+      <Xml>ConnectServer\ConnectServerPackets.xml</Xml>
+      <Template>GenerateStructs.xslt</Template>
+      <Parameters>&lt;Parameter Name='resultFileName' Value='ConnectServerPackets.cs'/&gt;&lt;Parameter Name='subNamespace' Value='ConnectServer'/&gt;</Parameters>
+    </GeneratedPacketSource>
+    <GeneratedPacketSource Include="ClientToServer\ClientToServerPacketsRef.cs">
+      <Xml>ClientToServer\ClientToServerPackets.xml</Xml>
+      <Template>GenerateRefStructs.xslt</Template>
+      <Parameters>&lt;Parameter Name='resultFileName' Value='ClientToServerPacketsRef.cs'/&gt;&lt;Parameter Name='subNamespace' Value='ClientToServer'/&gt;</Parameters>
+    </GeneratedPacketSource>
+    <GeneratedPacketSource Include="ServerToClient\ServerToClientPacketsRef.cs">
+      <Xml>ServerToClient\ServerToClientPackets.xml</Xml>
+      <Template>GenerateRefStructs.xslt</Template>
+      <Parameters>&lt;Parameter Name='resultFileName' Value='ServerToClientPacketsRef.cs'/&gt;&lt;Parameter Name='subNamespace' Value='ServerToClient'/&gt;</Parameters>
+    </GeneratedPacketSource>
+    <GeneratedPacketSource Include="ChatServer\ChatServerPacketsRef.cs">
+      <Xml>ChatServer\ChatServerPackets.xml</Xml>
+      <Template>GenerateRefStructs.xslt</Template>
+      <Parameters>&lt;Parameter Name='resultFileName' Value='ChatServerPacketsRef.cs'/&gt;&lt;Parameter Name='subNamespace' Value='ChatServer'/&gt;</Parameters>
+    </GeneratedPacketSource>
+    <GeneratedPacketSource Include="ConnectServer\ConnectServerPacketsRef.cs">
+      <Xml>ConnectServer\ConnectServerPackets.xml</Xml>
+      <Template>GenerateRefStructs.xslt</Template>
+      <Parameters>&lt;Parameter Name='resultFileName' Value='ConnectServerPacketsRef.cs'/&gt;&lt;Parameter Name='subNamespace' Value='ConnectServer'/&gt;</Parameters>
+    </GeneratedPacketSource>
+    <GeneratedPacketSource Include="ClientToServer\ConnectionExtensions.cs">
+      <Xml>ClientToServer\ClientToServerPackets.xml</Xml>
+      <Template>GenerateExtensions.xslt</Template>
+      <Parameters>&lt;Parameter Name='subNamespace' Value='ClientToServer'/&gt;</Parameters>
+    </GeneratedPacketSource>
+    <GeneratedPacketSource Include="ServerToClient\ConnectionExtensions.cs">
+      <Xml>ServerToClient\ServerToClientPackets.xml</Xml>
+      <Template>GenerateExtensions.xslt</Template>
+      <Parameters>&lt;Parameter Name='subNamespace' Value='ServerToClient'/&gt;</Parameters>
+    </GeneratedPacketSource>
+    <GeneratedPacketSource Include="ChatServer\ConnectionExtensions.cs">
+      <Xml>ChatServer\ChatServerPackets.xml</Xml>
+      <Template>GenerateExtensions.xslt</Template>
+      <Parameters>&lt;Parameter Name='subNamespace' Value='ChatServer'/&gt;</Parameters>
+    </GeneratedPacketSource>
+    <GeneratedPacketSource Include="ConnectServer\ConnectionExtensions.cs">
+      <Xml>ConnectServer\ConnectServerPackets.xml</Xml>
+      <Template>GenerateExtensions.xslt</Template>
+      <Parameters>&lt;Parameter Name='subNamespace' Value='ConnectServer'/&gt;</Parameters>
+    </GeneratedPacketSource>
+  </ItemGroup>
+
+  <Target Name="GeneratePacketSources" BeforeTargets="PreBuildEvent"
+          Inputs="%(GeneratedPacketSource.Xml);%(GeneratedPacketSource.Template);Common.xslt"
+          Outputs="$(PacketGeneratedDirectory)%(GeneratedPacketSource.Identity)">
+    <MakeDir Directories="$(PacketGeneratedDirectory)" />
+    <MakeDir Directories="$(PacketGeneratedDirectory)ClientToServer;$(PacketGeneratedDirectory)ServerToClient;$(PacketGeneratedDirectory)ChatServer;$(PacketGeneratedDirectory)ConnectServer" />
+    <XslTransformation OutputPaths="$(PacketGeneratedDirectory)%(GeneratedPacketSource.Identity)" XmlInputPaths="%(GeneratedPacketSource.Xml)" XslInputPath="%(GeneratedPacketSource.Template)" Parameters="%(GeneratedPacketSource.Parameters)" />
+  </Target>
+
+  <!-- Takes the generated sources into the working tree; unchanged files are left alone. -->
+  <Target Name="SyncPacketSources" AfterTargets="GeneratePacketSources" BeforeTargets="BeforeCompile" Condition="'$(ci)'!='true'">
+    <Copy SourceFiles="$(PacketGeneratedDirectory)%(GeneratedPacketSource.Identity)" DestinationFiles="%(GeneratedPacketSource.Identity)" SkipUnchangedFiles="true" />
+  </Target>
+
+  <!--
+    Fails a CI build when a committed generated file differs from a fresh generation. The target is batched over
+    the files by its inputs and outputs, so each file is compared on its own - a target which is not batched
+    collects the hashes of all files into one property, which lets differing files pass unnoticed.
+  -->
+  <Target Name="VerifyPacketSources" Condition="'$(ci)'=='true'" BeforeTargets="BeforeCompile" DependsOnTargets="GeneratePacketSources"
+          Inputs="%(GeneratedPacketSource.Xml);%(GeneratedPacketSource.Template);%(GeneratedPacketSource.Identity)"
+          Outputs="$(PacketGeneratedDirectory)verified-%(GeneratedPacketSource.Filename).stamp">
+    <GetFileHash Files="$(PacketGeneratedDirectory)%(GeneratedPacketSource.Identity)" Algorithm="SHA256">
+      <Output TaskParameter="Hash" PropertyName="_GeneratedPacketSourceHash" />
+    </GetFileHash>
+    <GetFileHash Files="%(GeneratedPacketSource.Identity)" Algorithm="SHA256">
+      <Output TaskParameter="Hash" PropertyName="_CommittedPacketSourceHash" />
+    </GetFileHash>
+    <Error Condition="'$(_GeneratedPacketSourceHash)' != '$(_CommittedPacketSourceHash)'" Text="The generated file %(GeneratedPacketSource.Identity) is out of date with its packet definition. Build MUnique.OpenMU.Network.Packets locally without -p:ci=true and commit the regenerated file together with the definition." />
+    <Touch Files="$(PacketGeneratedDirectory)verified-%(GeneratedPacketSource.Filename).stamp" AlwaysCreate="true" />
+  </Target>
+
+  <!--
+    The markdown documentation is generated by xslt3 through npx, which needs NodeJS, and it writes one file per
+    packet. So it is one step, and it only runs when a definition or a template changed.
+  -->
+  <Target Name="GeneratePacketMarkdown" BeforeTargets="PreBuildEvent" Condition="'$(ci)'!='true'"
+          Inputs="$(PacketDefinitions);GenerateMarkdownDocs.xslt;Common.xslt"
+          Outputs="$(BaseIntermediateOutputPath)markdown.stamp">
+    <Exec Command="npx rimraf@3.0.2 $(PacketDocsDirectory)/C*.md" />
+    <Exec Command="npx xslt3 -xsl:GenerateMarkdownDocs.xslt -o:$(PacketDocsDirectory)/ClientToServer.md -s:ClientToServer/ClientToServerPackets.xml" />
+    <Exec Command="npx xslt3 -xsl:GenerateMarkdownDocs.xslt -o:$(PacketDocsDirectory)/ServerToClient.md -s:ServerToClient/ServerToClientPackets.xml" />
+    <Exec Command="npx xslt3 -xsl:GenerateMarkdownDocs.xslt -o:$(PacketDocsDirectory)/ConnectServer.md -s:ConnectServer/ConnectServerPackets.xml" />
+    <Exec Command="npx xslt3 -xsl:GenerateMarkdownDocs.xslt -o:$(PacketDocsDirectory)/ChatServer.md -s:ChatServer/ChatServerPackets.xml" />
+    <Touch Files="$(BaseIntermediateOutputPath)markdown.stamp" AlwaysCreate="true" />
   </Target>
 
 </Project>
