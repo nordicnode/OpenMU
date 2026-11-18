@@ -263,56 +263,67 @@ internal sealed class BotNavigator : AsyncDisposable
         // A bot which announced an opened event waits at the meeting point until the entrance closes (see
         // BotChatPlugIn): it said where it would be, so it must be found there. This outranks the errands and
         // the party follow, and a due reset, which would change its level.
-        new(BotState.EventMeeting, "announced event meeting", (navigator, map, tick, cancellationToken) => navigator.EventMeetingStepAsync(map, tick, cancellationToken)),
+        new(BotState.EventMeeting, "announced event meeting", [BotState.EventMeeting], (navigator, map, tick, cancellationToken) => navigator.EventMeetingStepAsync(map, tick, cancellationToken)),
 
         // A bot on a market shift sells the goods of its personal store at its stall (see BotMerchantPlugIn) -
         // its customers have to find it there, like the players of an event meeting.
-        new(BotState.MarketShift, "market shift", (navigator, map, _, cancellationToken) => navigator.MarketShiftStepAsync(map, cancellationToken)),
+        new(BotState.MarketShift, "market shift", [BotState.MarketShift], (navigator, map, _, cancellationToken) => navigator.MarketShiftStepAsync(map, cancellationToken)),
 
         // On servers with the reset feature, a due character reset outranks the whole routine below: the bot
         // has reached the required level, so hunting on only gains it nothing until it resets. It keeps
         // fighting normally through the random grace delay, then resets and starts its next cycle (see
         // BotResetHandler).
-        new(BotState.Reset, "character reset", (navigator, _, _, _) => navigator.ResetStepAsync()),
+        new(BotState.Reset, "character reset", [BotState.Reset], (navigator, _, _, _) => navigator.ResetStepAsync()),
 
         // A master bot invests freshly earned master points (one per master level). Queued into the MuHelper
         // tick like the level-up progression - learning a skill mutates the skill list, which must never
         // happen while the combat handler enumerates it (see PendingBotActions). The master evolution itself
         // is handled by the feature plugin's maintenance pass because it restarts the bot. This step is
-        // upkeep: it never consumes a tick.
-        new(null, string.Empty, (navigator, _, _, _) => QueueMasterPointsStepAsync(navigator)),
+        // upkeep: it never consumes a tick, and claims no state.
+        new(null, string.Empty, [], (navigator, _, _, _) => QueueMasterPointsStepAsync(navigator)),
 
         // A shopping trip (selling junk loot, restocking potions with Zen) runs before the errands below, so
         // it completes even for party members - the follow logic would otherwise pull them back to the leader
         // mid-trade.
-        new(BotState.Shopping, "town errand: selling and restocking", (navigator, map, tick, cancellationToken) => navigator.ShoppingStepAsync(map, tick, cancellationToken)),
+        new(BotState.Shopping, "town errand: selling and restocking", [BotState.Shopping], (navigator, map, tick, cancellationToken) => navigator.ShoppingStepAsync(map, tick, cancellationToken)),
 
         // A buff trip (claiming the free defense/damage buff a dialog NPC like the Elf Soldier offers) is an
         // errand like shopping - it also completes even for party members, and does not mix with the follow
         // logic pulling the bot back to the leader mid-visit.
-        new(BotState.Buff, "town errand: claiming a buff", (navigator, map, tick, cancellationToken) => navigator.BuffStepAsync(map, tick, cancellationToken)),
+        new(BotState.Buff, "town errand: claiming a buff", [BotState.Buff], (navigator, map, tick, cancellationToken) => navigator.BuffStepAsync(map, tick, cancellationToken)),
 
         // A chaos machine trip (upgrading a lucky +9..+14 piece at the goblin) is an errand like the others:
         // it completes even for party members.
-        new(BotState.ChaosMachine, "town errand: mixing at the chaos machine", (navigator, map, tick, cancellationToken) => navigator.ChaosMachineStepAsync(map, tick, cancellationToken)),
+        new(BotState.ChaosMachine, "town errand: mixing at the chaos machine", [BotState.ChaosMachine], (navigator, map, tick, cancellationToken) => navigator.ChaosMachineStepAsync(map, tick, cancellationToken)),
 
         // Armed revenge (a player killed this bot; it respawned on the same map) overrides the whole normal
         // routine, including following the party leader: the bot marches back to the place of its death.
-        new(BotState.Revenge, "revenge march", (navigator, map, _, cancellationToken) => navigator.RevengeStepAsync(map, cancellationToken)),
+        new(BotState.Revenge, "revenge march", [BotState.Revenge], (navigator, map, _, cancellationToken) => navigator.RevengeStepAsync(map, cancellationToken)),
 
         // Party members follow their leader instead of roaming on their own - to the leader's map when it
         // warped away (this step), and around him while on the same map (the step below).
-        new(BotState.FollowLeader, "following the leader to his map", (navigator, map, tick, cancellationToken) => navigator.FollowLeaderCrossMapStepAsync(map, tick, cancellationToken)),
-        new(BotState.FollowLeader, "following the leader", (navigator, map, tick, cancellationToken) => navigator.FollowLeaderStepAsync(map, tick, cancellationToken)),
+        new(BotState.FollowLeader, "following the leader to his map", [BotState.FollowLeader], (navigator, map, tick, cancellationToken) => navigator.FollowLeaderCrossMapStepAsync(map, tick, cancellationToken)),
+        new(BotState.FollowLeader, "following the leader", [BotState.FollowLeader], (navigator, map, tick, cancellationToken) => navigator.FollowLeaderStepAsync(map, tick, cancellationToken)),
 
         // A bot whose map is no longer the best it could safely hunt warps away before it fights what is left
         // (see WarpToBetterMapStepAsync).
-        new(BotState.Travel, "warping to a better map", (navigator, map, tick, cancellationToken) => navigator.WarpToBetterMapStepAsync(map, tick, cancellationToken)),
+        new(BotState.Travel, "warping to a better map", [BotState.Travel], (navigator, map, tick, cancellationToken) => navigator.WarpToBetterMapStepAsync(map, tick, cancellationToken)),
 
         // The routine: hunt what is around, walk to what is worth walking to, relocate when nothing is left.
         // It always consumes the tick, so it is the last step - and it claims its own state, because which
         // one it ends in depends on what it finds (see RoutineStepAsync).
-        new(null, string.Empty, (navigator, map, tick, cancellationToken) => navigator.RoutineStepAsync(map, tick, cancellationToken)),
+        new(null, string.Empty, [BotState.Hunt, BotState.Travel, BotState.Idle], (navigator, map, tick, cancellationToken) => navigator.RoutineStepAsync(map, tick, cancellationToken)),
+    ];
+
+    /// <summary>
+    /// The states the tick can claim before it walks <see cref="TickSteps" />: the mini-game which suspends the
+    /// routine, the recovery from a wedged position, and a walk which is already in progress.
+    /// </summary>
+    private static readonly BotState[] ClaimsBeforeTheSteps =
+    [
+        BotState.MiniGame,
+        BotState.Recover,
+        BotState.Idle,
     ];
 
     private readonly OfflinePlayer _player;
@@ -422,6 +433,27 @@ internal sealed class BotNavigator : AsyncDisposable
     /// with <c>null</c> for the steps which claim no state of their own (the upkeep and the routine).
     /// </summary>
     internal static IReadOnlyList<BotState?> TickStepOrder { get; } = TickSteps.Select(step => step.State).ToList();
+
+    /// <summary>
+    /// Gets what each step may claim, in the order the steps run - so a step which reports a state can be
+    /// checked against what it declared.
+    /// </summary>
+    internal static IReadOnlyList<(BotState? State, IReadOnlyList<BotState> Claims)> TickStepClaims { get; }
+        = TickSteps.Select(step => (step.State, step.Claims)).ToList();
+
+    /// <summary>
+    /// Gets every state the navigation can put the bot into, as the steps declare it: the states of
+    /// <see cref="TickSteps"/> plus the ones claimed before them (see <see cref="ClaimsBeforeTheSteps"/>).
+    /// </summary>
+    /// <remarks>
+    /// A state nobody claims would be a mode the bot can never report - the kind of gap which stays invisible
+    /// until someone wonders why a mode never shows up. The reachability test compares this set with
+    /// <see cref="BotState"/>, so adding a state without wiring it fails the build.
+    /// </remarks>
+    internal static IReadOnlySet<BotState> DeclaredClaims { get; } = TickSteps
+        .SelectMany(step => step.Claims)
+        .Concat(ClaimsBeforeTheSteps)
+        .ToHashSet();
 
     /// <summary>
     /// Gets the state machine which records what the bot does in each navigation tick.
@@ -3356,6 +3388,7 @@ internal sealed class BotNavigator : AsyncDisposable
     private readonly record struct TickStep(
         BotState? State,
         string Reason,
+        IReadOnlyList<BotState> Claims,
         Func<BotNavigator, GameMap, TickContext, CancellationToken, ValueTask<bool>> Handle);
 
     /// <summary>

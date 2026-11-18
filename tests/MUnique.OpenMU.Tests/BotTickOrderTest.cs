@@ -65,4 +65,48 @@ public class BotTickOrderTest
             Assert.That(errandIndex, Is.LessThan(routineIndex), $"{errand} must run before the routine");
         }
     }
+
+    /// <summary>
+    /// Every mode is claimed by a step or by a check before the steps, so no state of the bot can exist which
+    /// nothing ever reports - a dead mode would otherwise only show up as "never entered" on a live server.
+    /// </summary>
+    [Test]
+    public void EveryModeIsClaimedSomewhere()
+    {
+        var declared = BotNavigator.DeclaredClaims;
+        var all = Enum.GetValues<BotState>();
+
+        var unclaimed = all.Where(state => !declared.Contains(state)).ToList();
+        Assert.That(unclaimed, Is.Empty, "no step claims: " + string.Join(", ", unclaimed));
+        Assert.That(declared, Has.Count.EqualTo(all.Length), "the claims name a state which no longer exists");
+    }
+
+    /// <summary>
+    /// A step which reports a state also declares it as one of its claims, so the declared set cannot drift
+    /// away from what the steps actually do.
+    /// </summary>
+    [Test]
+    public void AStepWhichReportsAStateAlsoDeclaresIt()
+    {
+        foreach (var (state, claims) in BotNavigator.TickStepClaims)
+        {
+            if (state is { } reported)
+            {
+                Assert.That(claims, Does.Contain(reported), $"the step reporting {reported} does not declare it");
+            }
+        }
+    }
+
+    /// <summary>
+    /// The routine claims the states it computes itself, which is why it is the one step without a fixed
+    /// state in the order.
+    /// </summary>
+    [Test]
+    public void TheRoutineDeclaresTheStatesItComputes()
+    {
+        var routine = BotNavigator.TickStepClaims[^1];
+
+        Assert.That(routine.State, Is.Null);
+        Assert.That(routine.Claims, Is.EquivalentTo(new[] { BotState.Hunt, BotState.Travel, BotState.Idle }));
+    }
 }
