@@ -68,6 +68,12 @@ internal sealed class BotStateMachine
     internal BotState Current { get; private set; }
 
     /// <summary>
+    /// Gets how long the bot has been in the current state, measured at the machine's own clock - for the
+    /// administration surfaces, which only report the value and don't compare it with anything.
+    /// </summary>
+    internal TimeSpan CurrentDuration => this.TimeInCurrent(this._timeProvider.GetUtcNow());
+
+    /// <summary>
     /// Gets the reason the current state was entered with.
     /// </summary>
     internal string CurrentReason => this._reason;

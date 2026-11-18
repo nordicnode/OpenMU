@@ -237,6 +237,31 @@
     }
   },
   {
+    "Name": "bots_list",
+    "InputSchema": {
+      "type": "object",
+      "properties": {
+        "offset": {
+          "description": "Bots to skip.",
+          "type": "integer",
+          "default": 0
+        },
+        "limit": {
+          "description": "Maximum number of bots, 1 to 100.",
+          "type": "integer",
+          "default": 50
+        }
+      }
+    },
+    "Annotations": {
+      "title": null,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    }
+  },
+  {
     "Name": "cashshop_get_balance",
     "InputSchema": {
       "type": "object",

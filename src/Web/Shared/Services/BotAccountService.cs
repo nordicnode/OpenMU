@@ -76,6 +76,7 @@ public class BotAccountService : IDataService<BotAccount>
             {
                 var (partyMaster, partySize) = PartyDisplay.From(r.Player.Party);
                 var guildId = r.Player.GuildStatus?.GuildId;
+                var activity = r.Player.Activity;
                 return new BotAccount(
                     r.Player.Account?.LoginName ?? string.Empty,
                     r.ServerId,
@@ -84,8 +85,8 @@ public class BotAccountService : IDataService<BotAccount>
                     guildId is { } id ? guilds.GetValueOrDefault(id)?.Name : null,
                     partyMaster,
                     partySize,
-                    r.Player.StateSummary,
-                    r.Player.StateDetail);
+                    activity?.Summary,
+                    activity?.Detail);
             })
             .OrderPartyGrouped()
             .ToList();

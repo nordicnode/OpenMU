@@ -43,6 +43,7 @@ public static class AdminOperationsExtensions
         services.AddScoped<ServerWriteOperations>();
         services.AddScoped<PlayerWriteOperations>();
         services.AddScoped<LiveGameOperations>();
+        services.AddScoped<BotReadOperations>();
         services.AddScoped<PluginAdminOperations>();
         services.AddScoped<AccountWriteOperations>();
         services.AddScoped<CashShopOperations>();
