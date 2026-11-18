@@ -57,5 +57,12 @@ public class BotStateChatCommandPlugIn : IChatCommandPlugIn
         {
             await player.ShowBlueMessageAsync(line).ConfigureAwait(false);
         }
+
+        // Whether the bot is merely busy or actually broken: how often its ticks failed, why, and how often it
+        // was restarted to heal it - the failure policy is BotHealthPolicy, the record is the account's.
+        if (bot.Health.Describe() is { } health)
+        {
+            await player.ShowBlueMessageAsync(health).ConfigureAwait(false);
+        }
     }
 }

@@ -25,6 +25,15 @@ public sealed class BotManager
     private readonly ConcurrentDictionary<string, BotPlayer> _bots = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// The health supervisor per account, keyed by login name. It has to outlive the <see cref="BotPlayer"/>
+    /// instance: a restart throws the bot away and spawns a new one for the same account, and only a supervisor
+    /// which survived that can tell a bot which heals from one which breaks itself again within minutes.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, BotHealthSupervisor> _health = new(StringComparer.OrdinalIgnoreCase);
+
+    private DateTimeOffset _nextHealthPruneUtc;
+
+    /// <summary>
     /// Gets a snapshot of the currently active bots.
     /// </summary>
     public IReadOnlyCollection<BotPlayer> Bots => this._bots.Values.ToList();
@@ -78,6 +87,10 @@ public sealed class BotManager
 
             // Provide AI settings so the bot actually hunts (a missing config means a single-tile range).
             bot.MuHelperSettings = new BotMuHelperSettings();
+
+            // The account's health record, not a fresh one: a bot which was restarted a minute ago must be known
+            // as such, so the next restart escalation continues instead of starting over.
+            bot.Health = this.HealthFor(loginName);
 
             if (!await bot.InitializeAsync(loginName, character.Name).ConfigureAwait(false))
             {
@@ -258,6 +271,19 @@ public sealed class BotManager
         this.LogWaitingBuffers(formation.UnplacedBuffers);
     }
 
+    /// <summary>
+    /// Gets the health supervisor of the given account, creating it on first use and dropping the ones which have
+    /// been quiet for <see cref="BotHealthPolicy.ForgetAfter"/>. Without the pruning the map would grow with every
+    /// account which ever ran a bot - with the presence rotation that is every bot, all the time.
+    /// </summary>
+    /// <param name="loginName">The account login name.</param>
+    /// <returns>The account's health supervisor.</returns>
+    internal BotHealthSupervisor HealthFor(string loginName)
+    {
+        this.PruneHealth();
+        return this._health.GetOrAdd(loginName, _ => new BotHealthSupervisor());
+    }
+
     private static string GetKey(string loginName, byte slot) => $"{loginName}/{slot}";
 
     /// <summary>
@@ -297,6 +323,28 @@ public sealed class BotManager
                 // Disposal must not fail the teardown - e.g. Npgsql throws when the underlying
                 // connection is still opening while it is being closed during a shutdown race.
                 bot.Logger.LogWarning(ex, "Error while disposing bot '{Key}' ({Reason}).", key, reason);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Drops the health supervisors which have nothing left to remember, so the per-account map doesn't grow with
+    /// every account which ever ran a bot. Runs at most every five minutes, from the spawn path.
+    /// </summary>
+    private void PruneHealth()
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (now < this._nextHealthPruneUtc)
+        {
+            return;
+        }
+
+        this._nextHealthPruneUtc = now + TimeSpan.FromMinutes(5);
+        foreach (var (loginName, supervisor) in this._health)
+        {
+            if (supervisor.CanForget())
+            {
+                this._health.TryRemove(loginName, out _);
             }
         }
     }

@@ -155,7 +155,7 @@ public sealed class OfflinePlayerMuHelper : AsyncDisposable
         catch (Exception ex)
         {
             this._player.Logger.LogError(ex, "Error in offline player helper tick for {AccountLoginName}.", this._player.AccountLoginName);
-            this._player.OnAiTickFailed();
+            this._player.OnAiTickFailed(ex);
         }
     }
 

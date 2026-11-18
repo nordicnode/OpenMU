@@ -176,6 +176,9 @@ public sealed class BotReadOperations(IServerProvider servers, AdminOperationExe
     /// <param name="StartedAtUtc">When the bot session started.</param>
     /// <param name="Failures">How many ticks failed so far, so a failing bot is told apart from a slow one.</param>
     /// <param name="LastFailure">Why the last failed tick failed.</param>
+    /// <param name="Restarts">How many times the account was restarted to heal it.</param>
+    /// <param name="QuarantinedSeconds">For how many seconds the bot is still kept from being restarted because
+    /// restarts did not help, or <c>0</c> while it may be restarted.</param>
     internal readonly record struct BotRow(
         byte ServerId,
         string? LoginName,

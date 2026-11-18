@@ -441,10 +441,12 @@ public class OfflinePlayer : Player
 
     /// <summary>
     /// Called when an AI tick of this player threw. Does nothing here, so the human offline mode keeps
-    /// behaving exactly as before; a bot counts the failures and asks for a restart when they don't stop
-    /// (see <see cref="Bots.BotPlayer"/>).
+    /// behaving exactly as before; a bot classifies the fault and asks for a restart when the failures don't
+    /// stop (see <see cref="Bots.BotPlayer"/> and <see cref="Bots.BotHealthPolicy"/>).
     /// </summary>
-    internal virtual void OnAiTickFailed()
+    /// <param name="exception">The exception the tick threw, if the caller has it - it tells a stopped bot from
+    /// a broken one.</param>
+    internal virtual void OnAiTickFailed(Exception? exception = null)
     {
         // Nothing to do for a plain offline player.
     }

@@ -16,4 +16,16 @@ namespace MUnique.OpenMU.GameLogic.Bots;
 /// <param name="Detail">The long form: where the bot's time went, its recent transitions and its guard violations.</param>
 /// <param name="Failures">How many ticks failed so far, over all modes.</param>
 /// <param name="LastFailure">Why the last failed tick failed, or <c>null</c> while no tick failed.</param>
-public sealed record BotActivity(string State, string Reason, TimeSpan TimeInState, string Summary, string Detail, int Failures = 0, string? LastFailure = null);
+/// <param name="Restarts">How many times the account was restarted to heal a bot whose ticks kept failing.</param>
+/// <param name="QuarantinedUntilUtc">Until when the bot is kept from being restarted because restarts did not
+/// help, or <c>null</c> while it may be restarted.</param>
+public sealed record BotActivity(
+    string State,
+    string Reason,
+    TimeSpan TimeInState,
+    string Summary,
+    string Detail,
+    int Failures = 0,
+    string? LastFailure = null,
+    int Restarts = 0,
+    DateTimeOffset? QuarantinedUntilUtc = null);

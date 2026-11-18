@@ -1409,7 +1409,7 @@ internal sealed class BotNavigator : AsyncDisposable
         {
             this._player.Logger.LogError(ex, "Bot navigator error for {Account}.", this._player.AccountLoginName);
             this._states.RecordFailure(ex);
-            this._player.OnAiTickFailed();
+            this._player.OnAiTickFailed(ex);
         }
         finally
         {

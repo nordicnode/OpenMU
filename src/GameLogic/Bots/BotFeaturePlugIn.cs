@@ -474,17 +474,48 @@ public class BotFeaturePlugIn : IFeaturePlugIn, IPeriodicTaskPlugIn, ISupportCus
     /// would do, and the only cure available from outside the engine. Runs from the maintenance pass,
     /// which is the only place allowed to restart a bot.
     /// </summary>
+    /// <remarks>
+    /// The failure policy is not decided here, only carried out: how many failures make a bot broken, whether a
+    /// restart is the right answer and how long a bot which keeps breaking itself has to stay out is
+    /// <see cref="BotHealthPolicy"/>, and the per-account bookkeeping is the account's
+    /// <see cref="BotHealthSupervisor"/>. This pass only adds what is about the server as a whole: at most
+    /// <see cref="BotHealthPolicy.RestartsPerMaintenancePass"/> restarts at a time, so a corruption which hits
+    /// many bots at once does not restart all of them in the same second, each loading an account and entering
+    /// the world.
+    /// </remarks>
+    /// <param name="gameContext">The game context.</param>
+    /// <param name="state">The state of the server partition.</param>
+    /// <param name="logger">The logger.</param>
     private async ValueTask RestartFaultedBotsAsync(GameContext gameContext, ServerState state, ILogger logger)
     {
+        var restarts = 0;
         foreach (var bot in state.Manager.Bots)
         {
-            if (!bot.AwaitsFaultRestart)
+            if (!bot.AwaitsFaultRestart || restarts >= BotHealthPolicy.RestartsPerMaintenancePass)
             {
                 continue;
             }
 
             var loginName = bot.Account?.LoginName;
             var characterSlot = bot.SelectedCharacter?.CharacterSlot;
+            if (!bot.Health.TryBeginRestart())
+            {
+                // Quarantined: the request stays raised, so the bot is restarted again once the quarantine is
+                // over - a bot which breaks itself right after every restart must not be restarted in a loop.
+                if (bot.Health.TakeQuarantineReport() is { } report)
+                {
+                    logger.LogWarning(
+                        "Bot '{Name}' failed {Count} AI ticks in a row. {Report} It isn't restarted for another {Minutes} minutes.",
+                        bot.Name,
+                        BotHealthPolicy.ConsecutiveFaultsUntilRestart,
+                        report,
+                        (int)bot.Health.RemainingQuarantine().TotalMinutes);
+                }
+
+                continue;
+            }
+
+            restarts++;
             bot.AwaitsFaultRestart = false;
             try
             {

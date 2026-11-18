@@ -14,19 +14,7 @@ using MUnique.OpenMU.GameLogic.Offline;
 /// </summary>
 public sealed class BotPlayer : OfflinePlayer
 {
-    /// <summary>
-    /// After this many AI ticks failing in a row, the bot is considered broken and gets restarted.
-    /// The engine's attribute system is not thread-safe, and a lost race can corrupt a character's
-    /// attribute graph for good: every following tick throws, the bot stops playing and floods the log
-    /// with the same exception until the server restarts. A fresh login rebuilds the graph and heals it,
-    /// which is exactly what a player would do. The threshold is high enough that a single failing tick
-    /// (a transient race, a monster which just died) is simply skipped, like before.
-    /// </summary>
-    private const int ConsecutiveFailuresUntilRestart = 20;
-
     private BotNavigator? _navigator;
-
-    private int _consecutiveTickFailures;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="BotPlayer"/> class.
@@ -55,8 +43,8 @@ public sealed class BotPlayer : OfflinePlayer
 
     /// <summary>
     /// Gets or sets a value indicating whether this bot's AI keeps failing and it has to be restarted
-    /// (see <see cref="ConsecutiveFailuresUntilRestart"/>). Acted upon by the maintenance pass, which is
-    /// the only place allowed to restart a bot.
+    /// (see <see cref="BotHealthPolicy.ConsecutiveFaultsUntilRestart"/>). Acted upon by the maintenance pass,
+    /// which is the only place allowed to restart a bot.
     /// </summary>
     public bool AwaitsFaultRestart { get; set; }
 
@@ -74,8 +62,19 @@ public sealed class BotPlayer : OfflinePlayer
                 navigator.States.Summarize(),
                 navigator.States.Describe(),
                 navigator.States.TotalFailures,
-                navigator.States.LastFailure)
+                navigator.States.LastFailure,
+                this.Health.Restarts,
+                this.Health.QuarantinedUntilUtc)
             : null;
+
+    /// <summary>
+    /// Gets or sets the health supervisor of the account this bot drives. It counts the failing ticks, decides
+    /// whether a restart is the right answer and quarantines the bot when restarts do not stick - see
+    /// <see cref="BotHealthSupervisor"/>. A directly constructed bot gets its own; a bot spawned by the
+    /// <see cref="BotManager"/> shares the one of its account, so a bot which breaks itself again right after a
+    /// restart is recognized as flapping instead of being restarted in a loop.
+    /// </summary>
+    internal BotHealthSupervisor Health { get; set; } = new();
 
     /// <inheritdoc />
     /// <remarks>
@@ -92,27 +91,20 @@ public sealed class BotPlayer : OfflinePlayer
     }
 
     /// <inheritdoc />
-    internal override void OnAiTickSucceeded()
-    {
-        if (this._consecutiveTickFailures > 0)
-        {
-            Interlocked.Exchange(ref this._consecutiveTickFailures, 0);
-        }
-    }
+    internal override void OnAiTickSucceeded() => this.Health.RecordTickSucceeded();
 
     /// <inheritdoc />
-    internal override void OnAiTickFailed()
+    internal override void OnAiTickFailed(Exception? exception = null)
     {
-        if (Interlocked.Increment(ref this._consecutiveTickFailures) == ConsecutiveFailuresUntilRestart)
+        if (this.Health.RecordFault(exception))
         {
-            // Deliberately '==', not '>=': this arms the restart exactly once, at the tick that crosses
-            // the threshold, so the log gets one line and the flag is raised once. Further failures keep
-            // incrementing the counter (which stays above the threshold) but don't re-fire; the
-            // maintenance pass consumes AwaitsFaultRestart and the restart resets the counter to 0.
+            // The supervisor raises the request exactly once, at the tick which crosses the threshold; the
+            // maintenance pass consumes AwaitsFaultRestart and the restart resets the counter.
             this.Logger.LogWarning(
-                "Bot '{Name}' failed {Count} AI ticks in a row and gets restarted to heal it.",
+                "Bot '{Name}' failed {Count} AI ticks in a row and asks for a restart to heal it. Last fault: {Fault}",
                 this.Name,
-                ConsecutiveFailuresUntilRestart);
+                BotHealthPolicy.ConsecutiveFaultsUntilRestart,
+                this.Health.LastFault);
             this.AwaitsFaultRestart = true;
         }
     }

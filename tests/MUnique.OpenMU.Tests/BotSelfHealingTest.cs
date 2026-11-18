@@ -46,4 +46,38 @@ public class BotSelfHealingTest
 
         Assert.That(bot.AwaitsFaultRestart, Is.True);
     }
+
+    /// <summary>
+    /// A bot which is being stopped is not a broken bot - a shutdown must not look like a wave of failures and
+    /// write off the bots it stops anyway.
+    /// </summary>
+    [Test]
+    public void ATeardownIsNotAFault()
+    {
+        var bot = new BotPlayer(GameContextTestHelper.CreateGameContext());
+
+        for (var i = 0; i < 100; i++)
+        {
+            bot.OnAiTickFailed(new OperationCanceledException());
+        }
+
+        Assert.That(bot.AwaitsFaultRestart, Is.False);
+        Assert.That(bot.Health.Faults, Is.Zero);
+    }
+
+    /// <summary>
+    /// What made the last tick fail is kept, with the classification, so the log line and the operator surfaces
+    /// say whether a restart is the documented cure (a corrupt graph) or an environment problem.
+    /// </summary>
+    [Test]
+    public void TheFaultIsKeptForTheDiagnosis()
+    {
+        var bot = new BotPlayer(GameContextTestHelper.CreateGameContext());
+
+        bot.OnAiTickFailed(new NullReferenceException("Object reference not set to an instance of an object."));
+
+        Assert.That(bot.Health.LastFault, Does.Contain("NullReferenceException"));
+        Assert.That(bot.Health.LastFault, Does.Contain("corrupting"));
+        Assert.That(bot.Health.Describe(), Does.Contain("1 faulted tick"));
+    }
 }
