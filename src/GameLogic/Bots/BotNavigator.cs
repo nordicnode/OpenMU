@@ -1216,26 +1216,17 @@ internal sealed class BotNavigator : AsyncDisposable
         }
     }
 
-    private async ValueTask EvaluateAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// Gathers what one evaluation tick works with, and runs the upkeep which has to happen on every tick:
+    /// party bookkeeping, the potion refill and - every few minutes - the loot-driven equipment, skill and
+    /// wing progression. The upkeep is queued into the MU Helper tick, never run from here: all of it
+    /// mutates items, attributes or skills, which must not happen while the combat handler walks the same
+    /// structures on its own timer (see <see cref="OfflinePlayer.PendingBotActions"/>).
+    /// </summary>
+    /// <param name="map">The map the bot stands on.</param>
+    /// <returns>What the tick works with: the safezone, the leader, the tether and the monsters nearby.</returns>
+    private async ValueTask<TickContext> PrepareTickAsync(GameMap map)
     {
-        if (cancellationToken.IsCancellationRequested
-            || this._player.PlayerState.CurrentState != PlayerState.EnteredWorld
-            || !this._player.IsAlive
-            || this._player.CurrentMap is not { } map
-            || this._player.SelectedCharacter is null)
-        {
-            return;
-        }
-
-        // Inside a mini-game event the whole normal routine below is suspended - the event
-        // dictates the pace, and every branch that could move the bot off the event map
-        // (shopping, revenge, warping, ground picking) must not run.
-        if (this._player.CurrentMiniGame is not null)
-        {
-            await this.EvaluateInsideMiniGameAsync(map, cancellationToken).ConfigureAwait(false);
-            return;
-        }
-
         // Party bookkeeping: answer a pending invitation from a player once its human-like delay
         // passed (see BotPartyHandler).
         await BotPartyHandler.ProcessAsync(this._player).ConfigureAwait(false);
@@ -1322,11 +1313,43 @@ internal sealed class BotNavigator : AsyncDisposable
             .OfType<Monster>()
             .Count(m => m.IsAlive && !m.IsAtSafezone() && m.SummonedBy is null && CombatHandler.IsSafeTarget(this._player, m.Definition));
 
+        return new TickContext(inSafezone, leaderToFollow, isTetheredToLeader, isSavingForFollowFare, monstersNearby);
+    }
+
+    /// <summary>
+    /// One evaluation tick: the bot decides what it does next, from what <see cref="PrepareTickAsync"/>
+    /// gathered. The order of the branches is the priority order of the bot - an announced event meeting or
+    /// a market shift outranks the errands, the errands outrank following the leader, and hunting is what
+    /// happens when nothing else claimed the tick.
+    /// </summary>
+    /// <param name="cancellationToken">The token which aborts the tick on shutdown.</param>
+    private async ValueTask EvaluateAsync(CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested
+            || this._player.PlayerState.CurrentState != PlayerState.EnteredWorld
+            || !this._player.IsAlive
+            || this._player.CurrentMap is not { } map
+            || this._player.SelectedCharacter is null)
+        {
+            return;
+        }
+
+        // Inside a mini-game event the whole normal routine below is suspended - the event
+        // dictates the pace, and every branch that could move the bot off the event map
+        // (shopping, revenge, warping, ground picking) must not run.
+        if (this._player.CurrentMiniGame is not null)
+        {
+            await this.EvaluateInsideMiniGameAsync(map, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        var tick = await this.PrepareTickAsync(map).ConfigureAwait(false);
+
         // The bot counts as stuck when it has been frozen on the spot: quickly when there is nothing to
         // fight (a wedged walk or blocked path), and after a much longer grace when huntable monsters are
         // around - standing still next to monsters usually just means fighting, but if the position stays
         // frozen well beyond that, something is wedged (e.g. a monster in range that cannot be reached).
-        var stuckTimeout = monstersNearby > 0 ? StuckWithMonstersTimeout : StuckTimeout;
+        var stuckTimeout = tick.MonstersNearby > 0 ? StuckWithMonstersTimeout : StuckTimeout;
         var stuck = DateTime.UtcNow - this._lastMoveUtc > stuckTimeout;
         if (stuck)
         {
@@ -1336,9 +1359,9 @@ internal sealed class BotNavigator : AsyncDisposable
             // the party hunts.
             this._lastMoveUtc = DateTime.UtcNow;
             this._emptyGroundSince = null;
-            if (leaderToFollow is not null && ReferenceEquals(leaderToFollow.CurrentMap, map))
+            if (tick.LeaderToFollow is not null && ReferenceEquals(tick.LeaderToFollow.CurrentMap, map))
             {
-                await this.TravelTowardAsync(map, leaderToFollow.Position, cancellationToken).ConfigureAwait(false);
+                await this.TravelTowardAsync(map, tick.LeaderToFollow.Position, cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -1355,7 +1378,7 @@ internal sealed class BotNavigator : AsyncDisposable
         // A bot which announced an opened event waits at the meeting point until the entrance closes
         // (see BotChatPlugIn): it said where it would be, so it must be found there. This outranks the
         // errands and the party follow below - and a due reset, which would change its level.
-        if (await this.TryEventMeetingAsync(map, inSafezone, cancellationToken).ConfigureAwait(false))
+        if (await this.TryEventMeetingAsync(map, tick.InSafezone, cancellationToken).ConfigureAwait(false))
         {
             return;
         }
@@ -1388,7 +1411,7 @@ internal sealed class BotNavigator : AsyncDisposable
         // A shopping trip (selling junk loot, restocking potions with Zen) runs before everything else,
         // so it completes even for party members - the follow logic below would otherwise pull them
         // back to the leader mid-trade.
-        if (await this.TryShoppingAsync(map, inSafezone, cancellationToken).ConfigureAwait(false))
+        if (await this.TryShoppingAsync(map, tick.InSafezone, cancellationToken).ConfigureAwait(false))
         {
             return;
         }
@@ -1396,14 +1419,14 @@ internal sealed class BotNavigator : AsyncDisposable
         // A buff trip (claiming the free defense/damage buff a dialog NPC like the Elf Soldier offers)
         // is an errand like shopping - it also completes even for party members, and does not mix with
         // the follow logic below pulling the bot back to the leader mid-visit.
-        if (await this.TryBuffTripAsync(map, inSafezone, cancellationToken).ConfigureAwait(false))
+        if (await this.TryBuffTripAsync(map, tick.InSafezone, cancellationToken).ConfigureAwait(false))
         {
             return;
         }
 
         // A chaos machine trip (upgrading a lucky +9..+14 piece at the goblin) is an errand like the
         // others: it completes even for party members.
-        if (await this.TryChaosMachineTripAsync(map, inSafezone, cancellationToken).ConfigureAwait(false))
+        if (await this.TryChaosMachineTripAsync(map, tick.InSafezone, cancellationToken).ConfigureAwait(false))
         {
             return;
         }
@@ -1425,14 +1448,14 @@ internal sealed class BotNavigator : AsyncDisposable
         // their own, or step down barren maps - the leader (the lowest-level member, so it only ever
         // picks maps the whole group can hunt on) decides where the party goes. Trade-off, by design:
         // if the leader idles in town or is wedged, its followers idle with him.
-        if (leaderToFollow is not null)
+        if (tick.LeaderToFollow is not null)
         {
-            if (await this.TryHandleCrossMapLeaderFollowAsync(map, leaderToFollow, cancellationToken).ConfigureAwait(false))
+            if (await this.TryHandleCrossMapLeaderFollowAsync(map, tick.LeaderToFollow, cancellationToken).ConfigureAwait(false))
             {
                 return;
             }
 
-            await this.EvaluateFollowerHuntingAsync(map, leaderToFollow, inSafezone, cancellationToken).ConfigureAwait(false);
+            await this.EvaluateFollowerHuntingAsync(map, tick.LeaderToFollow, tick.InSafezone, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -1442,8 +1465,8 @@ internal sealed class BotNavigator : AsyncDisposable
         // high-level bots farm level-5 mobs on Lorencia forever (with the experience penalty) instead
         // of moving on to their level's maps. TryWarpToBetterMapAsync itself only fires when another
         // map is meaningfully better (margin + cooldown), so a bot on an adequate map stays put.
-        if (leaderToFollow is null
-            && !isSavingForFollowFare
+        if (tick.LeaderToFollow is null
+            && !tick.IsSavingForFollowFare
             && await this.TryWarpToBetterMapAsync().ConfigureAwait(false))
         {
             return;
@@ -1451,7 +1474,7 @@ internal sealed class BotNavigator : AsyncDisposable
 
         // Inside the safezone the bot can't fight anyway, so it must keep walking out of town instead of
         // freezing at the gate when a monster is just outside. Only stop to fight once it has left the safezone.
-        if (!inSafezone && monstersNearby > 0)
+        if (!tick.InSafezone && tick.MonstersNearby > 0)
         {
             this._emptyGroundSince = null;
             return;
@@ -1501,7 +1524,7 @@ internal sealed class BotNavigator : AsyncDisposable
         // Arrived (or no destination) and the area is empty: wait out a short grace, then pick a new ground.
         // In the safezone we skip the grace so a freshly spawned bot heads out of town straight away.
         this._hasDestination = false;
-        if (!inSafezone)
+        if (!tick.InSafezone)
         {
             this._emptyGroundSince ??= DateTime.UtcNow;
             if (DateTime.UtcNow - this._emptyGroundSince < EmptyGroundGrace)
@@ -1512,7 +1535,7 @@ internal sealed class BotNavigator : AsyncDisposable
 
         this._emptyGroundSince = null;
 
-        if (leaderToFollow is null && !isSavingForFollowFare && await this.TryWarpToBetterMapAsync().ConfigureAwait(false))
+        if (tick.LeaderToFollow is null && !tick.IsSavingForFollowFare && await this.TryWarpToBetterMapAsync().ConfigureAwait(false))
         {
             return;
         }
@@ -3056,6 +3079,23 @@ internal sealed class BotNavigator : AsyncDisposable
 
         return area => avoided.Avoided.Contains(avoided.Zones.GetAreaZone(area, BotHuntingGroundSelector.GroundScatterSpan, HuntingRange));
     }
+
+    /// <summary>
+    /// What one evaluation tick works with, gathered once up front (see <see cref="PrepareTickAsync"/>).
+    /// The tick's branches all judge the same picture then, instead of some of them re-deriving the
+    /// safezone or the leader after a branch already changed the player.
+    /// </summary>
+    /// <param name="InSafezone">Whether the bot stands in the safezone of the map.</param>
+    /// <param name="LeaderToFollow">The party leader the bot follows; <c>null</c> when it hunts on its own.</param>
+    /// <param name="IsTetheredToLeader">Whether the follower hunts around its leader on the same map.</param>
+    /// <param name="IsSavingForFollowFare">Whether the bot keeps its Zen for a warp to its leader, so it may not warp on its own.</param>
+    /// <param name="MonstersNearby">The number of monsters nearby which the bot would actually fight.</param>
+    private readonly record struct TickContext(
+        bool InSafezone,
+        Player? LeaderToFollow,
+        bool IsTetheredToLeader,
+        bool IsSavingForFollowFare,
+        int MonstersNearby);
 
     /// <summary>
     /// A Manhattan distance heuristic (the pathfinder applies its own estimate multiplier), used to turn the
