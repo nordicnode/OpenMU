@@ -171,9 +171,29 @@ public class BotMapFloorTest
     }
 
     /// <summary>
+    /// A bot which stands on a blocked tile - as bots do right after landing on the blocked tile of a spawn
+    /// gate - is judged by the walkable tile next to it. Without a walkable tile in reach it has no region at
+    /// all, so it picks no ground it could never walk to (it warps instead).
+    /// </summary>
+    [Test]
+    public void BotOnABlockedTileIsJudgedByTheTileNextToIt()
+    {
+        var map = CreateTwoFloorMap(6);
+        var regions = BotMapRegions.Get(map);
+        var lowerRegion = regions.GetRegion(new Point(12, 12));
+        var upperRegion = regions.GetRegion(new Point(202, 202));
+
+        Assert.That(regions.GetRegion(new Point(100, 100)), Is.Zero, "the middle of the map is wall");
+        Assert.That(regions.GetRegionNear(new Point(100, 100), 3), Is.Zero, "no walkable tile within reach");
+        Assert.That(regions.GetRegionNear(new Point(16, 16), 3), Is.EqualTo(lowerRegion), "the tile next to the wall belongs to the lower floor");
+        Assert.That(regions.GetRegionNear(new Point(206, 206), 3), Is.EqualTo(upperRegion), "and the one up there to the upper floor");
+    }
+
+    /// <summary>
     /// A bot picks its hunting ground on the floor it stands on. The stronger monsters of another floor
     /// used to win the pick, the walk there failed, and the bot stood without a ground.
     /// </summary>
+    /// <returns>The task.</returns>
     [Test]
     public async ValueTask HuntingGroundIsPickedOnTheOwnFloorAsync()
     {
@@ -184,11 +204,38 @@ public class BotMapFloorTest
         bot.SetCurrentMapSilently(map);
         bot.Position = new Point(10, 10);
 
-        await new BotNavigator(bot).PickGroundAndTravelAsync(map, CancellationToken.None).ConfigureAwait(false);
+        var picked = new BotNavigator(bot).TryPickHuntingGround(map, out var ground, out _);
 
-        Assert.That(bot.HuntingSpot, Is.Not.Null);
-        Assert.That(bot.HuntingSpot!.Position.X, Is.InRange(10, 15));
-        Assert.That(bot.HuntingSpot.Position.Y, Is.InRange(10, 15));
+        Assert.That(picked, Is.True, "the own floor offers a ground, so one must be picked");
+        Assert.That(ground.X, Is.InRange(10, 15));
+        Assert.That(ground.Y, Is.InRange(10, 15));
+    }
+
+    /// <summary>
+    /// A bot which stands on a blocked tile - as bots do right after landing on the blocked tile of a spawn
+    /// gate - is judged by the walkable tiles next to it. Before, the whole map counted as reachable then, and
+    /// the pick sometimes fell on the monsters of the floor above.
+    /// </summary>
+    /// <returns>The task.</returns>
+    [Test]
+    public async ValueTask HuntingGroundOfABotOnABlockedTileStaysOnTheOwnFloorAsync()
+    {
+        var gameContext = GameContextTestHelper.CreateGameContext();
+        var bot = await CreateHunterAsync(gameContext).ConfigureAwait(false);
+        var (floorMap, _, _) = AddTwoFloorMap(gameContext, 8);
+        var map = new GameMap(floorMap, TimeSpan.FromMinutes(1), 8);
+        bot.SetCurrentMapSilently(map);
+        bot.Position = new Point(16, 16); // one tile outside the lower floor, so a wall
+        var navigator = new BotNavigator(bot);
+
+        for (var i = 0; i < 50; i++)
+        {
+            var picked = navigator.TryPickHuntingGround(map, out var ground, out _);
+
+            Assert.That(picked, Is.True);
+            Assert.That(ground.X, Is.InRange(10, 15), "a ground of the other floor would be unreachable");
+            Assert.That(ground.Y, Is.InRange(10, 15), "a ground of the other floor would be unreachable");
+        }
     }
 
     /// <summary>

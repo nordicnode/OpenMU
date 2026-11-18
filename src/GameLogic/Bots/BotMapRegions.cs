@@ -81,6 +81,46 @@ internal sealed class BotMapRegions
     public int GetRegion(Point point) => this._regions[(point.Y * MapSize) + point.X];
 
     /// <summary>
+    /// Gets the region of the walkable tile closest to a point, so a bot which stands on a blocked tile - on
+    /// the spawn gate it just landed on, or next to a wall - is still judged by the part of the map it can
+    /// walk in.
+    /// </summary>
+    /// <param name="point">The point.</param>
+    /// <param name="radius">The distance up to which a walkable tile is looked for.</param>
+    /// <returns>The region; 0, if no tile within the radius is walkable.</returns>
+    /// <remarks>
+    /// Without this, a bot on a blocked tile had no region at all, and every spawn area of the map counted as
+    /// reachable - including the ones on a floor above, reachable only through another warp entry.
+    /// </remarks>
+    public int GetRegionNear(Point point, int radius)
+    {
+        var center = this.GetRegion(point);
+        if (center != 0)
+        {
+            return center;
+        }
+
+        for (var distance = 1; distance <= radius; distance++)
+        {
+            for (var x = point.X - distance; x <= point.X + distance; x++)
+            {
+                for (var y = point.Y - distance; y <= point.Y + distance; y++)
+                {
+                    if (x is >= 0 and < MapSize
+                        && y is >= 0 and < MapSize
+                        && this._regions[(y * MapSize) + x] is var region
+                        && region != 0)
+                    {
+                        return region;
+                    }
+                }
+            }
+        }
+
+        return 0;
+    }
+
+    /// <summary>
     /// Gets the regions in which a bot can pick a hunting point of the spawn area.
     /// </summary>
     /// <param name="area">The spawn area.</param>

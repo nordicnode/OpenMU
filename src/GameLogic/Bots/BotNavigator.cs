@@ -53,6 +53,13 @@ internal sealed class BotNavigator : AsyncDisposable
     /// </summary>
     private const int MonsterSeekRadius = 40;
 
+    /// <summary>
+    /// How far around the bot's own tile a walkable one is looked for when judging which part of the map it
+    /// stands in. A bot often lands on the blocked tile of a spawn gate, and the region of the tile next to it
+    /// is the one it fights in (see <see cref="BotMapRegions.GetRegionNear"/>).
+    /// </summary>
+    private const int RegionSearchRadius = 3;
+
     /// <summary>Item group of potions (healing and mana potions share group 14).</summary>
     private const int HealPotionGroup = 14;
 
@@ -2998,20 +3005,27 @@ internal sealed class BotNavigator : AsyncDisposable
     /// being slaughtered. If nothing on the map is safe, it falls back to the weakest monsters available
     /// (the bot should warp away anyway).
     /// </summary>
-    private bool TryPickHuntingGround(GameMap map, out Point ground, out int groundLevel)
+    internal bool TryPickHuntingGround(GameMap map, out Point ground, out int groundLevel)
     {
         ground = default;
         groundLevel = 0;
 
         // Only grounds in the part of the map the bot can walk to: on the Lost Tower, the strongest
         // monsters stand on a floor above, and picking them made every walk fail and the bot stand idle.
+        // A bot which stands on a blocked tile - on the gate it landed on, or next to a wall - is judged by
+        // the region next to it; without a walkable tile at all, no ground of the map can be walked to.
         var mapRegions = BotMapRegions.Get(map.Definition);
-        var region = mapRegions.GetRegion(this._player.Position);
+        var region = mapRegions.GetRegionNear(this._player.Position, RegionSearchRadius);
+        if (region == 0)
+        {
+            return false;
+        }
+
         int[] regions = [region];
         var isAvoided = this.GetAvoidedGroundFilter(map.Definition);
         var candidates = map.Definition.MonsterSpawns
             .Where(BotHuntingGroundSelector.IsPermanentMonsterSpawn)
-            .Where(a => region == 0 || mapRegions.IsAreaWithin(a, regions, BotHuntingGroundSelector.GroundScatterSpan, HuntingRange))
+            .Where(a => mapRegions.IsAreaWithin(a, regions, BotHuntingGroundSelector.GroundScatterSpan, HuntingRange))
             .Where(a => isAvoided is null || !isAvoided(a))
             .Select(a => (Area: a, Level: BotHuntingGroundSelector.GetMonsterLevel(a.MonsterDefinition!)))
             .Where(x => x.Level > 0)
@@ -3045,7 +3059,7 @@ internal sealed class BotNavigator : AsyncDisposable
         }
 
         groundLevel = chosen.Level;
-        return BotHuntingGroundSelector.TryPickWalkablePoint(map, chosen.Area, siteToAvoid, competitorSpots, region == 0 ? null : mapRegions, region, out ground);
+        return BotHuntingGroundSelector.TryPickWalkablePoint(map, chosen.Area, siteToAvoid, competitorSpots, mapRegions, region, out ground);
     }
 
     /// <summary>
