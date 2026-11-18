@@ -235,6 +235,21 @@ public class BotStateMachineTest
     }
 
     /// <summary>
+    /// The one-line summary is all the panel column, the live player projection and the bots_list tool show, so a
+    /// bypassed errand - a defect in the priority order - must survive into it.
+    /// </summary>
+    [Test]
+    public void SummarizesABypassedErrand()
+    {
+        var machine = new BotStateMachine(this._timeProvider, next => !next.IsErrand() && !next.IsSuspended());
+
+        machine.Enter(BotState.Hunt, "monsters nearby");
+        machine.Enter(BotState.Shopping, "town errand: selling and restocking");
+
+        Assert.That(machine.Summarize(), Is.EqualTo("Shopping for 0:00 (town errand: selling and restocking) errand bypassed 1x"));
+    }
+
+    /// <summary>
     /// A failed tick is booked to the mode the bot was in, so a mode which keeps throwing is told apart from
     /// one which is only slow.
     /// </summary>

@@ -197,12 +197,18 @@ internal sealed class BotStateMachine
     internal string Summarize()
     {
         var now = this._timeProvider.GetUtcNow();
-        return string.Format(
+        var summary = string.Format(
             CultureInfo.InvariantCulture,
             "{0} for {1} ({2})",
             this.Current,
             Format(this.TimeInCurrent(now)),
             this._reason);
+
+        // A bypassed errand is a defect in the priority order, so it belongs into the shortest form too: the
+        // panel column, the live player projection and the bots_list tool all show this line and nothing else.
+        return this.GuardViolations > 0
+            ? summary + string.Format(CultureInfo.InvariantCulture, " errand bypassed {0}x", this.GuardViolations)
+            : summary;
     }
 
     /// <summary>
