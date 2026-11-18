@@ -98,6 +98,19 @@ The *Bots* feature plugin, in the "Feature Plugins" section of the
 - **`Potion stock charges`** — how many charges of healing and of mana potions a
   bot restocks to at a merchant. Depends on what the shops sell: a server whose
   potions come in stacks of 255 fills the target in a single purchase.
+- **`Master point banking cap`** — how many master points a bot may save up for a
+  master skill which costs several points at once (10 by default, 0 invests every
+  point immediately). Without it a bot never holds the ten points such a skill
+  needs, and the branch behind it stays untouched.
+- **`Use enemy debuffs`** — whether a bot casts the debuffs of its class on its
+  target: the Summoner's Sleep, Weakness and Innovation. They are never part of
+  the self-buff rotation, so they can't be turned on the bot itself.
+- **`Buy equipment`** — whether bots buy gear upgrades from the merchants they
+  visit, instead of only wearing what they find. Off by default: it changes the
+  server economy the prices are balanced around.
+- **`Equipment budget %`** — the share of its money a bot may spend on equipment
+  per shopping trip (only used when buying equipment is enabled). A piece above
+  it stays on the shelf, so the bot keeps its potion and warp money.
 - **`Reset bots`** — deletes the whole population and generates it again, then
   clears itself. With the number of accounts set to zero it deletes without
   generating anything.
@@ -206,6 +219,12 @@ learned skills go quiet on their own (they are never selected), but scroll skill
 a character learned too early keep working - regenerating the population with
 `Reset bots` is the way to a clean slate.
 
+With the `Use enemy debuffs` setting, a class which owns one casts it on the
+monster it fights: the Summoner puts it to sleep, lowers its defense or its damage
+before the next strike lands. A debuff is cast at most once per effect and target,
+never on a player, and never on a monster which is about to die - it uses the tick
+which the attack would have used, not every tick.
+
 A skill the character cannot currently cast is passed over, in the attack
 rotation and in the buffs alike. That is not the same as not having learned it: a
 reset keeps every skill but takes back the level which unlocked it, so a veteran
@@ -246,11 +265,16 @@ Bots evolve like players do. The second-generation class change happens at level
 at the game's maximum level, followed by a relog, because the master attributes
 only mount when a character enters the world. Master points go into the master
 skill tree through the regular action, with its rank gates and skill
-requirements, preferring passives which boost a stat and strengtheners of skills
-the bot actually uses; a bonus tied to a weapon type the bot does not fight with
-is never bought. On a server with the reset feature, a bot only masters once its
-reset limit is exhausted — while resets remain, resetting is what players do, so
-the bots do it too.
+requirements, preferring strengtheners of skills the bot actually uses and
+passives which fit its build; a bonus tied to a weapon type the bot does not fight
+with is never bought. Points are invested as they are earned, except for a skill
+which costs several points at once: the bot banks them up to the configured cap
+(see `Master point banking cap`) and learns it once it can, instead of pouring
+every point into what is reachable immediately and never opening the branch
+behind such a skill. An affordable new skill is always learned before points are
+banked, and a started skill is finished first. On a server with the reset
+feature, a bot only masters once its reset limit is exhausted — while resets
+remain, resetting is what players do, so the bots do it too.
 
 A mastered bot changes what it hunts. Master experience is only granted for
 monsters of at least the configured
@@ -287,6 +311,15 @@ map whose merchants sell no potions while it needs some, it warps home to a real
 town instead. While the shop dialog visibly occupies it, the bot sells its junk,
 repairs its gear — which is what earns the NPC's discount — and buys potions and,
 where a shop offers them, jewels.
+
+With the opt-in `Buy equipment` setting it also buys gear: the best upgrade the
+merchant stocks which beats what the bot wears, meets the same class, stat and
+level requirements a player faces, and fits the per-trip budget (`Equipment
+budget %`, with a reserve left for potions and warps). A merchant with such an
+offer is preferred over one which only sells potions. The bought piece goes into
+the backpack and is put on by the regular equipment pass a few seconds later —
+the swap itself keeps going through the one validated path. Without the setting
+the bot still only wears what it finds.
 
 Only Jewels of Bless, Soul, Life and Chaos are collected, and only up to the
 configured stock — Chaos only by a bot which wears a lucky piece it can still
@@ -629,18 +662,6 @@ hash dominates); starting an existing one of 1100 bots takes some 15 seconds.
   often than human players do: a few caught exceptions per minute. A bot whose
   attribute graph gets corrupted restarts itself (see above); a real fix belongs
   into the engine, not into the bots.
-- **Master skills which cost ten points at once are never learned.** A bot
-  invests every point as it earns it, so it never holds ten of them, and the
-  branches of the tree behind such a skill stay untouched.
-- **The Summoner's enemy debuffs (Sleep, Weakness, Innovation) are unused.**
-  Deliberate: they would be cast through the buff rotation, which would have the
-  bot put itself to sleep. A cast-on-enemy path in the combat handler would be
-  needed.
-- **Bots never buy equipment.** They wear what they find, so their gear lags
-  behind their level, and a bot at the maximum level is weaker than a player of
-  the same level would be. It is the reason a mastered bot needs a stretched hit
-  budget to reach the monsters which pay master experience at all. Letting bots
-  spend their money on gear would close the loop; they earn plenty of it.
 - **Bots do no quests and do not trade with players.** Deliberate scope. The
   quests which matter for progression (the class changes) are performed
   directly, and trading would be an abuse surface.

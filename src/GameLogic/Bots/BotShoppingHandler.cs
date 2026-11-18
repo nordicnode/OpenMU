@@ -171,6 +171,7 @@ internal static class BotShoppingHandler
             var store = player.OpenedNpc.Definition.MerchantStore;
             var boughtPotions = store is null ? 0 : await BuyPotionsAsync(player, store).ConfigureAwait(false);
             var boughtJewels = store is null ? 0 : await BuyJewelsAsync(player, store).ConfigureAwait(false);
+            var boughtEquipment = store is null ? 0 : await BotEquipmentPurchasePlanner.BuyUpgradesAsync(player, store).ConfigureAwait(false);
 
             // Only now, with every purchase of this visit paid for, is it settled how much room the
             // money limit really leaves: each Zen spent above buys back the chance to sell one more
@@ -182,7 +183,7 @@ internal static class BotShoppingHandler
             // "went and had nothing to do" apart from a silently failed trip. Every counter reports
             // what REALLY happened - a sale which the money limit refused is not a sale.
             player.Logger.LogDebug(
-                "Bot '{Name}' traded with '{Merchant}': stocked {Stocked} item(s) for the market, sold {Sold} item(s), discarded {Discarded}, repaired {Repaired}, bought {Potions} potion stack(s) and {Jewels} jewel(s), {Money} zen left.",
+                "Bot '{Name}' traded with '{Merchant}': stocked {Stocked} item(s) for the market, sold {Sold} item(s), discarded {Discarded}, repaired {Repaired}, bought {Potions} potion stack(s), {Jewels} jewel(s) and {Equipment} equipment piece(s), {Money} zen left.",
                 player.Name,
                 merchant.Definition.Designation,
                 stocked,
@@ -191,6 +192,7 @@ internal static class BotShoppingHandler
                 repaired,
                 boughtPotions,
                 boughtJewels,
+                boughtEquipment,
                 player.Money);
         }
         finally
@@ -569,6 +571,13 @@ internal static class BotShoppingHandler
         if (sellsJewels)
         {
             score += needsPotions ? 1 : 2;
+        }
+
+        // A merchant with an affordable upgrade for this bot is worth the walk even when its potions
+        // are not needed: the purchase is what turns the bot's Zen into progression.
+        if (BotEquipmentPurchasePlanner.HasAffordableUpgrade(player, store))
+        {
+            score += 3;
         }
 
         return score;

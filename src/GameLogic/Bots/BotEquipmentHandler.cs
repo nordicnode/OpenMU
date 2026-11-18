@@ -73,6 +73,25 @@ internal static class BotEquipmentHandler
     }
 
     /// <summary>
+    /// How much better the item is than the gear it would replace, or 0 when the bot would not wear it
+    /// at all (wrong class, unmet requirements, no better than what is worn). The equipment purchase
+    /// planner ranks a merchant's offers by it, so a bot buys the piece which helps it most instead of
+    /// whatever happens to be first in the shop.
+    /// </summary>
+    /// <param name="player">The bot player which would wear the item.</param>
+    /// <param name="item">The item to evaluate.</param>
+    /// <returns>The score margin over the replaced pieces; 0 when it is no upgrade.</returns>
+    internal static int GetUpgradeMargin(Player player, Item item)
+    {
+        if (TryPlanSwap(player, item) is not { } plan)
+        {
+            return 0;
+        }
+
+        return Score(item) - plan.Removed.Sum(Score);
+    }
+
+    /// <summary>
     /// Puts the planned piece on: the gear it replaces goes to the backpack first (an equip only works
     /// into a free slot), then the candidate is equipped through the regular <see cref="MoveItemAction"/>.
     /// If the engine refuses the equip after all - the requirements are checked against the TOTAL stats,

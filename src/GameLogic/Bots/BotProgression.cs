@@ -42,12 +42,29 @@ internal static class BotProgression
     ];
 
     /// <summary>
-    /// Skills of the buff type which must never enter a bot's auto-buff rotation: the summoner's
-    /// enemy debuffs (Sleep/Weakness/Innovation - the offline buff handler casts buffs on SELF, so the
-    /// bot would put itself to sleep), and Defense (18), which players get from equipping a shield
-    /// rather than learning it.
+    /// Skills of the buff type which must never enter a bot's auto-buff rotation: Defense (18), which
+    /// players get from equipping a shield rather than learning it. The summoner's enemy debuffs
+    /// (Sleep/Weakness/Innovation) are a different case: a bot may own and cast them, but only on an
+    /// enemy - the buff rotation casts on SELF, so a debuff in there would put the bot itself to sleep
+    /// (see <see cref="IsEnemyDebuff"/> and the debuff branch of the offline combat handler).
     /// </summary>
-    private static readonly short[] ExcludedBuffSkillNumbers = [18, 219, 221, 222];
+    private static readonly short[] ExcludedBuffSkillNumbers = [18];
+
+    /// <summary>
+    /// The attributes of a magic effect which make it harmful to its TARGET, i.e. which turn a buff
+    /// skill into an enemy debuff: sleep, stun, freeze and the defense/damage decrements. Data-driven
+    /// on purpose - a debuff added to the configuration later is recognized without a code change,
+    /// while every self or party buff (which boosts a stat) stays out.
+    /// </summary>
+    private static readonly AttributeDefinition[] HarmfulEffectAttributes =
+    [
+        Stats.IsAsleep,
+        Stats.IsStunned,
+        Stats.IsFrozen,
+        Stats.DefenseDecrement,
+        Stats.InnovationDefDecrement,
+        Stats.WeaknessPhysDmgDecrement,
+    ];
 
     /// <summary>
     /// The skills the game only activates on the castle siege map: the client refuses to cast them
@@ -394,13 +411,33 @@ internal static class BotProgression
     public static bool RequiresMount(Skill skill) => MountRequiredSkillNumbers.Contains(skill.Number);
 
     /// <summary>
+    /// Determines whether the skill is an enemy debuff: a buff-type skill whose magic effect harms its
+    /// target (see <see cref="HarmfulEffectAttributes"/>) instead of boosting the caster. The summoner's
+    /// Sleep, Weakness and Innovation are the ones a bot casts; the offline buff handler must skip them
+    /// (it casts on self), the combat handler casts them on the current target instead.
+    /// </summary>
+    /// <param name="skill">The skill to check.</param>
+    public static bool IsEnemyDebuff(Skill skill)
+    {
+        if (skill.SkillType != SkillType.Buff
+            || skill.TargetRestriction == SkillTargetRestriction.Self
+            || skill.MagicEffectDef is not { } effect)
+        {
+            return false;
+        }
+
+        return effect.PowerUpDefinitions?.Any(p => p.TargetAttribute is { } attribute
+            && HarmfulEffectAttributes.Contains(attribute)) == true;
+    }
+
+    /// <summary>
     /// Determines whether the skill is one a bot may own at all: an actual attack skill, or a
-    /// self/party buff or heal with a magic effect (which the offline buff/heal handlers know how to
+    /// self/party buff, heal or enemy debuff with a magic effect (which the offline handlers know how to
     /// cast) - but never a master skill (those go through the regular master action like for a human
     /// player, see <see cref="BotMasterHandler"/>), a castle-siege-only skill, or a mount-bound skill
     /// (never used by bots). Item-granted skills are welcome here: the orb or scroll in the bot's
-    /// backpack is the gate, exactly as for a human consuming it. Passive boosts, event skills, enemy
-    /// debuffs and utility skills are left out.
+    /// backpack is the gate, exactly as for a human consuming it. Passive boosts, event skills and
+    /// utility skills are left out.
     /// </summary>
     /// <param name="skill">The skill to check.</param>
     public static bool MayBotOwnSkill(Skill skill)

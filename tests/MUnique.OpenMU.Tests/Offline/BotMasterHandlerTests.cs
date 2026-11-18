@@ -229,6 +229,112 @@ public class BotMasterHandlerTests
     }
 
     /// <summary>
+    /// A master skill which costs several points at once is banked for instead of being skipped forever:
+    /// while the bot invests every point as it earns it, it never holds the ten points such a skill
+    /// needs, and everything behind it in the tree stays untouched.
+    /// </summary>
+    [Test]
+    public async ValueTask BanksPointsForExpensiveSkillAsync()
+    {
+        var player = await PlayerTestHelper.CreatePlayerAsync().ConfigureAwait(false);
+        var characterClass = player.SelectedCharacter!.CharacterClass!;
+        characterClass.IsMasterClass = true;
+        var expensive = this.CreateMasterSkill(1, rank: 1, characterClass, minimumLevel: 10);
+        player.GameContext.Configuration.Skills.Add(expensive);
+        player.SelectedCharacter.MasterLevelUpPoints = 5;
+
+        Assert.That(BotMasterHandler.PickBankingTarget(player, 5, 10), Is.SameAs(expensive));
+        Assert.That(BotMasterHandler.ShouldBankPoints(player, 10), Is.True);
+    }
+
+    /// <summary>
+    /// The cap is the safety fallback: a skill which costs more than the bot is allowed to bank is not
+    /// saved for, so the bot keeps investing and does not hoard points forever.
+    /// </summary>
+    [Test]
+    public async ValueTask DoesNotBankBeyondTheCapAsync()
+    {
+        var player = await PlayerTestHelper.CreatePlayerAsync().ConfigureAwait(false);
+        var characterClass = player.SelectedCharacter!.CharacterClass!;
+        characterClass.IsMasterClass = true;
+        var expensive = this.CreateMasterSkill(1, rank: 1, characterClass, minimumLevel: 20);
+        player.GameContext.Configuration.Skills.Add(expensive);
+        player.SelectedCharacter.MasterLevelUpPoints = 5;
+
+        Assert.That(BotMasterHandler.PickBankingTarget(player, 5, 10), Is.Null);
+        Assert.That(BotMasterHandler.ShouldBankPoints(player, 10), Is.False);
+    }
+
+    /// <summary>
+    /// Banking never beats learning something affordable: while a cheap skill is waiting, the bot takes
+    /// it first and only saves up afterwards.
+    /// </summary>
+    [Test]
+    public async ValueTask LearnsAffordableSkillInsteadOfBankingAsync()
+    {
+        var player = await PlayerTestHelper.CreatePlayerAsync().ConfigureAwait(false);
+        var characterClass = player.SelectedCharacter!.CharacterClass!;
+        characterClass.IsMasterClass = true;
+        var cheap = this.CreateMasterSkill(1, rank: 1, characterClass);
+        var expensive = this.CreateMasterSkill(2, rank: 1, characterClass, minimumLevel: 10);
+        player.GameContext.Configuration.Skills.Add(cheap);
+        player.GameContext.Configuration.Skills.Add(expensive);
+        player.SelectedCharacter.MasterLevelUpPoints = 5;
+
+        Assert.That(BotMasterHandler.ShouldBankPoints(player, 10), Is.False);
+        Assert.That(BotMasterHandler.PickNextMasterSkill(player), Is.SameAs(cheap));
+    }
+
+    /// <summary>
+    /// A started skill which has not reached its rank-unlock level is always finished first - banking
+    /// would strand it halfway.
+    /// </summary>
+    [Test]
+    public async ValueTask FinishesStartedSkillInsteadOfBankingAsync()
+    {
+        var player = await PlayerTestHelper.CreatePlayerAsync().ConfigureAwait(false);
+        var characterClass = player.SelectedCharacter!.CharacterClass!;
+        characterClass.IsMasterClass = true;
+        var started = this.CreateMasterSkill(1, rank: 1, characterClass);
+        var expensive = this.CreateMasterSkill(2, rank: 1, characterClass, minimumLevel: 10);
+        player.GameContext.Configuration.Skills.Add(started);
+        player.GameContext.Configuration.Skills.Add(expensive);
+        player.SelectedCharacter.LearnedSkills.Add(new SkillEntry { Skill = started, Level = 5 });
+        player.SelectedCharacter.MasterLevelUpPoints = 5;
+
+        Assert.That(BotMasterHandler.ShouldBankPoints(player, 10), Is.False);
+    }
+
+    /// <summary>
+    /// The configured banking cap reaches the point spending: with five points at a cap of ten the bot
+    /// holds them, and once the tenth point is there it learns the skill.
+    /// </summary>
+    [Test]
+    public async ValueTask SpendsBankedPointsOnceTheSkillIsReachableAsync()
+    {
+        var contextDonor = await PlayerTestHelper.CreatePlayerAsync().ConfigureAwait(false);
+        var player = await PlayerTestHelper.CreateOfflineLevelingPlayerAsync(contextDonor.GameContext).ConfigureAwait(false);
+        player.SelectedCharacter!.CharacterClass!.IsMasterClass = true;
+        player.GameContext.FeaturePlugIns.AddPlugIn(
+            new BotFeaturePlugIn { Configuration = new BotConfiguration { MasterPointBankingCap = 10 } },
+            true);
+
+        var skill = this.CreateMasterSkill(1, rank: 1, player.SelectedCharacter.CharacterClass, minimumLevel: 10);
+        player.GameContext.Configuration.Skills.Add(skill);
+
+        player.SelectedCharacter.MasterLevelUpPoints = 5;
+        await BotMasterHandler.TrySpendMasterPointsAsync(player).ConfigureAwait(false);
+        Assert.That(player.SelectedCharacter.MasterLevelUpPoints, Is.EqualTo(5), "the bot should bank its points");
+        Assert.That(player.SelectedCharacter.LearnedSkills, Is.Empty);
+
+        player.SelectedCharacter.MasterLevelUpPoints = 10;
+        await BotMasterHandler.TrySpendMasterPointsAsync(player).ConfigureAwait(false);
+        var learned = player.SelectedCharacter.LearnedSkills.FirstOrDefault(l => l.Skill == skill);
+        Assert.That(learned, Is.Not.Null);
+        Assert.That(learned!.Level, Is.GreaterThan(0));
+    }
+
+    /// <summary>
     /// Creates an offline test player whose class has a master class as next generation.
     /// </summary>
     private async ValueTask<GameLogic.Offline.OfflinePlayer> CreatePlayerWithMasterTargetAsync()
@@ -264,13 +370,13 @@ public class BotMasterHandlerTests
         return root;
     }
 
-    private Skill CreateMasterSkill(short number, byte rank, CharacterClass qualifiedClass, byte rootId = 1)
+    private Skill CreateMasterSkill(short number, byte rank, CharacterClass qualifiedClass, byte rootId = 1, byte minimumLevel = 1)
     {
         var masterDefinition = new Mock<MasterSkillDefinition>();
         masterDefinition.SetupAllProperties();
         masterDefinition.Object.Rank = rank;
         masterDefinition.Object.MaximumLevel = 20;
-        masterDefinition.Object.MinimumLevel = 1;
+        masterDefinition.Object.MinimumLevel = minimumLevel;
         masterDefinition.Object.Root = this.GetRoot(rootId);
         masterDefinition.Setup(m => m.RequiredMasterSkills).Returns(new List<Skill>());
 

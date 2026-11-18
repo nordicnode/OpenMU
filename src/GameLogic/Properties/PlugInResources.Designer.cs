@@ -1825,6 +1825,78 @@ namespace MUnique.OpenMU.GameLogic.Properties {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to If enabled, bots buy equipment upgrades from the merchants they visit instead of only wearing what they find. Off by default: it changes the server economy the prices are balanced around..
+        /// </summary>
+        public static string BotConfiguration_BuyEquipment_Description {
+            get {
+                return ResourceManager.GetString("BotConfiguration_BuyEquipment_Description", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Buy equipment.
+        /// </summary>
+        public static string BotConfiguration_BuyEquipment_Name {
+            get {
+                return ResourceManager.GetString("BotConfiguration_BuyEquipment_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Share of its money a bot may spend on equipment per shopping trip. Only used when buying equipment is enabled..
+        /// </summary>
+        public static string BotConfiguration_EquipmentBudgetPercent_Description {
+            get {
+                return ResourceManager.GetString("BotConfiguration_EquipmentBudgetPercent_Description", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Equipment budget %.
+        /// </summary>
+        public static string BotConfiguration_EquipmentBudgetPercent_Name {
+            get {
+                return ResourceManager.GetString("BotConfiguration_EquipmentBudgetPercent_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to How many master points a bot may save up for a master skill which costs several points at once. 0 invests every point immediately..
+        /// </summary>
+        public static string BotConfiguration_MasterPointBankingCap_Description {
+            get {
+                return ResourceManager.GetString("BotConfiguration_MasterPointBankingCap_Description", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Master point banking cap.
+        /// </summary>
+        public static string BotConfiguration_MasterPointBankingCap_Name {
+            get {
+                return ResourceManager.GetString("BotConfiguration_MasterPointBankingCap_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to If enabled, a bot casts the debuffs of its class (e.g. the summoner's Sleep, Weakness and Innovation) on its current target..
+        /// </summary>
+        public static string BotConfiguration_UseEnemyDebuffs_Description {
+            get {
+                return ResourceManager.GetString("BotConfiguration_UseEnemyDebuffs_Description", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Use enemy debuffs.
+        /// </summary>
+        public static string BotConfiguration_UseEnemyDebuffs_Name {
+            get {
+                return ResourceManager.GetString("BotConfiguration_UseEnemyDebuffs_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to If enabled, bots are spawned after the server has started..
         /// </summary>
         public static string BotConfiguration_Enabled_Description {

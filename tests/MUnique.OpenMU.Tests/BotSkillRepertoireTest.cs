@@ -5,6 +5,7 @@
 namespace MUnique.OpenMU.Tests;
 
 using MUnique.OpenMU.DataModel.Configuration;
+using MUnique.OpenMU.GameLogic.Attributes;
 using MUnique.OpenMU.GameLogic.Bots;
 using NUnit.Framework;
 
@@ -95,6 +96,58 @@ public class BotSkillRepertoireTest
         var evilSpirit = CreateAttackSkill(9, attackDamage: 45, name: "Evil Spirit");
 
         Assert.That(BotProgression.MayBotOwnSkill(evilSpirit), Is.True);
+    }
+
+    /// <summary>
+    /// Tests that the summoner's enemy debuffs are recognized as such and may be owned: Sleep, Weakness
+    /// and Innovation used to be excluded because the buff rotation casts on SELF - a bot would have put
+    /// itself to sleep. The combat handler now casts them on the current target instead.
+    /// </summary>
+    [Test]
+    public void SummonerDebuffIsRecognizedAndMayBeOwned()
+    {
+        var sleep = CreateBuffSkill(219, "Sleep", Stats.IsAsleep, SkillTargetRestriction.Undefined);
+
+        Assert.That(BotProgression.IsEnemyDebuff(sleep), Is.True);
+        Assert.That(BotProgression.MayBotOwnSkill(sleep), Is.True);
+    }
+
+    /// <summary>
+    /// Tests that a self buff which boosts a stat is not mistaken for a debuff - it belongs into the
+    /// buff rotation, not onto the enemy.
+    /// </summary>
+    [Test]
+    public void SelfBuffIsNoEnemyDebuff()
+    {
+        var defense = CreateBuffSkill(18, "Defense", Stats.DefenseBase, SkillTargetRestriction.Self);
+        var soulBarrier = CreateBuffSkill(19, "Soul Barrier", Stats.DamageReceiveDecrement, SkillTargetRestriction.Party);
+
+        Assert.That(BotProgression.IsEnemyDebuff(defense), Is.False);
+        Assert.That(BotProgression.IsEnemyDebuff(soulBarrier), Is.False);
+    }
+
+    private static Skill CreateBuffSkill(short number, string name, MUnique.OpenMU.AttributeSystem.AttributeDefinition target, SkillTargetRestriction restriction)
+    {
+        var powerUp = new MUnique.OpenMU.Persistence.BasicModel.PowerUpDefinition
+        {
+            TargetAttribute = target,
+        };
+        var effect = new MUnique.OpenMU.Persistence.BasicModel.MagicEffectDefinition
+        {
+            Number = number,
+        };
+        effect.PowerUpDefinitions.Add(powerUp);
+
+        return new Skill
+        {
+            Number = number,
+            Name = name,
+            SkillType = SkillType.Buff,
+            Target = SkillTarget.Explicit,
+            TargetRestriction = restriction,
+            MagicEffectDef = effect,
+            Range = 6,
+        };
     }
 
     /// <summary>

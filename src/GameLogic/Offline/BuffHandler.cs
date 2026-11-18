@@ -64,7 +64,8 @@ public sealed class BuffHandler
                 if (this._cachedAutoBuffIds is null || skillCount != this._cachedAutoBuffSkillCount)
                 {
                     var learnedBuffs = skillList.Skills
-                        .Where(s => s.Skill is { SkillType: SkillType.Buff, MagicEffectDef: { Duration: not null } })
+                        .Where(s => s.Skill is { SkillType: SkillType.Buff, MagicEffectDef: { Duration: not null } }
+                                    && !BotProgression.IsEnemyDebuff(s.Skill))
                         .Select(s => (int)s.Skill!.Number)
                         .OrderBy(n => n)
                         .Take(BuffSlotCount)

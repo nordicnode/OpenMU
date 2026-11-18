@@ -123,6 +123,46 @@ public class BotConfiguration
     public int PotionStockCharges { get; set; } = 60;
 
     /// <summary>
+    /// Gets or sets how many master points a bot may hold back for a master skill which costs several
+    /// points at once. A bot otherwise invests every point the moment it earns it, so a skill whose
+    /// minimum level is ten points - and everything behind it in the same branch - could never be
+    /// learned. With a cap of ten it saves up for such a skill; 0 invests every point immediately, as
+    /// before. The cap is the safety fallback: a skill costing more than the cap is never saved for, so
+    /// the bot does not hoard points forever on a tree it cannot reach.
+    /// </summary>
+    [Display(Name = nameof(MUnique.OpenMU.GameLogic.Properties.PlugInResources.BotConfiguration_MasterPointBankingCap_Name), Description = nameof(MUnique.OpenMU.GameLogic.Properties.PlugInResources.BotConfiguration_MasterPointBankingCap_Description), ResourceType = typeof(MUnique.OpenMU.GameLogic.Properties.PlugInResources))]
+    [Range(0, 50)]
+    public int MasterPointBankingCap { get; set; } = 10;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether a bot casts the enemy debuffs of its class (the summoner's
+    /// Sleep, Weakness and Innovation) on its target, instead of only buffing itself. A debuff is never
+    /// part of the self-buff rotation, so it can't be turned on the bot itself.
+    /// </summary>
+    [Display(Name = nameof(MUnique.OpenMU.GameLogic.Properties.PlugInResources.BotConfiguration_UseEnemyDebuffs_Name), Description = nameof(MUnique.OpenMU.GameLogic.Properties.PlugInResources.BotConfiguration_UseEnemyDebuffs_Description), ResourceType = typeof(MUnique.OpenMU.GameLogic.Properties.PlugInResources))]
+    public bool UseEnemyDebuffs { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether bots buy equipment upgrades from the merchants they
+    /// visit. Off by default and deliberately opt-in: bots earn plenty of Zen, and letting them spend
+    /// it on gear changes the economy of a server which balances prices around trading players.
+    /// When enabled, each purchase is capped by <see cref="EquipmentBudgetPercent"/> so a bot never
+    /// empties its purse for one piece.
+    /// </summary>
+    [Display(Name = nameof(MUnique.OpenMU.GameLogic.Properties.PlugInResources.BotConfiguration_BuyEquipment_Name), Description = nameof(MUnique.OpenMU.GameLogic.Properties.PlugInResources.BotConfiguration_BuyEquipment_Description), ResourceType = typeof(MUnique.OpenMU.GameLogic.Properties.PlugInResources))]
+    public bool BuyEquipment { get; set; }
+
+    /// <summary>
+    /// Gets or sets the share (in percent) of a bot's money which may go into buying equipment on a
+    /// single shopping trip. Only used when <see cref="BuyEquipment"/> is enabled. A piece costlier
+    /// than this share of the bot's purse is left on the shelf - the bot keeps its potion and warp
+    /// money.
+    /// </summary>
+    [Display(Name = nameof(MUnique.OpenMU.GameLogic.Properties.PlugInResources.BotConfiguration_EquipmentBudgetPercent_Name), Description = nameof(MUnique.OpenMU.GameLogic.Properties.PlugInResources.BotConfiguration_EquipmentBudgetPercent_Description), ResourceType = typeof(MUnique.OpenMU.GameLogic.Properties.PlugInResources))]
+    [Range(1, 100)]
+    public int EquipmentBudgetPercent { get; set; } = 50;
+
+    /// <summary>
     /// Gets or sets the maps bots never warp to: they don't pick them as hunting grounds, don't follow
     /// a party leader there, don't enter events held on them, and a bot which logs in on one leaves it.
     /// Players are not affected. Empty by default; servers use it for maps where a bot does more harm
@@ -182,6 +222,22 @@ public class BotConfiguration
     /// <remarks>Deliberately a method, like <see cref="GetEffectiveCharactersPerAccount"/>.</remarks>
     public int GetEffectivePotionStockCharges()
         => Math.Clamp(this.PotionStockCharges, 10, 255);
+
+    /// <summary>
+    /// Gets the effective, clamped number of master points a bot may bank.
+    /// </summary>
+    /// <returns>A value between 0 and 50.</returns>
+    /// <remarks>Deliberately a method, like <see cref="GetEffectiveCharactersPerAccount"/>.</remarks>
+    public int GetEffectiveMasterPointBankingCap()
+        => Math.Clamp(this.MasterPointBankingCap, 0, 50);
+
+    /// <summary>
+    /// Gets the effective, clamped share of a bot's money which may go into equipment.
+    /// </summary>
+    /// <returns>A value between 1 and 100.</returns>
+    /// <remarks>Deliberately a method, like <see cref="GetEffectiveCharactersPerAccount"/>.</remarks>
+    public int GetEffectiveEquipmentBudgetPercent()
+        => Math.Clamp(this.EquipmentBudgetPercent, 1, 100);
 
     /// <summary>
     /// Parses <see cref="ProofOfConceptAccounts"/> into the distinct, trimmed login names.

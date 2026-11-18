@@ -6,6 +6,7 @@ namespace MUnique.OpenMU.GameLogic.Bots;
 
 using MUnique.OpenMU.AttributeSystem;
 using MUnique.OpenMU.DataModel.Configuration;
+using MUnique.OpenMU.DataModel.Entities;
 using MUnique.OpenMU.GameLogic.Attributes;
 using MUnique.OpenMU.GameLogic.Offline;
 using MUnique.OpenMU.GameLogic.PlayerActions.Character;
@@ -133,6 +134,11 @@ internal static class BotMasterHandler
     /// skill list, so this must run inside the bot's AI tick - queue it via
     /// <see cref="OfflinePlayer.PendingBotActions"/> (see the call site in <c>BotNavigator</c>);
     /// with no points available it is a cheap no-op.
+    /// Points are usually invested as they are earned, but the policy can bank them up to
+    /// <see cref="BotConfiguration.GetEffectiveMasterPointBankingCap"/> when the next worthwhile skill
+    /// of the build costs more than the bot currently holds (see <see cref="ShouldBankPoints"/>).
+    /// Without that, a master skill whose minimum level is ten points could never be learned by a bot:
+    /// it would have spent every single point before the tenth arrived.
     /// </summary>
     /// <param name="player">The bot player.</param>
     public static async ValueTask TrySpendMasterPointsAsync(OfflinePlayer player)
@@ -143,8 +149,23 @@ internal static class BotMasterHandler
             return;
         }
 
-        while (character.MasterLevelUpPoints > 0 && PickNextMasterSkill(player) is { } skill)
+        var bankCap = BotFeaturePlugIn.GetConfiguration(player.GameContext)?.GetEffectiveMasterPointBankingCap() ?? 0;
+        while (character.MasterLevelUpPoints > 0)
         {
+            if (ShouldBankPoints(player, bankCap))
+            {
+                player.Logger.LogDebug(
+                    "Bot '{Name}' banks its {Points} master point(s) for a more expensive skill.",
+                    player.Name,
+                    character.MasterLevelUpPoints);
+                return;
+            }
+
+            if (PickNextMasterSkill(player) is not { } skill)
+            {
+                return;
+            }
+
             var pointsBefore = character.MasterLevelUpPoints;
             await AddPointAction.AddMasterPointAsync(player, (ushort)skill.Number).ConfigureAwait(false);
             if (character.MasterLevelUpPoints >= pointsBefore)
@@ -159,6 +180,73 @@ internal static class BotMasterHandler
                 pointsBefore - character.MasterLevelUpPoints,
                 skill.Name);
         }
+    }
+
+    /// <summary>
+    /// Determines whether the bot should hold its earned master points instead of spending them now.
+    /// It does when a skill its build wants becomes learnable only with more points than it holds, and
+    /// banking those points is allowed (<paramref name="bankCap"/> is the most it will hold, 0 disables
+    /// banking entirely). The cap is the safety fallback: if the wanted skill costs more than the cap,
+    /// the bot spends its points normally instead of hoarding forever.
+    /// Pure decision logic - exposed for unit tests.
+    /// </summary>
+    /// <param name="player">The bot player.</param>
+    /// <param name="bankCap">The maximum number of master points to bank; 0 disables banking.</param>
+    /// <returns>True, if the points should be kept for later.</returns>
+    internal static bool ShouldBankPoints(Player player, int bankCap)
+    {
+        if (bankCap <= 0 || player.SelectedCharacter is not { CharacterClass.IsMasterClass: true } character)
+        {
+            return false;
+        }
+
+        var available = character.MasterLevelUpPoints;
+        if (available >= bankCap || HasUnfinishedGateSkill(character.LearnedSkills))
+        {
+            return false;
+        }
+
+        // Learning an affordable skill beats saving points for a later one.
+        if (PickNextMasterSkill(player) is { } next && character.LearnedSkills.All(l => l.Skill != next))
+        {
+            return false;
+        }
+
+        return PickBankingTarget(player, available, bankCap) is not null;
+    }
+
+    /// <summary>
+    /// Picks the skill the bot would bank its points for: the best new skill of its build which the
+    /// tree allows, but which needs more points at once than the bot holds (a minimum level above
+    /// <paramref name="availablePoints"/>), while still being reachable within <paramref name="bankCap"/>.
+    /// Pure decision logic - exposed for unit tests.
+    /// </summary>
+    /// <param name="player">The bot player.</param>
+    /// <param name="availablePoints">The master points the bot currently holds.</param>
+    /// <param name="bankCap">The maximum number of points the bot may bank.</param>
+    /// <returns>The skill to bank for, or <c>null</c> when there is none.</returns>
+    internal static Skill? PickBankingTarget(Player player, int availablePoints, int bankCap)
+    {
+        if (player.SelectedCharacter is not { CharacterClass: { } characterClass } character
+            || player.SkillList is not { } skillList)
+        {
+            return null;
+        }
+
+        return player.GameContext.Configuration.Skills
+            .Where(s => s.MasterDefinition is { } definition
+                        && definition.Root is not null
+                        && s.QualifiedCharacters.Contains(characterClass)
+                        && character.LearnedSkills.All(l => l.Skill != s)
+                        && definition.MinimumLevel > availablePoints
+                        && definition.MinimumLevel <= bankCap
+                        && CanLearn(player, s, int.MaxValue))
+            .OrderBy(s => GetPickTier(player, s, skillList))
+            .ThenByDescending(s => GetBuildAffinity(player, s))
+            .ThenBy(s => s.MasterDefinition!.MinimumLevel)
+            .ThenBy(s => s.MasterDefinition!.Rank)
+            .ThenBy(s => s.Number)
+            .FirstOrDefault();
     }
 
     /// <summary>
@@ -196,7 +284,9 @@ internal static class BotMasterHandler
                             && s.QualifiedCharacters.Contains(characterClass)
                             && character.LearnedSkills.All(l => l.Skill != s)
                             && CanLearn(player, s, character.MasterLevelUpPoints))
-                .OrderBy(s => IsUsefulPick(player, s, skillList) ? 0 : 1)
+                .OrderBy(s => GetPickTier(player, s, skillList))
+                .ThenByDescending(s => GetBuildAffinity(player, s))
+                .ThenBy(s => s.MasterDefinition!.MinimumLevel)
                 .ThenBy(s => s.MasterDefinition!.Rank)
                 .ThenBy(s => s.Number)
                 .FirstOrDefault() is { } newSkill)
@@ -206,10 +296,127 @@ internal static class BotMasterHandler
 
         return learned
             .Where(l => l.Level < l.Skill!.MasterDefinition!.MaximumLevel)
-            .OrderBy(l => IsUsefulPick(player, l.Skill!, skillList) ? 0 : 1)
+            .OrderBy(l => GetPickTier(player, l.Skill!, skillList))
+            .ThenByDescending(l => GetBuildAffinity(player, l.Skill!))
             .ThenBy(l => l.Skill!.MasterDefinition!.Rank)
             .ThenBy(l => l.Skill!.Number)
             .FirstOrDefault()?.Skill;
+    }
+
+    /// <summary>
+    /// Whether a learned skill still waits for its rank-unlock level; such a skill is always finished
+    /// first, like a player completes a branch before opening the next one.
+    /// </summary>
+    /// <param name="learnedSkills">The learned skills of the character.</param>
+    private static bool HasUnfinishedGateSkill(IEnumerable<SkillEntry> learnedSkills)
+    {
+        return learnedSkills.Any(l => l.Skill?.MasterDefinition is { } definition
+                                      && definition.Root is not null
+                                      && l.Level < RankUnlockLevel
+                                      && l.Level < definition.MaximumLevel);
+    }
+
+    /// <summary>
+    /// The priority tier of a pick, lowest first: a strengthener/mastery of a skill the bot actually
+    /// fights with improves what it does every second, a passive which helps regardless of the target
+    /// comes next, and everything else (a bonus for a weapon the bot does not carry, a PvP-only bonus)
+    /// is filled last. Prevents a bot from spending its first points on something it can never use.
+    /// </summary>
+    /// <param name="player">The bot player.</param>
+    /// <param name="skill">The candidate skill.</param>
+    /// <param name="skillList">The bot's skill list.</param>
+    private static int GetPickTier(Player player, Skill skill, ISkillList skillList)
+    {
+        var definition = skill.MasterDefinition!;
+        if (definition.ReplacedSkill is { } replaced && skillList.ContainsSkill((ushort)replaced.Number))
+        {
+            return 0;
+        }
+
+        if (definition.TargetAttribute is not { } target || IsPvpOnlyBonus(target))
+        {
+            return 2;
+        }
+
+        return WeaponGroupOfBonus(target) is { } weaponGroup && !CarriesWeaponOfGroup(player, weaponGroup)
+            ? 2
+            : 1;
+    }
+
+    /// <summary>
+    /// How well a master bonus fits the bot's own build: a bonus of the damage channel the build
+    /// actually fights with counts full, a defensive or utility bonus half, and everything else
+    /// nothing. Used as the tie-breaker among equally prioritized picks, so e.g. an energy build
+    /// prefers its wizardry bonus over a physical one instead of taking whatever comes first by number.
+    /// </summary>
+    /// <param name="player">The bot player.</param>
+    /// <param name="skill">The candidate skill.</param>
+    private static int GetBuildAffinity(Player player, Skill skill)
+    {
+        if (skill.MasterDefinition?.TargetAttribute is not { } target
+            || player.SelectedCharacter is not { CharacterClass: { } characterClass } character)
+        {
+            return 0;
+        }
+
+        if (BotProgression.TotalToBaseStat(target) is { } stat)
+        {
+            return BotProgression.GetStatWeights(characterClass, character.Name)
+                .Where(w => w.Stat == stat)
+                .Select(w => w.Weight)
+                .FirstOrDefault();
+        }
+
+        if (IsWizardryOrCurseBonus(target))
+        {
+            return BotProgression.GetStatWeights(characterClass, character.Name).First().Stat == Stats.BaseEnergy
+                ? 20
+                : 0;
+        }
+
+        if (IsPhysicalBonus(target))
+        {
+            return BotProgression.GetStatWeights(characterClass, character.Name).First().Stat == Stats.BaseEnergy
+                ? 0
+                : 20;
+        }
+
+        return 10;
+    }
+
+    private static bool IsWizardryOrCurseBonus(AttributeDefinition attribute)
+    {
+        return attribute == Stats.WizardryBaseDmg
+               || attribute == Stats.CurseBaseDmg
+               || attribute == Stats.MinimumWizBaseDmg
+               || attribute == Stats.MaximumWizBaseDmg
+               || attribute == Stats.MinimumCurseBaseDmg
+               || attribute == Stats.MaximumCurseBaseDmg;
+    }
+
+    private static bool IsPhysicalBonus(AttributeDefinition attribute)
+    {
+        return attribute == Stats.OneHandedSwordBonusDamage
+               || attribute == Stats.TwoHandedSwordStrBonusDamage
+               || attribute == Stats.TwoHandedSwordMasteryBonusDamage
+               || attribute == Stats.GloveWeaponBonusDamage
+               || attribute == Stats.MaceBonusDamage
+               || attribute == Stats.MaceMasteryStunChance
+               || attribute == Stats.ScepterStrBonusDamage
+               || attribute == Stats.ScepterMasteryBonusDamage
+               || attribute == Stats.ScepterPetBonusDamage
+               || attribute == Stats.BonusDamageWithScepterCmdDiv
+               || attribute == Stats.SpearBonusDamage
+               || attribute == Stats.SpearMasteryDoubleDamageChance
+               || attribute == Stats.BowStrBonusDamage
+               || attribute == Stats.CrossBowStrBonusDamage
+               || attribute == Stats.CrossBowMasteryBonusDamage
+               || attribute == Stats.OneHandedStaffBonusBaseDamage
+               || attribute == Stats.TwoHandedStaffBonusBaseDamage
+               || attribute == Stats.TwoHandedStaffMasteryBonusDamage
+               || attribute == Stats.StickBonusBaseDamage
+               || attribute == Stats.StickMasteryBonusDamage
+               || attribute == Stats.BookBonusBaseDamage;
     }
 
     /// <summary>
@@ -244,26 +451,6 @@ internal static class BotMasterHandler
         }
 
         return true;
-    }
-
-    /// <summary>
-    /// A pick is "useful" when it demonstrably does something for this bot: a passive boosting a stat,
-    /// or a strengthener/mastery of a skill the bot actually has in its list. A passive tied to a WEAPON
-    /// type the bot does not fight with is not (a bow strengthener does nothing for a bot swinging a
-    /// sword), and neither is one which only applies against other PLAYERS: a bot spends its life
-    /// hunting monsters, and it may not even attack a player unless attacked first (see
-    /// <see cref="BotPvpRules"/>). Both get filled last, after everything which actually helps.
-    /// </summary>
-    private static bool IsUsefulPick(Player player, Skill skill, ISkillList skillList)
-    {
-        var definition = skill.MasterDefinition!;
-        if (definition.TargetAttribute is { } target)
-        {
-            return !IsPvpOnlyBonus(target)
-                   && (WeaponGroupOfBonus(target) is not { } weaponGroup || CarriesWeaponOfGroup(player, weaponGroup));
-        }
-
-        return definition.ReplacedSkill is { } replaced && skillList.ContainsSkill((ushort)replaced.Number);
     }
 
     /// <summary>

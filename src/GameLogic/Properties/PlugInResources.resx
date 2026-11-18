@@ -1388,6 +1388,14 @@
   <data name="BotConfiguration_BotCapacityPercent_Description" xml:space="preserve"><value>Share of a game server's maximum player count which its bots may occupy; the rest stays reserved for real players.</value></data>
   <data name="BotConfiguration_BotsPayResetCosts_Name" xml:space="preserve"><value>Bots pay reset costs</value></data>
   <data name="BotConfiguration_BotsPayResetCosts_Description" xml:space="preserve"><value>If enabled, bots consume the configured zen/item costs for their resets like human players (default: free bot resets).</value></data>
+  <data name="BotConfiguration_BuyEquipment_Name" xml:space="preserve"><value>Buy equipment</value></data>
+  <data name="BotConfiguration_BuyEquipment_Description" xml:space="preserve"><value>If enabled, bots buy equipment upgrades from the merchants they visit instead of only wearing what they find. Off by default: it changes the server economy the prices are balanced around.</value></data>
+  <data name="BotConfiguration_EquipmentBudgetPercent_Name" xml:space="preserve"><value>Equipment budget %</value></data>
+  <data name="BotConfiguration_EquipmentBudgetPercent_Description" xml:space="preserve"><value>Share of its money a bot may spend on equipment per shopping trip. Only used when buying equipment is enabled.</value></data>
+  <data name="BotConfiguration_MasterPointBankingCap_Name" xml:space="preserve"><value>Master point banking cap</value></data>
+  <data name="BotConfiguration_MasterPointBankingCap_Description" xml:space="preserve"><value>How many master points a bot may save up for a master skill which costs several points at once. 0 invests every point immediately.</value></data>
+  <data name="BotConfiguration_UseEnemyDebuffs_Name" xml:space="preserve"><value>Use enemy debuffs</value></data>
+  <data name="BotConfiguration_UseEnemyDebuffs_Description" xml:space="preserve"><value>If enabled, a bot casts the debuffs of its class (e.g. the summoner's Sleep, Weakness and Innovation) on its current target.</value></data>
   <data name="BotConfiguration_JewelStockPerKind_Name" xml:space="preserve"><value>Jewel stock per kind</value></data>
   <data name="BotConfiguration_JewelStockPerKind_Description" xml:space="preserve"><value>How many Jewels of Bless/Soul/Life a bot keeps of each kind; above this it stops picking them up and sells the surplus.</value></data>
   <data name="BotConfiguration_PotionStockCharges_Name" xml:space="preserve"><value>Potion stock (charges)</value></data>

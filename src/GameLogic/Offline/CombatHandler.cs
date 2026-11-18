@@ -103,6 +103,18 @@ public sealed class CombatHandler
     /// <summary>The distance around the current target within which monsters count as one pack.</summary>
     private const int AreaSkillClusterRange = 3;
 
+    /// <summary>
+    /// A targeted debuff is only worth a cast while the monster is still worth disabling: a cast which
+    /// replaces an attack tick on a monster about to die is wasted time and mana.
+    /// </summary>
+    private const float DebuffMinimumTargetHealthShare = 0.25f;
+
+    /// <summary>
+    /// A debuff cast keeps this multiple of the cast's mana cost in the pool, so a bot does not spend
+    /// its last mana on a curse and then fall back to melee with an empty pool.
+    /// </summary>
+    private const int DebuffManaCostFactor = 2;
+
     private const short DrainLifeBaseSkillId = 214;
     private const short DrainLifeStrengthenerSkillId = 458;
     private const short DrainLifeMasterySkillId = 462;
@@ -124,6 +136,12 @@ public sealed class CombatHandler
     private readonly IMuHelperSettings? _config;
     private readonly MovementHandler _movementHandler;
     private readonly ConditionalSkillSlot[] _conditionalSkillSlots;
+
+    /// <summary>
+    /// When each enemy debuff may be tried again. A chance-based debuff (Sleep) can miss, and without a
+    /// retry delay the bot would recast it on every tick, spending its whole pool on one monster.
+    /// </summary>
+    private readonly Dictionary<short, DateTime> _debuffRetryAtUtc = new();
 
     private IAttackable? _currentTarget;
     private int _nearbyMonsterCount;
@@ -310,6 +328,13 @@ public sealed class CombatHandler
 
         this._approachFailures = 0;
 
+        // A debuff is cast on the enemy, not through the buff rotation (which casts on SELF). It uses the
+        // tick which the attack would have used; the next tick attacks a weakened monster.
+        if (await this.TryCastDebuffAsync(this._currentTarget).ConfigureAwait(false))
+        {
+            return;
+        }
+
         if (this._config?.UseCombo == true)
         {
             await this.ExecuteComboAttackAsync().ConfigureAwait(false);
@@ -451,6 +476,35 @@ public sealed class CombatHandler
             ? MaxHitsToKill * MasterHitBudgetFactor
             : MaxHitsToKill;
     }
+
+    /// <summary>
+    /// Orders the debuffs of a class by what a monster fight gains most: disabling the monster (Sleep)
+    /// first, then lowering its defense (Innovation), then its damage (Weakness).
+    /// </summary>
+    private static int GetDebuffPriority(Skill skill)
+    {
+        var attributes = skill.MagicEffectDef?.PowerUpDefinitions
+            .Select(p => p.TargetAttribute)
+            .Where(a => a is not null)
+            .ToList() ?? [];
+        if (attributes.Contains(Stats.IsAsleep))
+        {
+            return 0;
+        }
+
+        if (attributes.Contains(Stats.DefenseDecrement) || attributes.Contains(Stats.InnovationDefDecrement))
+        {
+            return 1;
+        }
+
+        return 2;
+    }
+
+    /// <summary>
+    /// The mana one cast of the skill costs, from its consume requirements.
+    /// </summary>
+    private static int GetManaCost(Skill skill)
+        => (int)(skill.ConsumeRequirements.FirstOrDefault(r => r.Attribute == Stats.CurrentMana)?.MinimumValue ?? 0);
 
     private async ValueTask ExecuteAttackAsync(IAttackable target)
     {
@@ -746,6 +800,59 @@ public sealed class CombatHandler
         var strategy = this._player.GameContext.PlugInManager.GetStrategy<short, ITargetedSkillPlugin>(skill.Number)
             ?? DefaultPlugin;
         await strategy.PerformSkillAsync(this._player, target, (ushort)skill.Number).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Casts an enemy debuff of the bot's class on the current target, if the class has one and the
+    /// bot may and should use it. The summoner's Sleep, Weakness and Innovation are the skills this
+    /// exists for: they were excluded from the bot's repertoire because the buff rotation casts buffs on
+    /// SELF (a bot putting itself to sleep), and are now recognized as debuffs and cast on the enemy
+    /// instead (see <see cref="BotProgression.IsEnemyDebuff"/>). Casting is opt-in through the bot
+    /// configuration, only ever hits monsters (a self-defense fight against a player stays a plain
+    /// fight), and is skipped when the target already carries the effect or is about to die.
+    /// </summary>
+    /// <param name="target">The current target.</param>
+    /// <returns><c>true</c> if a debuff was cast and this tick is used up.</returns>
+    private async ValueTask<bool> TryCastDebuffAsync(IAttackable target)
+    {
+        if (!this.IsBot
+            || target is not Monster
+            || this._player.Attributes is not { } attributes
+            || this._player.SkillList is not { } skillList
+            || BotFeaturePlugIn.GetConfiguration(this._player.GameContext)?.UseEnemyDebuffs != true)
+        {
+            return false;
+        }
+
+        var targetHealth = target.Attributes[Stats.MaximumHealth];
+        if (targetHealth > 0 && target.Attributes[Stats.CurrentHealth] < targetHealth * DebuffMinimumTargetHealthShare)
+        {
+            return false;
+        }
+
+        var now = DateTime.UtcNow;
+        var candidate = skillList.Skills
+            .Where(e => e.Skill is { } skill
+                        && BotProgression.IsEnemyDebuff(skill)
+                        && skill.MagicEffectDef is { } effect
+                        && !target.MagicEffectList.HasEffect(effect)
+                        && (!this._debuffRetryAtUtc.TryGetValue(skill.Number, out var retryAt) || now >= retryAt)
+                        && BotProgression.MeetsRequirements(skill, attribute => this._player.Attributes?[attribute])
+                        && this._player.HasEnoughResources(e)
+                        && attributes[Stats.CurrentMana] >= DebuffManaCostFactor * GetManaCost(skill))
+            .OrderBy(e => GetDebuffPriority(e.Skill!))
+            .ThenBy(e => e.Skill!.Number)
+            .FirstOrDefault();
+
+        if (candidate?.Skill is not { } debuff)
+        {
+            return false;
+        }
+
+        // A chance-based debuff may not land; don't hammer the same cast on every tick either way.
+        this._debuffRetryAtUtc[debuff.Number] = now + TimeSpan.FromSeconds(3);
+        await this.ExecuteTargetedSkillAttackAsync(target, debuff).ConfigureAwait(false);
+        return true;
     }
 
     private SkillEntry? SelectAttackSkill()
