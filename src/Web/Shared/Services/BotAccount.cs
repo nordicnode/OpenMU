@@ -17,4 +17,20 @@ namespace MUnique.OpenMU.Web.Shared.Services;
 /// <param name="State">What the bot is doing right now in one line, for finding a bot which is wedged, idle or stuck on an errand; <c>null</c> while it isn't navigating.</param>
 /// <param name="StateDetail">The detailed state description, including where the bot's time went and the transitions it took before.</param>
 /// <param name="SecondsInState">How long the bot has already been in its current mode, which is what the table sorts by.</param>
-public record BotAccount(string LoginName, byte ServerId, string? CharacterName, DateTime StartedAt, string? GuildName = null, string? PartyMaster = null, int PartySize = 0, string? State = null, string? StateDetail = null, double SecondsInState = 0) : IPartyGroupedAccount;
+/// <param name="Restarts">How many times the account was restarted to heal the bot, which is what tells a bot with a
+/// passing hiccup from one which breaks itself again and again.</param>
+/// <param name="QuarantinedSeconds">For how many seconds the bot is held back from another restart, or <c>0</c>
+/// while it may be restarted.</param>
+public record BotAccount(
+    string LoginName,
+    byte ServerId,
+    string? CharacterName,
+    DateTime StartedAt,
+    string? GuildName = null,
+    string? PartyMaster = null,
+    int PartySize = 0,
+    string? State = null,
+    string? StateDetail = null,
+    double SecondsInState = 0,
+    int Restarts = 0,
+    double QuarantinedSeconds = 0) : IPartyGroupedAccount;

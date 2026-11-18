@@ -37,8 +37,9 @@ public class BotAccountService : IDataService<BotAccount>
     }
 
     /// <summary>
-    /// Gets the sentence about the bots which have been waiting in one mode for too long, or <c>null</c> while
-    /// no bot is stuck. It covers all bots, not only the page which was requested.
+    /// Gets the sentence about the bots which need attention, or <c>null</c> while none does: the ones which have
+    /// been waiting in one mode for too long, and the ones which keep failing and are being restarted. It covers
+    /// all bots, not only the page which was requested.
     /// </summary>
     public string? StuckAlarm { get; private set; }
 
@@ -84,7 +85,18 @@ public class BotAccountService : IDataService<BotAccount>
         }
 
         var modes = BotStuckAlarm.Find(cached.Select(bot => (bot.State, bot.SecondsInState)), BotStuckAlarm.Threshold);
-        var alarm = BotStuckAlarm.Describe(modes, cached.Count, BotStuckAlarm.Threshold);
+        var flapping = BotFlappingAlarm.Find(cached.Select(bot => new BotFlappingAlarm.FlappingBot(
+            bot.LoginName,
+            bot.CharacterName,
+            bot.Restarts,
+            bot.QuarantinedSeconds)));
+        var alarm = string.Join(
+            " ",
+            new[]
+            {
+                BotStuckAlarm.Describe(modes, cached.Count, BotStuckAlarm.Threshold),
+                BotFlappingAlarm.Describe(flapping, cached.Count),
+            }.Where(part => part.Length > 0));
         this.StuckAlarm = alarm.Length == 0 ? null : alarm;
 
         return cached;
@@ -111,6 +123,9 @@ public class BotAccountService : IDataService<BotAccount>
                 var (partyMaster, partySize) = PartyDisplay.From(r.Player.Party);
                 var guildId = r.Player.GuildStatus?.GuildId;
                 var activity = r.Player.Activity;
+                var quarantinedSeconds = activity?.QuarantinedUntilUtc is { } until
+                    ? Math.Max(0, (until - DateTimeOffset.UtcNow).TotalSeconds)
+                    : 0;
                 return new BotAccount(
                     r.Player.Account?.LoginName ?? string.Empty,
                     r.ServerId,
@@ -121,7 +136,9 @@ public class BotAccountService : IDataService<BotAccount>
                     partySize,
                     activity?.Summary,
                     activity?.Detail,
-                    activity?.TimeInState.TotalSeconds ?? 0);
+                    activity?.TimeInState.TotalSeconds ?? 0,
+                    activity?.Restarts ?? 0,
+                    quarantinedSeconds);
             })
             .OrderLongestInState()
             .ToList();

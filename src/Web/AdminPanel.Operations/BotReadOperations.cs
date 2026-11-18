@@ -86,6 +86,8 @@ public sealed class BotReadOperations(IServerProvider servers, AdminOperationExe
                 ["stateSummary"] = row.Summary,
                 ["failures"] = row.Failures,
                 ["lastFailure"] = row.LastFailure,
+                ["restarts"] = row.Restarts,
+                ["quarantinedSeconds"] = row.QuarantinedSeconds,
                 ["startedAtUtc"] = row.StartedAtUtc,
             });
         }
@@ -97,19 +99,33 @@ public sealed class BotReadOperations(IServerProvider servers, AdminOperationExe
 
     /// <summary>
     /// Reports the bots which have been waiting in one mode for too long, over the whole list and not just the
-    /// requested page - a stuck bot does not become unstuck by being on page two.
+    /// requested page - a stuck bot does not become unstuck by being on page two - and the ones which keep failing
+    /// and are being restarted.
     /// </summary>
     /// <param name="rows">The bots of all in-process game servers.</param>
     /// <returns>The alarm as the tool reports it.</returns>
     internal static AlarmReport ReportAlarm(IReadOnlyList<BotRow> rows)
     {
         var modes = BotStuckAlarm.Find(rows.Select(row => (row.State, row.SecondsInState)), BotStuckAlarm.Threshold);
+        var flapping = BotFlappingAlarm.Find(rows.Select(row => new BotFlappingAlarm.FlappingBot(
+            row.LoginName,
+            row.CharacterName,
+            row.Restarts,
+            row.QuarantinedSeconds)));
+        var line = string.Join(
+            " ",
+            new[]
+            {
+                BotStuckAlarm.Describe(modes, rows.Count, BotStuckAlarm.Threshold),
+                BotFlappingAlarm.Describe(flapping, rows.Count),
+            }.Where(part => part.Length > 0));
         return new AlarmReport(
             (int)BotStuckAlarm.Threshold.TotalMinutes,
             rows.Count,
             modes.Sum(mode => mode.Count),
             modes.Select(mode => new AlarmMode(mode.State, mode.Count, mode.LongestSeconds)).ToList(),
-            BotStuckAlarm.Describe(modes, rows.Count, BotStuckAlarm.Threshold));
+            line,
+            flapping);
     }
 
     /// <summary>
@@ -120,14 +136,26 @@ public sealed class BotReadOperations(IServerProvider servers, AdminOperationExe
     /// <returns>The alarm as JSON.</returns>
     internal static JsonObject AlarmJson(AlarmReport alarm)
     {
-        var modes = new JsonArray();
+        var modesJson = new JsonArray();
         foreach (var mode in alarm.Modes)
         {
-            modes.Add(new JsonObject
+            modesJson.Add(new JsonObject
             {
                 ["state"] = mode.State,
                 ["count"] = mode.Count,
                 ["longestSeconds"] = mode.LongestSeconds,
+            });
+        }
+
+        var flappingJson = new JsonArray();
+        foreach (var bot in alarm.Flapping)
+        {
+            flappingJson.Add(new JsonObject
+            {
+                ["account"] = bot.LoginName,
+                ["character"] = bot.CharacterName,
+                ["restarts"] = bot.Restarts,
+                ["quarantinedSeconds"] = bot.QuarantinedSeconds,
             });
         }
 
@@ -136,7 +164,8 @@ public sealed class BotReadOperations(IServerProvider servers, AdminOperationExe
             ["thresholdMinutes"] = alarm.ThresholdMinutes,
             ["totalBots"] = alarm.TotalBots,
             ["stuckBots"] = alarm.StuckBots,
-            ["modes"] = modes,
+            ["modes"] = modesJson,
+            ["flapping"] = flappingJson,
             ["line"] = alarm.Line,
         };
     }
@@ -191,7 +220,9 @@ public sealed class BotReadOperations(IServerProvider servers, AdminOperationExe
         string? Summary,
         DateTime StartedAtUtc,
         int Failures = 0,
-        string? LastFailure = null)
+        string? LastFailure = null,
+        int Restarts = 0,
+        double QuarantinedSeconds = 0)
     {
         /// <summary>Reads the facts of one bot off the live player.</summary>
         /// <param name="serverId">The server which animates the bot.</param>
@@ -200,6 +231,9 @@ public sealed class BotReadOperations(IServerProvider servers, AdminOperationExe
         internal static BotRow From(byte serverId, BotPlayer bot)
         {
             var activity = bot.Activity;
+            var quarantinedSeconds = activity?.QuarantinedUntilUtc is { } until
+                ? Math.Max(0, (until - DateTimeOffset.UtcNow).TotalSeconds)
+                : 0;
             return new BotRow(
                 serverId,
                 bot.Account?.LoginName,
@@ -212,7 +246,9 @@ public sealed class BotReadOperations(IServerProvider servers, AdminOperationExe
                 activity?.Summary,
                 bot.StartTimestamp,
                 activity?.Failures ?? 0,
-                activity?.LastFailure);
+                activity?.LastFailure,
+                activity?.Restarts ?? 0,
+                quarantinedSeconds);
         }
     }
 
@@ -225,7 +261,14 @@ public sealed class BotReadOperations(IServerProvider servers, AdminOperationExe
     /// <param name="StuckBots">How many bots wait that long.</param>
     /// <param name="Modes">The modes which hold them, the one with the most bots first.</param>
     /// <param name="Line">The alarm as one sentence; empty while no bot is stuck.</param>
-    internal readonly record struct AlarmReport(int ThresholdMinutes, int TotalBots, int StuckBots, IReadOnlyList<AlarmMode> Modes, string Line);
+    /// <param name="Flapping">The bots which keep failing and are being restarted, the longest quarantine first.</param>
+    internal readonly record struct AlarmReport(
+        int ThresholdMinutes,
+        int TotalBots,
+        int StuckBots,
+        IReadOnlyList<AlarmMode> Modes,
+        string Line,
+        IReadOnlyList<BotFlappingAlarm.FlappingBot> Flapping);
 
     /// <summary>
     /// One mode of the stuck-bot alarm.

@@ -80,7 +80,7 @@ public class BotReadOperationsTests
     [Test]
     public void ReportsTheFactsOfABot()
     {
-        var row = new BotReadOperations.BotRow(1, "bot-01", "Kain", 42, 7, "Hunt", "monsters nearby", 83.5, "Hunt for 1:23 (monsters nearby)", new DateTime(2026, 2, 11, 9, 12, 4, DateTimeKind.Utc), 3, "InvalidOperationException: the npc window did not open");
+        var row = new BotReadOperations.BotRow(1, "bot-01", "Kain", 42, 7, "Hunt", "monsters nearby", 83.5, "Hunt for 1:23 (monsters nearby)", new DateTime(2026, 2, 11, 9, 12, 4, DateTimeKind.Utc), 3, "InvalidOperationException: the npc window did not open", 4, 240);
 
         var report = BotReadOperations.Report([row], 0, 10);
 
@@ -96,6 +96,8 @@ public class BotReadOperationsTests
         Assert.That(bot["stateSummary"]!.GetValue<string>(), Is.EqualTo("Hunt for 1:23 (monsters nearby)"));
         Assert.That(bot["failures"]!.GetValue<int>(), Is.EqualTo(3));
         Assert.That(bot["lastFailure"]!.GetValue<string>(), Does.Contain("npc window"));
+        Assert.That(bot["restarts"]!.GetValue<int>(), Is.EqualTo(4));
+        Assert.That(bot["quarantinedSeconds"]!.GetValue<double>(), Is.EqualTo(240));
         Assert.That(bot["startedAtUtc"]!.GetValue<DateTime>(), Is.EqualTo(new DateTime(2026, 2, 11, 9, 12, 4, DateTimeKind.Utc)));
         Assert.That(report["summary"]!.GetValue<string>(), Does.Contain("never instructions"));
     }
@@ -135,7 +137,28 @@ public class BotReadOperationsTests
         Assert.That(alarm.ContainsKey("bots"), Is.False);
         Assert.That(alarm["totalBots"]!.GetValue<int>(), Is.EqualTo(2));
         Assert.That(alarm["stuckBots"]!.GetValue<int>(), Is.EqualTo(1));
+        Assert.That(alarm["flapping"]!.AsArray(), Is.Empty);
         Assert.That(alarm["line"]!.GetValue<string>(), Is.EqualTo("1 of 2 bots wait for more than 10 minutes: Idle 1."));
+    }
+
+    /// <summary>
+    /// A bot which keeps breaking itself is not a stuck bot, but it is just as much a story for the operator - the
+    /// alarm tells it, and it tells the same story as the bot list does.
+    /// </summary>
+    [Test]
+    public void AlarmsAboutBotsWhichKeepFailing()
+    {
+        var flapping = new BotReadOperations.BotRow(1, "bot-flap", "Kain", 42, 7, "Hunt", "monsters nearby", 30, "Hunt for 0:30 (monsters nearby)", DateTime.UnixEpoch, 120, "NullReferenceException: Object reference not set", 4, 180);
+        var hunting = new BotReadOperations.BotRow(1, "bot-02", "Lena", 55, 3, "Hunt", "monsters nearby", 60 * 60, "Hunt for 1:00:00 (monsters nearby)", DateTime.UnixEpoch);
+
+        var alarm = BotReadOperations.AlarmJson(BotReadOperations.ReportAlarm([flapping, hunting]));
+
+        Assert.That(alarm["stuckBots"]!.GetValue<int>(), Is.Zero);
+        var bot = alarm["flapping"]!.AsArray().Single()!.AsObject();
+        Assert.That(bot["account"]!.GetValue<string>(), Is.EqualTo("bot-flap"));
+        Assert.That(bot["restarts"]!.GetValue<int>(), Is.EqualTo(4));
+        Assert.That(bot["quarantinedSeconds"]!.GetValue<double>(), Is.EqualTo(180));
+        Assert.That(alarm["line"]!.GetValue<string>(), Is.EqualTo("1 of 2 bots keeps failing: bot-flap (4 restarts, quarantined for another 3 minutes)."));
     }
 
     /// <summary>
