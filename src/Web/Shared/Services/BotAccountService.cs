@@ -8,6 +8,7 @@ using Microsoft.Extensions.Caching.Memory;
 using MUnique.OpenMU.GameLogic;
 using MUnique.OpenMU.GameLogic.Bots;
 using MUnique.OpenMU.Interfaces;
+using MUnique.OpenMU.Web.AdminPanel.Operations;
 
 /// <summary>
 /// Service for the bot player table on the <c>LoggedIn</c> page.
@@ -36,6 +37,12 @@ public class BotAccountService : IDataService<BotAccount>
     }
 
     /// <summary>
+    /// Gets the sentence about the bots which have been waiting in one mode for too long, or <c>null</c> while
+    /// no bot is stuck. It covers all bots, not only the page which was requested.
+    /// </summary>
+    public string? StuckAlarm { get; private set; }
+
+    /// <summary>
     /// Determines whether the bot feature plugin is active on any in-process game server.
     /// </summary>
     public bool IsBotFeatureAvailable()
@@ -53,11 +60,21 @@ public class BotAccountService : IDataService<BotAccount>
     /// </remarks>
     public async Task<List<BotAccount>> GetAsync(int offset, int count)
     {
-        if (this._cache.TryGetValue<List<BotAccount>>(ListCacheKey, out var cached) && cached is not null)
+        if (!this._cache.TryGetValue<List<BotAccount>>(ListCacheKey, out var cached) || cached is null)
         {
-            return cached.Skip(offset).Take(count).ToList();
+            cached = await this.LoadAsync().ConfigureAwait(false);
+            this._cache.Set(ListCacheKey, cached, ListCacheLifetime);
         }
 
+        var modes = BotStuckAlarm.Find(cached.Select(bot => (bot.State, bot.SecondsInState)), BotStuckAlarm.Threshold);
+        var alarm = BotStuckAlarm.Describe(modes, cached.Count, BotStuckAlarm.Threshold);
+        this.StuckAlarm = alarm.Length == 0 ? null : alarm;
+
+        return cached.Skip(offset).Take(count).ToList();
+    }
+
+    private async Task<List<BotAccount>> LoadAsync()
+    {
         var rows = new List<(byte ServerId, BotPlayer Player)>();
         foreach (var server in this._serverProvider.Servers.OfType<IGameServerContextProvider>())
         {
@@ -71,7 +88,7 @@ public class BotAccountService : IDataService<BotAccount>
                 rows.Select(r => r.Player.GuildStatus?.GuildId).OfType<uint>())
             .ConfigureAwait(false);
 
-        var ordered = rows
+        return rows
             .Select(r =>
             {
                 var (partyMaster, partySize) = PartyDisplay.From(r.Player.Party);
@@ -90,12 +107,6 @@ public class BotAccountService : IDataService<BotAccount>
                     activity?.TimeInState.TotalSeconds ?? 0);
             })
             .OrderLongestInState()
-            .ToList();
-
-        this._cache.Set(ListCacheKey, ordered, ListCacheLifetime);
-        return ordered
-            .Skip(offset)
-            .Take(count)
             .ToList();
     }
 }

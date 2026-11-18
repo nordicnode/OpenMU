@@ -101,6 +101,45 @@ public class BotReadOperationsTests
     }
 
     /// <summary>
+    /// A bot which waits far too long is not just another row: the report says so in its summary, so the agent
+    /// which reads the tool sees the problem before it reads the list.
+    /// </summary>
+    [Test]
+    public void ReportsTheStuckBotsInItsAlarmAndSummary()
+    {
+        var stuck = new BotReadOperations.BotRow(1, "bot-01", "Kain", 42, 7, "Idle", "a walk is in progress", 11 * 60, "Idle for 11:00 (a walk is in progress)", DateTime.UnixEpoch);
+        var hunting = new BotReadOperations.BotRow(1, "bot-02", "Lena", 55, 3, "Hunt", "monsters nearby", 60 * 60, "Hunt for 1:00:00 (monsters nearby)", DateTime.UnixEpoch);
+
+        var report = BotReadOperations.Report([stuck, hunting], 0, 10);
+
+        var alarm = report["alarm"]!.AsObject();
+        Assert.That(alarm["thresholdMinutes"]!.GetValue<int>(), Is.EqualTo(10));
+        Assert.That(alarm["stuckBots"]!.GetValue<int>(), Is.EqualTo(1));
+        Assert.That(alarm["modes"]!.AsArray().Single()!["state"]!.GetValue<string>(), Is.EqualTo("Idle"));
+        Assert.That(alarm["line"]!.GetValue<string>(), Is.EqualTo("1 of 2 bots wait for more than 10 minutes: Idle 1."));
+        Assert.That(report["summary"]!.GetValue<string>(), Does.Contain("1 of 2 bots wait for more than 10 minutes: Idle 1."));
+    }
+
+    /// <summary>
+    /// The alarm counts the whole list, not the requested page - a stuck bot does not stop being stuck by being
+    /// on page two.
+    /// </summary>
+    [Test]
+    public void AlarmsAboutStuckBotsBeyondTheRequestedPage()
+    {
+        var rows = Enumerable.Range(0, 5)
+            .Select(i => new BotReadOperations.BotRow(1, $"bot-0{i}", $"Bot{i}", 10, 0, "Hunt", "monsters nearby", 60 + i, "Hunt for 1:00 (monsters nearby)", DateTime.UnixEpoch))
+            .Append(new BotReadOperations.BotRow(1, "bot-stuck", "Stuck", 10, 0, "Buff", "walking to the npc", 20 * 60, "Buff for 20:00 (walking to the npc)", DateTime.UnixEpoch))
+            .ToList();
+
+        var report = BotReadOperations.Report(rows, 1, 2);
+
+        Assert.That(report["bots"]!.AsArray().Select(bot => bot!["character"]!.GetValue<string>()).ToList(), Has.Count.EqualTo(2));
+        Assert.That(report["alarm"]!.AsObject()["stuckBots"]!.GetValue<int>(), Is.EqualTo(1));
+        Assert.That(report["alarm"]!.AsObject()["line"]!.GetValue<string>(), Does.Contain("Buff 1"));
+    }
+
+    /// <summary>
     /// Bots only exist inside a game server process, so a deployment without one in this process reports an
     /// empty list instead of failing.
     /// </summary>

@@ -88,7 +88,25 @@ public sealed class BotReadOperations(IServerProvider servers, AdminOperationExe
             });
         }
 
-        return AdminReadResult.From(new { summary = Summary, total = rows.Count, offset, limit, bots = page });
+        var alarm = ReportAlarm(rows);
+        var summary = alarm.Line is { Length: > 0 } line ? Summary + " " + line : Summary;
+        return AdminReadResult.From(new { summary, total = rows.Count, offset, limit, bots = page, alarm });
+    }
+
+    /// <summary>
+    /// Reports the bots which have been waiting in one mode for too long, over the whole list and not just the
+    /// requested page - a stuck bot does not become unstuck by being on page two.
+    /// </summary>
+    /// <param name="rows">The bots of all in-process game servers.</param>
+    /// <returns>The alarm as the tool reports it.</returns>
+    internal static AlarmReport ReportAlarm(IReadOnlyList<BotRow> rows)
+    {
+        var modes = BotStuckAlarm.Find(rows.Select(row => (row.State, row.SecondsInState)), BotStuckAlarm.Threshold);
+        return new AlarmReport(
+            (int)BotStuckAlarm.Threshold.TotalMinutes,
+            modes.Sum(mode => mode.Count),
+            modes.Select(mode => new AlarmMode(mode.State, mode.Count, mode.LongestSeconds)).ToList(),
+            BotStuckAlarm.Describe(modes, rows.Count, BotStuckAlarm.Threshold));
     }
 
     /// <summary>
@@ -143,4 +161,22 @@ public sealed class BotReadOperations(IServerProvider servers, AdminOperationExe
                 activity?.LastFailure);
         }
     }
+
+    /// <summary>
+    /// The stuck-bot alarm as the tool reports it: how it is configured, how many bots trip it and the sentence
+    /// which says so. An empty mode list means no bot is stuck.
+    /// </summary>
+    /// <param name="ThresholdMinutes">How long a bot may wait in one mode before it counts as stuck.</param>
+    /// <param name="StuckBots">How many bots wait that long.</param>
+    /// <param name="Modes">The modes which hold them, the one with the most bots first.</param>
+    /// <param name="Line">The alarm as one sentence; empty while no bot is stuck.</param>
+    internal readonly record struct AlarmReport(int ThresholdMinutes, int StuckBots, IReadOnlyList<AlarmMode> Modes, string Line);
+
+    /// <summary>
+    /// One mode of the stuck-bot alarm.
+    /// </summary>
+    /// <param name="State">The mode the bots wait in.</param>
+    /// <param name="Count">How many bots wait in it.</param>
+    /// <param name="LongestSeconds">How long the bot which waited longest has been in it.</param>
+    internal readonly record struct AlarmMode(string State, int Count, double LongestSeconds);
 }
