@@ -69,6 +69,71 @@ internal static class BotMarketPlanner
     }
 
     /// <summary>
+    /// What the bot does next during a market shift.
+    /// </summary>
+    internal enum ShiftStep
+    {
+        /// <summary>
+        /// Nothing to do, but the shift still owns the tick: the bot stands behind its open store, so the
+        /// next move is a customer's.
+        /// </summary>
+        Nothing,
+
+        /// <summary>The shift ends for the reason <see cref="GetEndReason"/> found.</summary>
+        EndShift,
+
+        /// <summary>The bot warps to the map of its market, through one of its map gates.</summary>
+        WarpToMarket,
+
+        /// <summary>The bot walks to its stall.</summary>
+        WalkToStall,
+
+        /// <summary>The bot opens its personal store at the stall.</summary>
+        OpenStore,
+    }
+
+    /// <summary>
+    /// Plans the next step of a market shift from plain facts, so the order of its checks - and what
+    /// happens when a map offers no gate - is testable without a game.
+    /// </summary>
+    /// <param name="endReason">Why the shift would end (see <see cref="GetEndReason"/>).</param>
+    /// <param name="onMarketMap">Whether the bot stands on the map of its market.</param>
+    /// <param name="hasSpawnGate">Whether the market map has a spawn gate to enter it through.</param>
+    /// <param name="atStall">Whether the bot stands at its stall.</param>
+    /// <param name="storeOpen">Whether the personal store is open.</param>
+    /// <param name="isOpenRequested">Whether the opening is already queued for the MU Helper tick.</param>
+    /// <returns>The step to perform.</returns>
+    /// <remarks>
+    /// A market map without a spawn gate can't be entered, so the shift ends there instead of idling -
+    /// that is the same outcome the bot had when the gate search came back empty.
+    /// </remarks>
+    internal static ShiftStep PlanShiftStep(
+        EndReason endReason,
+        bool onMarketMap,
+        bool hasSpawnGate,
+        bool atStall,
+        bool storeOpen,
+        bool isOpenRequested)
+    {
+        if (endReason != EndReason.None)
+        {
+            return ShiftStep.EndShift;
+        }
+
+        if (!onMarketMap)
+        {
+            return hasSpawnGate ? ShiftStep.WarpToMarket : ShiftStep.EndShift;
+        }
+
+        if (!atStall)
+        {
+            return ShiftStep.WalkToStall;
+        }
+
+        return !storeOpen && !isOpenRequested ? ShiftStep.OpenStore : ShiftStep.Nothing;
+    }
+
+    /// <summary>
     /// Counts the goods in the personal store of the bot which have a price - only those can be sold.
     /// </summary>
     /// <param name="bot">The bot.</param>

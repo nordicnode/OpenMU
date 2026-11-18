@@ -270,6 +270,75 @@ public class BotMarketPlannerTest
     }
 
     /// <summary>
+    /// The shift ends before the bot travels at all, when the reason to end it is already there.
+    /// </summary>
+    [Test]
+    public void EndingOutranksTheTravelSteps()
+    {
+        var step = BotMarketPlanner.PlanShiftStep(
+            BotMarketPlanner.EndReason.TimeIsUp,
+            onMarketMap: false,
+            hasSpawnGate: true,
+            atStall: false,
+            storeOpen: false,
+            isOpenRequested: false);
+
+        Assert.That(step, Is.EqualTo(BotMarketPlanner.ShiftStep.EndShift));
+    }
+
+    /// <summary>
+    /// Off the market map, the bot warps there - and only then walks to its stall, then opens the store.
+    /// </summary>
+    [Test]
+    public void ShiftTravelsToTheMarketThenToTheStallThenOpens()
+    {
+        Assert.That(
+            BotMarketPlanner.PlanShiftStep(BotMarketPlanner.EndReason.None, onMarketMap: false, hasSpawnGate: true, atStall: false, storeOpen: false, isOpenRequested: false),
+            Is.EqualTo(BotMarketPlanner.ShiftStep.WarpToMarket));
+
+        Assert.That(
+            BotMarketPlanner.PlanShiftStep(BotMarketPlanner.EndReason.None, onMarketMap: true, hasSpawnGate: true, atStall: false, storeOpen: false, isOpenRequested: false),
+            Is.EqualTo(BotMarketPlanner.ShiftStep.WalkToStall));
+
+        Assert.That(
+            BotMarketPlanner.PlanShiftStep(BotMarketPlanner.EndReason.None, onMarketMap: true, hasSpawnGate: true, atStall: true, storeOpen: false, isOpenRequested: false),
+            Is.EqualTo(BotMarketPlanner.ShiftStep.OpenStore));
+    }
+
+    /// <summary>
+    /// A market map without a spawn gate can't be entered, so the shift ends there instead of trying forever.
+    /// </summary>
+    [Test]
+    public void MarketWithoutSpawnGateEndsTheShift()
+    {
+        var step = BotMarketPlanner.PlanShiftStep(
+            BotMarketPlanner.EndReason.None,
+            onMarketMap: false,
+            hasSpawnGate: false,
+            atStall: false,
+            storeOpen: false,
+            isOpenRequested: false);
+
+        Assert.That(step, Is.EqualTo(BotMarketPlanner.ShiftStep.EndShift));
+    }
+
+    /// <summary>
+    /// Standing behind the open store (or with the opening already queued) is not a step - the bot waits for
+    /// customers, and re-queueing the opening every tick would fight the store which is opening.
+    /// </summary>
+    [Test]
+    public void OpenStoreIsNotRequestedTwice()
+    {
+        Assert.That(
+            BotMarketPlanner.PlanShiftStep(BotMarketPlanner.EndReason.None, onMarketMap: true, hasSpawnGate: true, atStall: true, storeOpen: true, isOpenRequested: false),
+            Is.EqualTo(BotMarketPlanner.ShiftStep.Nothing));
+
+        Assert.That(
+            BotMarketPlanner.PlanShiftStep(BotMarketPlanner.EndReason.None, onMarketMap: true, hasSpawnGate: true, atStall: true, storeOpen: false, isOpenRequested: true),
+            Is.EqualTo(BotMarketPlanner.ShiftStep.Nothing));
+    }
+
+    /// <summary>
     /// A shift ends when its time is up, even before the store was opened.
     /// </summary>
     /// <returns>The task.</returns>

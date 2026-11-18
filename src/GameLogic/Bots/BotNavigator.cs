@@ -1829,46 +1829,47 @@ internal sealed class BotNavigator : AsyncDisposable
         var endReason = configuration is null
             ? BotMarketPlanner.EndReason.TimeIsUp
             : BotMarketPlanner.GetEndReason(this._player, shift, configuration, DateTime.UtcNow);
-        if (endReason != BotMarketPlanner.EndReason.None)
+        var onMarketMap = map.Definition.Number == shift.Map.Number;
+        var gate = onMarketMap ? null : shift.Map.ExitGates.Where(g => g.IsSpawnGate).SelectRandom();
+        var step = BotMarketPlanner.PlanShiftStep(
+            endReason,
+            onMarketMap,
+            hasSpawnGate: !onMarketMap && gate is not null,
+            atStall: this._player.GetDistanceTo(shift.Stall) <= 1,
+            storeOpen: shift.IsStoreOpened,
+            isOpenRequested: shift.IsOpenRequested);
+        switch (step)
         {
-            this.EndMarketShift(shift, configuration, endReason);
-            return true;
-        }
-
-        if (map.Definition.Number != shift.Map.Number)
-        {
-            if (shift.Map.ExitGates.Where(g => g.IsSpawnGate).SelectRandom() is not { } gate)
-            {
-                this.EndMarketShift(shift, configuration, BotMarketPlanner.EndReason.StoreClosed);
+            case BotMarketPlanner.ShiftStep.EndShift:
+                this.EndMarketShift(shift, configuration, endReason == BotMarketPlanner.EndReason.None ? BotMarketPlanner.EndReason.StoreClosed : endReason);
                 return true;
-            }
 
-            this._travelPath = null;
-            this._hasDestination = false;
-            this._lastWarpUtc = this._timeProvider.GetUtcNow();
-            this._player.Logger.LogDebug("Bot '{Name}' warps to {Map} for its market shift.", this._player.Name, shift.Map.Name);
-            await this._player.WarpToAsync(gate).ConfigureAwait(false);
-            return true;
+            case BotMarketPlanner.ShiftStep.WarpToMarket:
+                this._travelPath = null;
+                this._hasDestination = false;
+                this._lastWarpUtc = this._timeProvider.GetUtcNow();
+                this._player.Logger.LogDebug("Bot '{Name}' warps to {Map} for its market shift.", this._player.Name, shift.Map.Name);
+                await this._player.WarpToAsync(gate!).ConfigureAwait(false);
+                return true;
+
+            case BotMarketPlanner.ShiftStep.WalkToStall:
+                if (!await this.TravelTowardAsync(map, shift.Stall, cancellationToken).ConfigureAwait(false))
+                {
+                    this._player.Logger.LogDebug("Bot '{Name}' gives up its market shift: no route to its stall at {Stall}.", this._player.Name, shift.Stall);
+                    this.EndMarketShift(shift, configuration, BotMarketPlanner.EndReason.StoreClosed);
+                }
+
+                return true;
+
+            case BotMarketPlanner.ShiftStep.OpenStore:
+                shift.IsOpenRequested = true;
+                this._player.PendingBotActions.Enqueue(() => this.OpenMarketStoreAsync(shift));
+                return true;
+
+            case BotMarketPlanner.ShiftStep.Nothing:
+            default:
+                return true;
         }
-
-        if (this._player.GetDistanceTo(shift.Stall) > 1)
-        {
-            if (!await this.TravelTowardAsync(map, shift.Stall, cancellationToken).ConfigureAwait(false))
-            {
-                this._player.Logger.LogDebug("Bot '{Name}' gives up its market shift: no route to its stall at {Stall}.", this._player.Name, shift.Stall);
-                this.EndMarketShift(shift, configuration, BotMarketPlanner.EndReason.StoreClosed);
-            }
-
-            return true;
-        }
-
-        if (!shift.IsStoreOpened && !shift.IsOpenRequested)
-        {
-            shift.IsOpenRequested = true;
-            this._player.PendingBotActions.Enqueue(() => this.OpenMarketStoreAsync(shift));
-        }
-
-        return true;
     }
 
     /// <summary>
