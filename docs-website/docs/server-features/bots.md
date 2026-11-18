@@ -177,6 +177,31 @@ selling, the buff NPC) the class hometown stays a destination at any level; as a
 escape from bad hunting ground it is refused, since for a high-level bot it is
 the very ground it has to leave.
 
+Within the band the pick is not blind: a ground weighs what it holds (the spawn
+quantity of its area) against the walk to it, so dense and nearby grounds are
+preferred without writing off the rest of the map. It also weighs the crowd -
+the bots outside its party which already hunt, or head to, its surroundings -
+so a hotspot is shared between several bots instead of every one of them
+piling onto it, and the population spreads over a map instead of forming a
+single pack. What the bot experienced on the ground is remembered for a while,
+too: a spot it recently got wedged on is dropped from its picks for five
+minutes, and one a monster killed it at for ten, so a reposition or a respawn
+does not walk straight back into the same blocked path or the same losing
+fight. That memory is short-term, per bot, capped and decaying - a map which
+offers nothing else is still hunted, just less eagerly. Repeated deaths by
+players are handled separately, as before: the death site of a player who keeps
+killing the bot is avoided for half an hour (see
+`OfflinePlayer.TryGetDeathSiteToAvoid`), and a zone the bot dies in too often is
+avoided through its danger-zone tracker.
+
+Crowd and memory only reorder the grounds of the strongest safe level band - a
+bot never settles for trivial monsters to avoid a crowd - and the draw stays
+weighted, so two evenly matched grounds take turns instead of one of them
+taking everything. Event proximity and party composition still enter the
+picture through their own planning (a bot goes to an announced event's meeting
+point, and party members hunt around their leader) rather than through this
+ground score.
+
 A map can pass every check and still pay nothing: the monsters the bot may fight
 are a rare kind among ones it must refuse, or other hunters empty the grounds
 first. The bot notices the way a player would, by having landed no hit in

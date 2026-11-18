@@ -163,6 +163,77 @@ public class BotHuntingGroundTest
     }
 
     /// <summary>
+    /// A ground which several other bots already share weighs less than an isolated one, so a bot joins a
+    /// crowded hotspot less often than it spreads to free ground of the same band.
+    /// </summary>
+    [Test]
+    public void CrowdedGroundWeighsLessThanAnIsolatedOne()
+    {
+        var area = new MonsterSpawnArea { X1 = 100, X2 = 100, Y1 = 100, Y2 = 100, Quantity = 10 };
+        var from = new Point(150, 150);
+        var crowd = new List<HuntingSpot>
+        {
+            new(new Point(104, 104), 0),
+            new(new Point(110, 100), 0),
+            new(new Point(100, 112), 0),
+        };
+
+        var isolated = BotHuntingGroundSelector.GroundWeight(area, from, []);
+        var crowded = BotHuntingGroundSelector.GroundWeight(area, from, crowd);
+
+        Assert.That(crowded, Is.LessThan(isolated));
+        Assert.That(BotHuntingGroundSelector.CrowdCount(new Point(100, 100), crowd, BotHuntingGroundSelector.CrowdRange), Is.EqualTo(3));
+    }
+
+    /// <summary>
+    /// A band drops the grounds the bot recently failed at; when every ground is such a memory, all of
+    /// them stay - standing still would be worse than trying one of them again.
+    /// </summary>
+    [Test]
+    public void BadMemoriesDropGroundsButNeverAllOfThem()
+    {
+        var band = CreateBand(new Point(100, 100), new Point(200, 200));
+
+        var narrowed = BotHuntingGroundSelector.WithoutBadMemory(band, p => p == new Point(100, 100));
+        Assert.That(narrowed, Has.Count.EqualTo(1));
+        Assert.That(BotHuntingGroundSelector.GroundCenter(narrowed[0].Area), Is.EqualTo(new Point(200, 200)));
+
+        Assert.That(BotHuntingGroundSelector.WithoutBadMemory(band, _ => true), Has.Count.EqualTo(2));
+    }
+
+    /// <summary>
+    /// A ground the bot recently died at on is not picked again while another ground of the same band is
+    /// free: the short-term memory of <see cref="BotGroundMemory"/> steers the next pick, so a respawn
+    /// does not walk straight back into the same losing fight.
+    /// </summary>
+    [Test]
+    public async ValueTask RememberedBadGroundIsNotPickedAgainAsync()
+    {
+        var gameContext = GameContextTestHelper.CreateGameContext();
+        var bot = await PlayerTestHelper.CreateOfflineLevelingPlayerAsync(gameContext).ConfigureAwait(false);
+        await bot.PlayerState.TryAdvanceToAsync(PlayerState.EnteredWorld).ConfigureAwait(false);
+        bot.IsAlive = true;
+        bot.Attributes![Stats.Level] = 100;
+        bot.Attributes[Stats.MinimumPhysBaseDmg] = 100;
+        bot.Attributes[Stats.MaximumPhysBaseDmg] = 100;
+        bot.Attributes[Stats.DefensePvm] = 0;
+        bot.Attributes[Stats.MaximumHealth] = 1000;
+        bot.Attributes[Stats.CurrentHealth] = 1000;
+
+        var mapDefinition = CreateOpenGroundMap(0);
+        var map = new GameMap(mapDefinition, TimeSpan.FromMinutes(1), 8);
+        bot.SetCurrentMapSilently(map);
+        bot.Position = new Point(120, 120);
+
+        var navigator = new BotNavigator(bot);
+        navigator.RegisterMonsterDeath(mapDefinition, new Point(60, 60));
+
+        Assert.That(navigator.TryPickHuntingGround(map, out var ground, out _), Is.True);
+        var distanceToBadGround = Math.Abs(ground.X - 60) + Math.Abs(ground.Y - 60);
+        Assert.That(distanceToBadGround, Is.GreaterThan(BotGroundMemory.DeathRange), "the ground without the bad memory is picked");
+    }
+
+    /// <summary>
     /// The weighted pick only ever returns a ground of the band, and there is no pick at all for an empty
     /// band (which the caller turns into "no ground on this map").
     /// </summary>
@@ -211,6 +282,40 @@ public class BotHuntingGroundTest
             Quantity = 1,
             SpawnTrigger = SpawnTrigger.Automatic,
         });
+
+        return mapDefinition;
+    }
+
+    /// <summary>
+    /// Creates a map which is walkable from edge to edge, with one spawn area at each end - two grounds of
+    /// the same band which the bot can freely choose between.
+    /// </summary>
+    /// <param name="number">The map number.</param>
+    /// <returns>The map definition.</returns>
+    private static GameMapDefinition CreateOpenGroundMap(byte number)
+    {
+        var monsterDefinition = CreateWeakMonsterDefinition();
+        var mapDefinition = new MUnique.OpenMU.Persistence.BasicModel.GameMapDefinition
+        {
+            Id = Guid.NewGuid(),
+            Number = number,
+            TerrainData = new byte[ushort.MaxValue + 3],
+        };
+
+        foreach (var center in new[] { new Point(60, 60), new Point(180, 180) })
+        {
+            mapDefinition.MonsterSpawns.Add(new MonsterSpawnArea
+            {
+                MonsterDefinition = monsterDefinition,
+                GameMap = mapDefinition,
+                X1 = center.X,
+                X2 = center.X,
+                Y1 = center.Y,
+                Y2 = center.Y,
+                Quantity = 1,
+                SpawnTrigger = SpawnTrigger.Automatic,
+            });
+        }
 
         return mapDefinition;
     }

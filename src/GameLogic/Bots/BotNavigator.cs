@@ -329,6 +329,7 @@ internal sealed class BotNavigator : AsyncDisposable
     private readonly OfflinePlayer _player;
     private readonly TimeProvider _timeProvider;
     private readonly BotDangerZoneTracker _dangerZones;
+    private readonly BotGroundMemory _groundMemory;
     private readonly BotStateMachine _states;
 
     private readonly CancellationTokenSource _cts = new();
@@ -424,6 +425,7 @@ internal sealed class BotNavigator : AsyncDisposable
         this._player = player;
         this._timeProvider = timeProvider;
         this._dangerZones = new BotDangerZoneTracker(player, timeProvider, this.GetHuntingZones);
+        this._groundMemory = new BotGroundMemory(timeProvider);
         this._states = new BotStateMachine(timeProvider, this.IsErrandClaimed);
         this._player.Died += this.OnDied;
     }
@@ -743,6 +745,7 @@ internal sealed class BotNavigator : AsyncDisposable
     {
         ground = default;
         var position = this._player.Position;
+        this._groundMemory.Update();
         var avoidedZones = this.GetAvoidedZones(map.Definition);
         var attackables = map.GetAttackablesInRange(position, MonsterSeekRadius);
         var candidates = new List<(Monster Monster, double Distance)>();
@@ -758,6 +761,12 @@ internal sealed class BotNavigator : AsyncDisposable
             if (avoidedZones is { } avoided && avoided.Avoided.Contains(avoided.Zones.GetZone(monster.Position)))
             {
                 // The bot keeps away from that zone - homing in on its monsters would lead it right back.
+                continue;
+            }
+
+            if (this._groundMemory.IsAvoided(map.Definition, monster.Position))
+            {
+                // A spot the bot recently got wedged on or died at - another monster is a better target.
                 continue;
             }
 
@@ -955,7 +964,11 @@ internal sealed class BotNavigator : AsyncDisposable
     /// </summary>
     /// <param name="map">The map of the death.</param>
     /// <param name="position">The position of the death.</param>
-    internal void RegisterMonsterDeath(GameMapDefinition map, Point position) => this._dangerZones.RegisterDeath(map, position);
+    internal void RegisterMonsterDeath(GameMapDefinition map, Point position)
+    {
+        this._dangerZones.RegisterDeath(map, position);
+        this._groundMemory.Remember(map, position, GroundMemoryReason.Died);
+    }
 
     /// <summary>
     /// Gets the maps worth moving to, each through the entry to its best part, along with the level of the
@@ -1248,6 +1261,7 @@ internal sealed class BotNavigator : AsyncDisposable
     {
         ground = default;
         groundLevel = 0;
+        this._groundMemory.Update();
 
         // Only grounds in the part of the map the bot can walk to: on the Lost Tower, the strongest
         // monsters stand on a floor above, and picking them made every walk fail and the bot stand idle.
@@ -1292,13 +1306,50 @@ internal sealed class BotNavigator : AsyncDisposable
         var competitorSpots = HuntingSpotOccupancy.GetCompetitorSpots(this._player, map.GetPlayers(), map.Definition.Number);
         band = BotHuntingGroundSelector.WithoutCompetitors(band, competitorSpots);
 
-        if (BotHuntingGroundSelector.PickWeighted(band, this._player.Position) is not { } chosen)
+        // Spots the bot recently got wedged on or died at are dropped while they are remembered, so a
+        // reposition does not walk back into the same blocked path or the same losing fight.
+        var bandBeforeMemory = band.Count;
+        band = BotHuntingGroundSelector.WithoutBadMemory(band, p => this._groundMemory.IsAvoided(map.Definition, p));
+        if (band.Count < bandBeforeMemory)
+        {
+            this._player.Logger.LogDebug(
+                "Bot {Character}: skips {Count} hunting ground(s) it recently failed at.",
+                this._player.Name,
+                bandBeforeMemory - band.Count);
+        }
+
+        if (BotHuntingGroundSelector.PickWeighted(
+                band,
+                this._player.Position,
+                competitorSpots,
+                area => this._groundMemory.GetWeightFactor(map.Definition, BotHuntingGroundSelector.GroundCenter(area))) is not { } chosen)
         {
             return false;
         }
 
         groundLevel = chosen.Level;
-        return BotHuntingGroundSelector.TryPickWalkablePoint(map, chosen.Area, siteToAvoid, competitorSpots, mapRegions, region, out ground);
+        var crowd = BotHuntingGroundSelector.CrowdCount(
+            BotHuntingGroundSelector.GroundCenter(chosen.Area),
+            competitorSpots,
+            BotHuntingGroundSelector.CrowdRange);
+        if (crowd > 0)
+        {
+            this._player.Logger.LogDebug(
+                "Bot {Character} shares the ground {Ground} with {Count} neighboring bot(s).",
+                this._player.Name,
+                BotHuntingGroundSelector.GroundCenter(chosen.Area),
+                crowd);
+        }
+
+        return BotHuntingGroundSelector.TryPickWalkablePoint(
+            map,
+            chosen.Area,
+            siteToAvoid,
+            competitorSpots,
+            mapRegions,
+            region,
+            out ground,
+            isBadSpot: p => this._groundMemory.IsAvoided(map.Definition, p));
     }
 
     /// <inheritdoc />
@@ -1611,6 +1662,15 @@ internal sealed class BotNavigator : AsyncDisposable
     {
         this._lastMoveUtc = DateTime.UtcNow;
         this._emptyGroundSince = null;
+
+        // Remember the wedged spot for a few minutes, so the next ground pick does not walk right back
+        // into the same blocked path (see BotGroundMemory).
+        this._player.Logger.LogDebug(
+            "Bot {Character} got wedged at {Position}; it avoids that spot for a while.",
+            this._player.Name,
+            this._player.Position);
+        this._groundMemory.Remember(map.Definition, this._player.Position, GroundMemoryReason.Stuck);
+
         if (tick.LeaderToFollow is not null && ReferenceEquals(tick.LeaderToFollow.CurrentMap, map))
         {
             await this.TravelTowardAsync(map, tick.LeaderToFollow.Position, cancellationToken).ConfigureAwait(false);
@@ -3216,7 +3276,7 @@ internal sealed class BotNavigator : AsyncDisposable
             && this._player.CurrentMap is { } map
             && map.GetObject(death.KillerId) is Monster { SummonedBy: null })
         {
-            this._dangerZones.RegisterDeath(map.Definition, this._player.Position);
+            this.RegisterMonsterDeath(map.Definition, this._player.Position);
         }
     }
 

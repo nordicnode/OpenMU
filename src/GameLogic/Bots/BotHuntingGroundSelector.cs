@@ -36,6 +36,13 @@ internal static class BotHuntingGroundSelector
     /// </summary>
     internal const int DeathSiteAvoidanceRange = 30;
 
+    /// <summary>
+    /// Radius (tiles) around a ground in which other bots make it less attractive. Wider than
+    /// <see cref="HuntingSpotOccupancy.SpotRange"/> on purpose: a ground which shares its monsters with
+    /// three neighbors takes THREE bots to fill, and the bot should notice the crowd before it joins it.
+    /// </summary>
+    internal const int CrowdRange = 3 * HuntingSpotOccupancy.SpotRange;
+
     /// <summary>How often a point of a spawn area is picked before the pick counts as failed.</summary>
     internal const int MaxPointPickAttempts = 25;
 
@@ -54,8 +61,12 @@ internal static class BotHuntingGroundSelector
     /// </summary>
     /// <param name="area">The spawn area.</param>
     /// <param name="from">The point the bot measures from.</param>
+    /// <param name="competitorSpots">
+    /// The spots of bots outside the party, which make a ground less attractive the more of them share
+    /// it; <c>null</c> to judge the ground on its own.
+    /// </param>
     /// <returns>The relative weight of the area.</returns>
-    internal static int GroundWeight(MonsterSpawnArea area, Point from)
+    internal static int GroundWeight(MonsterSpawnArea area, Point from, IReadOnlyList<HuntingSpot>? competitorSpots = null)
     {
         // Manhattan distances on a 256x256 map reach ~460, so a linear "300 - distance" term rated a
         // ground next to the entrance up to 299 while everything past the halfway point clamped to 1.
@@ -64,7 +75,21 @@ internal static class BotHuntingGroundSelector
         // the preference for close grounds - travel is still time not spent hunting - without writing
         // off the rest of the map.
         var proximity = (ProximityFalloff * ProximityFalloff) / (ProximityFalloff + GroundDistance(area, from));
-        return Math.Max(1, (int)area.Quantity) * Math.Max(1, proximity);
+        var crowd = competitorSpots is null ? 0 : CrowdCount(GroundCenter(area), competitorSpots, CrowdRange);
+        return Math.Max(1, (int)area.Quantity) * Math.Max(1, proximity) / (1 + crowd);
+    }
+
+    /// <summary>
+    /// Counts the bots outside the party which hunt, or head to, a spot within the given range of a ground.
+    /// </summary>
+    /// <param name="groundCenter">The center of the ground.</param>
+    /// <param name="competitorSpots">The spots of the competing bots.</param>
+    /// <param name="range">The range in tiles.</param>
+    /// <returns>The number of bots sharing the ground's surroundings.</returns>
+    internal static int CrowdCount(Point groundCenter, IReadOnlyList<HuntingSpot> competitorSpots, int range)
+    {
+        var rangeSquared = range * range;
+        return competitorSpots.Count(spot => spot.Position.EuclideanDistanceSquaredTo(groundCenter) <= rangeSquared);
     }
 
     /// <summary>
@@ -195,6 +220,22 @@ internal static class BotHuntingGroundSelector
     }
 
     /// <summary>
+    /// Narrows a band to the grounds the bot did not recently fail at: a spot where it got wedged or died
+    /// is dropped while it is remembered (see <see cref="BotGroundMemory"/>), so a reposition does not walk
+    /// straight back into the same blocked path or the same losing fight.
+    /// </summary>
+    /// <param name="band">The grounds of the chosen band.</param>
+    /// <param name="isRememberedBad">Tells whether a ground center is currently a bad memory.</param>
+    /// <returns>The narrowed band, or all of it when every ground is remembered.</returns>
+    internal static List<(MonsterSpawnArea Area, int Level)> WithoutBadMemory(
+        List<(MonsterSpawnArea Area, int Level)> band,
+        Func<Point, bool> isRememberedBad)
+    {
+        var goodBand = band.Where(x => !isRememberedBad(GroundCenter(x.Area))).ToList();
+        return goodBand.Count > 0 ? goodBand : band;
+    }
+
+    /// <summary>
     /// Narrows a band to the grounds which no other bot outside the party already works, so two independent
     /// bots do not farm the same monsters.
     /// </summary>
@@ -216,17 +257,21 @@ internal static class BotHuntingGroundSelector
     /// </summary>
     /// <param name="band">The grounds of the chosen band.</param>
     /// <param name="from">The point the bot measures the distance from.</param>
+    /// <param name="competitorSpots">The spots of bots outside the party; <c>null</c> for none.</param>
+    /// <param name="weightFactor">An additional, per-ground factor (e.g. the bot's own bad memories); <c>null</c> for none.</param>
     /// <returns>The chosen ground, or <c>null</c> if the band is empty.</returns>
     internal static (MonsterSpawnArea Area, int Level)? PickWeighted(
         IReadOnlyList<(MonsterSpawnArea Area, int Level)> band,
-        Point from)
+        Point from,
+        IReadOnlyList<HuntingSpot>? competitorSpots = null,
+        Func<MonsterSpawnArea, float>? weightFactor = null)
     {
         if (band.Count == 0)
         {
             return null;
         }
 
-        return band.SelectWeightedRandom(band.Select(x => GroundWeight(x.Area, from)));
+        return band.SelectWeightedRandom(band.Select(x => WeightOf(x.Area, from, competitorSpots, weightFactor)));
     }
 
     /// <summary>
@@ -239,6 +284,7 @@ internal static class BotHuntingGroundSelector
     /// <param name="mapRegions">The walkable regions of the map; <c>null</c> to accept any region.</param>
     /// <param name="region">The region of the bot, which the point has to belong to.</param>
     /// <param name="point">The picked point.</param>
+    /// <param name="isBadSpot">Tells whether a tile is one the bot avoids for now (see <see cref="BotGroundMemory"/>); <c>null</c> for none.</param>
     /// <returns><c>true</c>, if a point was found.</returns>
     internal static bool TryPickWalkablePoint(
         GameMap map,
@@ -247,7 +293,8 @@ internal static class BotHuntingGroundSelector
         IReadOnlyList<HuntingSpot> competitorSpots,
         BotMapRegions? mapRegions,
         int region,
-        out Point point)
+        out Point point,
+        Func<Point, bool>? isBadSpot = null)
     {
         int minX = Math.Min(area.X1, area.X2);
         int maxX = Math.Max(area.X1, area.X2);
@@ -289,6 +336,14 @@ internal static class BotHuntingGroundSelector
             }
 
             var pointCandidate = new Point((byte)x, (byte)y);
+            if (isBadSpot?.Invoke(pointCandidate) == true)
+            {
+                // A tile the bot recently got wedged on or died at - another tile of the same area is
+                // just as good, so only fall back to it when the area offers nothing else.
+                occupiedFallback ??= pointCandidate;
+                continue;
+            }
+
             if (HuntingSpotOccupancy.IsSpotOccupied(pointCandidate, competitorSpots))
             {
                 // Remember the point as a last resort: if this whole area is taken, sharing it is still
@@ -309,5 +364,19 @@ internal static class BotHuntingGroundSelector
 
         point = default;
         return false;
+    }
+
+    /// <summary>
+    /// Combines the ground's own weight with the crowding and the caller's extra factor into the integer
+    /// weight the weighted draw expects. Never below one, so no ground is impossible.
+    /// </summary>
+    private static int WeightOf(
+        MonsterSpawnArea area,
+        Point from,
+        IReadOnlyList<HuntingSpot>? competitorSpots,
+        Func<MonsterSpawnArea, float>? weightFactor)
+    {
+        var weight = GroundWeight(area, from, competitorSpots) * (weightFactor?.Invoke(area) ?? 1f);
+        return Math.Max(1, (int)weight);
     }
 }
