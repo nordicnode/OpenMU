@@ -301,7 +301,6 @@ internal static class BotShoppingHandler
         }
 
         var maximumMoney = player.GameContext.Configuration.MaximumInventoryMoney;
-        var underPressure = IsUnderSlotPressure(inventory);
         var sold = 0;
         var discarded = 0;
         foreach (var item in unsold)
@@ -312,7 +311,9 @@ internal static class BotShoppingHandler
                 continue;
             }
 
-            if (underPressure || IsDeadWeight(item))
+            // Checked per item: destroying one frees a slot, which may end the pressure and spare the
+            // rest of the gear. Jewel surplus is dead weight either way and still goes.
+            if (IsUnderSlotPressure(inventory) || IsDeadWeight(item))
             {
                 await player.DestroyInventoryItemAsync(item).ConfigureAwait(false);
                 discarded++;
