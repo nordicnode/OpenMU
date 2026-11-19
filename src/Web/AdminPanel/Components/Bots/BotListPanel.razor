@@ -14,6 +14,7 @@
         <th class="col-1">@Resources.Character</th>
         <th class="col-1">@Resources.ServerID</th>
         <th class="col-2">@Resources.BotState</th>
+        <th class="col-2">@Resources.BotLootDecisions</th>
         <th class="col-1">@Resources.BotHealth</th>
         <th class="col-1">@Resources.Guild</th>
         <th class="col-1">@Resources.Party</th>
@@ -35,6 +36,17 @@
             {
                 @* An ended meeting stays visible: a bot which promised to come and didn't can be checked after the fact, not only in the log. *@
                 <div class="small text-muted" title="@lastMeeting.Detail">@lastMeeting.Summary</div>
+            }
+        </td>
+        <td class="small bot-loot-decisions" title="@this.LootDetails(item)">
+            @if (item.LootDecisions is { Count: > 0 } loot)
+            {
+                <div>@loot[0].Code</div>
+                <div class="text-muted">@loot[0].Item</div>
+            }
+            else
+            {
+                @Resources.EmptyValue
             }
         </td>
         <td>
@@ -114,6 +126,18 @@
     }
 
     private int QuarantineMinutes(double seconds) => Math.Max(1, (int)Math.Ceiling(seconds / 60));
+
+    /// <summary>
+    /// Gets the recent loot decisions of the row as a multi-line tooltip, newest first. The cell shows the
+    /// latest code and item; the title carries the rest, so an operator can follow the recent pattern
+    /// without enabling debug logging or opening the bot.
+    /// </summary>
+    /// <param name="item">The bot row.</param>
+    /// <returns>The tooltip text.</returns>
+    private string LootDetails(BotAccount item)
+        => item.LootDecisions is { Count: > 0 } loot
+            ? string.Join("\n", loot.Select(decision => decision.Summary))
+            : string.Empty;
 
     /// <summary>
     /// Re-renders the panel every second, so the meeting countdown moves without reloading the page, and reads

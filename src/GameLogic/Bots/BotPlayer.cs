@@ -14,6 +14,14 @@ using MUnique.OpenMU.GameLogic.Offline;
 /// </summary>
 public sealed class BotPlayer : OfflinePlayer
 {
+    /// <summary>
+    /// How many loot decisions the administration keeps per bot. Enough to see the recent pattern -
+    /// what the bot kept, equipped, sold or stored - without keeping a history for the whole session.
+    /// </summary>
+    private const int MaxRecentLootDecisions = 20;
+
+    private readonly object _recentLootDecisionsLock = new();
+    private readonly List<BotLootDecisionInfo> _recentLootDecisions = [];
     private BotNavigator? _navigator;
 
     /// <summary>
@@ -90,6 +98,22 @@ public sealed class BotPlayer : OfflinePlayer
     }
 
     /// <summary>
+    /// Gets the most recent loot decisions of this bot, newest first - why it kept, equipped, sold or
+    /// stored an item. The bot table reads this without debug logging being enabled; the list is kept
+    /// in memory and is empty until the bot makes its first decision.
+    /// </summary>
+    public IReadOnlyList<BotLootDecisionInfo> RecentLootDecisions
+    {
+        get
+        {
+            lock (this._recentLootDecisionsLock)
+            {
+                return this._recentLootDecisions.ToList();
+            }
+        }
+    }
+
+    /// <summary>
     /// Gets or sets the health supervisor of the account this bot drives. It counts the failing ticks, decides
     /// whether a restart is the right answer and quarantines the bot when restarts do not stick - see
     /// <see cref="BotHealthSupervisor"/>. A directly constructed bot gets its own; a bot spawned by the
@@ -104,6 +128,26 @@ public sealed class BotPlayer : OfflinePlayer
     /// bot which still fails every tick simply keeps asking for a restart.
     /// </summary>
     public void ResetHealth() => this.Health.Reset();
+
+    /// <summary>
+    /// Records a loot decision for the administration surfaces. Every decision is kept in the small
+    /// in-memory ring, independent of whether the debug log samples it, so an operator can inspect the
+    /// reason without turning the log up.
+    /// </summary>
+    /// <param name="item">The item the decision was about.</param>
+    /// <param name="decision">The decision and its reason.</param>
+    internal void RecordLootDecision(Item item, BotLootDecision decision)
+    {
+        var info = BotLootDecisionInfo.From(item, decision, DateTimeOffset.UtcNow);
+        lock (this._recentLootDecisionsLock)
+        {
+            this._recentLootDecisions.Insert(0, info);
+            if (this._recentLootDecisions.Count > MaxRecentLootDecisions)
+            {
+                this._recentLootDecisions.RemoveAt(this._recentLootDecisions.Count - 1);
+            }
+        }
+    }
 
     /// <inheritdoc />
     /// <remarks>

@@ -161,9 +161,14 @@ internal static class BotEquipmentHandler
             player.Name,
             item,
             plan.Removed.Count == 0 ? string.Empty : $" (replacing {string.Join(", ", plan.Removed.Select(r => $"'{r}'"))})");
+        BotLootDecisionLog.Log(
+            player,
+            item,
+            new(BotLootAction.Equip, BotLootReason.Upgrade),
+            plan.Removed.Count == 0 ? "empty slot" : $"replaced {string.Join(", ", plan.Removed.Select(r => r.Definition?.Name ?? r.ToString()))}");
 
         // The outgrown gear stays in the backpack and is SOLD on the next shopping trip (see
-        // BotShoppingHandler.IsSellableJunk): dropping it on the ground littered the hunting grounds
+        // BotShoppingHandler.GetSellableJunk): dropping it on the ground littered the hunting grounds
         // with the bots' hand-me-downs, which the bots then picked up again - including the bot which
         // had just dropped the piece, whose persistence context still tracked it (an entity conflict on
         // the pickup). Selling it also feeds the Zen the bot restocks its potions with.

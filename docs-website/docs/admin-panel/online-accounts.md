@@ -52,6 +52,7 @@ server-side bots of the game servers running in this process.
 | Character | The character the bot plays |
 | Server id | The game server which animates the bot |
 | State | What the bot is doing right now, since when and why. A bot which announced an event meeting gets a second line: whether it is on its way or already waiting, the place — with `(safezone)` when it fell back to the safezone — and how long it still waits. After the meeting ended, that line says `Last meeting: joined`, `expired` or `abandoned` at the place; the tooltip explains why an abandoned meeting was given up, so a bot which promised to come and didn't can be checked later. |
+| Loot decisions | The latest keep, equip, sell or store decision with its reason code and item, e.g. `store/market_candidate (Cheap)` or `sell/vendor_trash`. Hovering the cell lists the bot's recent decisions, newest first — the same reasons the debug log can sample, available without enabling debug logging. |
 | Health | The number of restarts which healed the bot, or for how long it is quarantined from another restart. An empty cell means the bot is healthy. |
 | Guild, Party | The guild and party of the bot, if any |
 | Started at | When the bot session started (UTC) |
@@ -60,8 +61,9 @@ server-side bots of the game servers running in this process.
 A bot which waits at a meeting is not counted as stuck: it waits there on
 purpose until the entrance closes. The table moves the countdown every second
 and reads the bots again every few seconds, so an ended meeting turns into its
-outcome without a reload; a countdown of `0:00 left` which stays like that means
-the bot's navigation stopped checking the meeting, so the bot is worth a look.
+outcome and fresh loot decisions appear without a reload; a countdown of
+`0:00 left` which stays like that means the bot's navigation stopped checking
+the meeting, so the bot is worth a look.
 
 ### Bot market
 

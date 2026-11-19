@@ -1366,6 +1366,12 @@
   <data name="BotConfiguration_PotionStockCharges_Description" xml:space="preserve">
     <value>机器人在商店补充治疗和魔力药水时，分别补足的可使用次数。</value>
   </data>
+  <data name="BotConfiguration_LootDecisionLogPercent_Name" xml:space="preserve">
+    <value>战利品决策日志 (%)</value>
+  </data>
+  <data name="BotConfiguration_LootDecisionLogPercent_Description" xml:space="preserve">
+    <value>写入调试日志的战利品决策比例，便于管理员了解机器人为何保留、装备、出售或寄存物品。按物品抽样记录；0 表示关闭。</value>
+  </data>
   <data name="BotConfiguration_ProofOfConceptAccounts_Name" xml:space="preserve">
     <value>额外托管账号</value>
   </data>

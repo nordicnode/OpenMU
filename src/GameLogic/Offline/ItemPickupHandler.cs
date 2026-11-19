@@ -183,46 +183,89 @@ public sealed class ItemPickupHandler
             return false;
         }
 
+        if (this._player.Account?.IsBot == true)
+        {
+            return this.ShouldPickUpBot(item, this._config);
+        }
+
         if (this._config.PickJewel && IsJewel(item))
         {
-            // A human's helper takes every jewel - its owner trades, crafts or hoards them later. A bot
-            // has no later: it spends Bless, Soul and Life on its own gear and Chaos at the chaos machine,
-            // so a Jewel of Creation or a stock-exceeding Soul is a backpack slot it never gets back.
-            return this._player.Account?.IsBot != true
-                   || Bots.BotJewelHandler.WantsMoreOf(this._player, item);
+            // A human's helper takes every jewel - its owner trades, crafts or hoards them later.
+            return true;
         }
 
         var isAncient = item.ItemSetGroups.Any(s => s.AncientSetDiscriminator != 0);
         var isExcellent = item.ItemOptions.Any(o => o.ItemOption?.OptionType == ItemOptionTypes.Excellent);
         if ((this._config.PickAncient && isAncient) || (this._config.PickExcellent && isExcellent))
         {
-            // A human's helper hoards every excellent/ancient piece - its owner sorts the treasure
-            // out later. A bot has no later: it cannot trade, so it only takes what it can actually
-            // wear as an upgrade; everything else would silt up its backpack until the loot pickup
-            // stops.
-            return this._player.Account?.IsBot != true
-                   || Bots.BotEquipmentHandler.IsUpgradeFor(this._player, item);
+            // A human's helper hoards every excellent/ancient piece - its owner sorts the treasure out later.
+            return true;
         }
 
         if (this._config.PickUpgradeItems && Bots.BotEquipmentHandler.IsUpgradeFor(this._player, item))
         {
-            // The item is class-qualified gear which beats what the bot currently wears - worth picking
-            // up; the BotEquipmentHandler will equip it on one of its next passes.
-            return true;
-        }
-
-        if (this._config.PickUpgradeItems && this._player.Account?.IsBot == true && Bots.BotSkillHandler.WantsSkillItem(this._player, item))
-        {
-            // The item is an orb or scroll teaching a skill the bot does not know yet and may currently
-            // consume - picked up like a human would; the BotSkillHandler consumes it on its next pass.
-            // Gated by the same upgrade-items toggle as gear: with loot progression off, orb and scroll
-            // skills stay out of reach, just like better gear does.
             return true;
         }
 
         if (this._config.PickExtraItems && item.Definition is { } definition)
         {
             return this._config.ExtraItemNames.Any(name => definition.Name.ToString()?.Contains(name, StringComparison.OrdinalIgnoreCase) ?? false);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The bot-specific pickup rule: the generic loot policy says whether the item is an upgrade, a
+    /// jewel within the stock or a skill the bot still needs, and the helper configuration still gates
+    /// the categories the bot collects. The sampled debug log records the reason.
+    /// </summary>
+    /// <param name="item">The dropped item.</param>
+    /// <param name="config">The helper configuration.</param>
+    /// <returns><c>true</c>, if the bot should pick the item up.</returns>
+    private bool ShouldPickUpBot(Item item, IMuHelperSettings config)
+    {
+        if (config.PickJewel && IsJewel(item))
+        {
+            // A bot has no later: it spends Bless, Soul and Life on its own gear and Chaos at the chaos
+            // machine, so a Jewel of Creation or a stock-exceeding Soul is a backpack slot it never gets back.
+            var decision = Bots.BotLootPolicy.DecideForPickup(this._player, item);
+            Bots.BotLootDecisionLog.Log(this._player, item, decision, "pickup");
+            return decision.Action == Bots.BotLootAction.Keep;
+        }
+
+        var isAncient = item.ItemSetGroups.Any(s => s.AncientSetDiscriminator != 0);
+        var isExcellent = item.ItemOptions.Any(o => o.ItemOption?.OptionType == ItemOptionTypes.Excellent);
+        if ((config.PickAncient && isAncient) || (config.PickExcellent && isExcellent))
+        {
+            // A bot cannot trade its treasures away, so it only takes what it can actually wear as an
+            // upgrade; everything else would silt up its backpack until the loot pickup stops.
+            var decision = Bots.BotLootPolicy.DecideForPickup(this._player, item);
+            Bots.BotLootDecisionLog.Log(this._player, item, decision, "pickup");
+            return decision.Action == Bots.BotLootAction.Equip;
+        }
+
+        if (config.PickUpgradeItems)
+        {
+            // Gear which beats what the bot wears, or an orb/scroll teaching a skill it does not know yet.
+            // The equipment and skill handlers consume it on their next passes.
+            var decision = Bots.BotLootPolicy.DecideForPickup(this._player, item);
+            if (decision.Action == Bots.BotLootAction.Equip || decision.Reason == Bots.BotLootReason.SkillItem)
+            {
+                Bots.BotLootDecisionLog.Log(this._player, item, decision, "pickup");
+                return true;
+            }
+        }
+
+        if (config.PickExtraItems && item.Definition is { } definition
+            && config.ExtraItemNames.Any(name => definition.Name.ToString()?.Contains(name, StringComparison.OrdinalIgnoreCase) ?? false))
+        {
+            Bots.BotLootDecisionLog.Log(
+                this._player,
+                item,
+                new(Bots.BotLootAction.Keep, Bots.BotLootReason.ConfiguredExtra),
+                "pickup");
+            return true;
         }
 
         return false;

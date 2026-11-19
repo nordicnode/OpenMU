@@ -150,7 +150,22 @@ internal static class BotShoppingHandler
         // BotMerchantPlugIn) - before the dialog opens, because the game moves nothing into a store
         // during an NPC dialog. Nothing happens while the plugin is off.
         await DiscardBackpackWingsAsync(player, inventory).ConfigureAwait(false);
-        var stocked = await BotMerchandise.StockStoreAsync(player, GetSellableJunk(player, inventory)).ConfigureAwait(false);
+        var marketConfiguration = player.GameContext.FeaturePlugIns.GetPlugIn<BotMerchantPlugIn>()?.Configuration;
+        var decisions = BotLootPolicy.ClassifyBackpack(player, inventory, marketConfiguration);
+        foreach (var (item, decision) in decisions)
+        {
+            if (!decision.IsJunk && decision.Action != BotLootAction.Ignore)
+            {
+                // Explains why the item which a player might expect to see in the store stays with the bot.
+                BotLootDecisionLog.Log(player, item, decision, "kept for later");
+            }
+        }
+
+        var marketGoods = decisions
+            .Where(entry => entry.Decision.Action == BotLootAction.Store)
+            .Select(entry => entry.Item)
+            .ToList();
+        var stocked = await BotMerchandise.StockStoreAsync(player, marketGoods).ConfigureAwait(false);
 
         await TalkAction.TalkToNpcAsync(player, merchant).ConfigureAwait(false);
         if (player.OpenedNpc is null)
@@ -228,62 +243,7 @@ internal static class BotShoppingHandler
     /// backpack until the loot pickup stops entirely.
     /// </summary>
     private static List<Item> GetSellableJunk(OfflinePlayer player, IStorage inventory)
-    {
-        var keptJewels = new Dictionary<ItemIdentifier, int>();
-        var junk = new List<Item>();
-
-        foreach (var item in inventory.Items)
-        {
-            if (item.ItemSlot < InventoryConstants.EquippableSlotsCount
-                || item.Definition is not { } definition
-                || definition.IsAmmunition)
-            {
-                continue; // equipped, or an archer's arrows - selling those would disarm the bow.
-            }
-
-            if (!definition.IsSellableToNpc)
-            {
-                continue; // the merchant refuses it, and as unsold junk it would be destroyed under slot pressure.
-            }
-
-            if (item.IsWing())
-            {
-                continue; // never goods - see DiscardBackpackWingsAsync.
-            }
-
-            var identifier = new ItemIdentifier(definition.Number, definition.Group);
-            if (HealingHandler.HealthPotionPriority.Contains(identifier)
-                || HealingHandler.ManaPotionPriority.Contains(identifier))
-            {
-                continue; // the survival kit the offline AI drinks from.
-            }
-
-            if (BotJewelHandler.UsableJewels.Contains(identifier))
-            {
-                // Keep the working stock and sell the surplus, counting per kind while walking the
-                // backpack: asking "is the stock full?" for each jewel on its own would answer yes for
-                // every one of fifteen Souls at a limit of ten, and the bot would end up with none.
-                var kept = keptJewels.GetValueOrDefault(identifier);
-                if (kept < BotJewelHandler.GetStockLimit(player, identifier))
-                {
-                    keptJewels[identifier] = kept + 1;
-                    continue;
-                }
-
-                junk.Add(item);
-                continue;
-            }
-
-            // Whatever the bot would wear stays: selling a piece it picked up as an upgrade one tick
-            // before it puts it on is pure loss.
-            if (!BotEquipmentHandler.IsUpgradeFor(player, item))
-            {
-                junk.Add(item);
-            }
-        }
-
-        return junk;
-    }
+        => BotLootPolicy.GetJunk(player, inventory, null);
 
     /// <summary>
     /// Sells the junk, most valuable piece first, so that a bot which is close to the money limit still
@@ -314,6 +274,7 @@ internal static class BotShoppingHandler
             if (await SellAction.SellItemAsync(player, item.ItemSlot).ConfigureAwait(false))
             {
                 sold++;
+                BotLootDecisionLog.Log(player, item, BotLootPolicy.DecideForSale(item), "sold to merchant");
             }
             else
             {

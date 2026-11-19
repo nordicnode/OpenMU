@@ -2275,6 +2275,24 @@ namespace MUnique.OpenMU.GameLogic.Properties {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Share of loot decisions written to the debug log, so an operator can follow why a bot kept, equipped, sold or stored an item. Sampled per item; 0 switches the audit off..
+        /// </summary>
+        public static string BotConfiguration_LootDecisionLogPercent_Description {
+            get {
+                return ResourceManager.GetString("BotConfiguration_LootDecisionLogPercent_Description", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Loot decision log %.
+        /// </summary>
+        public static string BotConfiguration_LootDecisionLogPercent_Name {
+            get {
+                return ResourceManager.GetString("BotConfiguration_LootDecisionLogPercent_Name", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to Bots log in and out over the day (fewest at night, most in the evening) instead of all being online 24/7..
         /// </summary>
         public static string BotConfiguration_PresenceRotation_Description {

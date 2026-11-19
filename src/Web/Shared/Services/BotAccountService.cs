@@ -163,7 +163,8 @@ public class BotAccountService : IDataService<BotAccount>, IBotMarketService
                     activity?.Restarts ?? 0,
                     quarantinedSeconds,
                     activity?.Meeting,
-                    activity?.LastMeeting);
+                    activity?.LastMeeting,
+                    r.Player.RecentLootDecisions);
             })
             .OrderLongestInState()
             .ToList();

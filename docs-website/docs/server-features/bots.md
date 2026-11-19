@@ -336,6 +336,20 @@ weapon. If the engine refuses the equip after all, the old gear goes straight
 back on. The replaced piece stays in the backpack and is sold on the next trip
 to town, rather than being dropped where the next bot would pick it up again.
 
+Every keep, equip, sell and store decision comes from one loot policy and carries
+a reason code: `upgrade`, `consumable_stock`, `jewel_stock`, `jewel_surplus`,
+`skill_item`, `market_candidate`, `vendor_trash` and a few more for items the bot
+ignores. With `Loot decision log %` (5 on a fresh configuration, 0 switches it
+off), a sample of those decisions is written to the debug log with the item, the
+action and the reason. Configurations which predate the setting start at 0, so an
+upgrade does not suddenly add log volume; set it when you want the audit. A line such as `loot decision: '...' -> store/market_candidate (Cheap)`
+or `sell/vendor_trash` is the audit trail for balancing and for answering why a
+bot sold or stored a particular piece. The log is sampled per item, so a busy
+server stays readable; raise it while investigating a specific bot and put it
+back afterwards. The Bots tab shows the latest decision in its `Loot decisions`
+column even with the log switched off; the tooltip lists the bot's recent
+decisions, so the reason is available without changing the configuration.
+
 A merchant trip is the only moment a bot can turn loot into anything, so it goes
 whenever it has something to gain there: the backpack is filling with junk, the
 potions are running low, a jewel is waiting to be used, or a surplus is waiting

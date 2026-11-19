@@ -612,6 +612,9 @@
   <data name="BotState" xml:space="preserve">
     <value>State</value>
   </data>
+  <data name="BotLootDecisions" xml:space="preserve">
+    <value>Loot decisions</value>
+  </data>
   <data name="ActiveOfflinePlayer" xml:space="preserve">
     <value>Active Offline Player</value>
   </data>

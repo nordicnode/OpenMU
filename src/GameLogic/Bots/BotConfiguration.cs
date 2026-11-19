@@ -123,6 +123,16 @@ public class BotConfiguration
     public int PotionStockCharges { get; set; } = 60;
 
     /// <summary>
+    /// Gets or sets the share (in percent) of loot decisions which a bot writes to the debug log, so an
+    /// operator can follow why it kept, equipped, sold or stored an item. The decisions are sampled per
+    /// item: 0 switches the audit off, 100 logs every decision. The default keeps a busy server's log
+    /// readable while still showing the shape of the policy.
+    /// </summary>
+    [Display(Name = nameof(MUnique.OpenMU.GameLogic.Properties.PlugInResources.BotConfiguration_LootDecisionLogPercent_Name), Description = nameof(MUnique.OpenMU.GameLogic.Properties.PlugInResources.BotConfiguration_LootDecisionLogPercent_Description), ResourceType = typeof(MUnique.OpenMU.GameLogic.Properties.PlugInResources))]
+    [Range(0, 100)]
+    public int LootDecisionLogPercent { get; set; } = 5;
+
+    /// <summary>
     /// Gets or sets how many master points a bot may hold back for a master skill which costs several
     /// points at once. A bot otherwise invests every point the moment it earns it, so a skill whose
     /// minimum level is ten points - and everything behind it in the same branch - could never be
@@ -243,6 +253,18 @@ public class BotConfiguration
     /// <remarks>Deliberately a method, like <see cref="GetEffectiveCharactersPerAccount"/>.</remarks>
     public int GetEffectivePotionStockCharges()
         => Math.Clamp(this.PotionStockCharges, 10, 255);
+
+    /// <summary>
+    /// Gets the effective, clamped share of loot decisions which a bot writes to the debug log.
+    /// </summary>
+    /// <returns>A value between 0 and 100.</returns>
+    /// <remarks>
+    /// Deliberately a method, like <see cref="GetEffectiveCharactersPerAccount"/>. A configuration which
+    /// predates this setting reads 0 and keeps the audit off after an upgrade until an operator turns it
+    /// on; only a newly created configuration starts at the default of 5.
+    /// </remarks>
+    public int GetEffectiveLootDecisionLogSamplePercent()
+        => Math.Clamp(this.LootDecisionLogPercent, 0, 100);
 
     /// <summary>
     /// Gets the effective, clamped number of master points a bot may bank.

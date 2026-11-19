@@ -286,6 +286,11 @@ internal static class BotMerchandise
             {
                 stocked++;
                 plugIn.RecordListed(player.GameContext, priceClass, item.GetStorePrice(), DateTime.UtcNow);
+                BotLootDecisionLog.Log(
+                    player,
+                    item,
+                    new(BotLootAction.Store, BotLootReason.MarketCandidate, priceClass.ToString()),
+                    "listed on the market");
             }
             else
             {

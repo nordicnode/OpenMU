@@ -181,6 +181,39 @@ public class BotListPanelTests
     }
 
     /// <summary>
+    /// The row shows the latest loot decision and its reason, and the tooltip carries the older decisions -
+    /// enough to answer why a bot kept, equipped, sold or stored an item without debug logging.
+    /// </summary>
+    [Test]
+    public void ShowsRecentLootDecisions()
+    {
+        var latest = new BotLootDecisionInfo(
+            "Dragon Armor +9",
+            "store",
+            "market_candidate",
+            "Expensive",
+            new DateTimeOffset(2026, 2, 11, 9, 12, 4, TimeSpan.Zero));
+        var previous = new BotLootDecisionInfo(
+            "Jewel of Bless",
+            "sell",
+            "jewel_surplus",
+            null,
+            new DateTimeOffset(2026, 2, 11, 9, 11, 58, TimeSpan.Zero));
+        using var context = CreateContext(
+            Bot("bot-loot", "Kai", lootDecisions: [latest, previous]),
+            Bot("bot-fine", "Lena"));
+
+        var panel = context.Render<BotListPanel>(parameters => parameters.Add(p => p.AlarmLine, (string?)null));
+
+        var loot = RowOf(panel, "bot-loot").QuerySelector(".bot-loot-decisions");
+        Assert.That(loot, Is.Not.Null);
+        Assert.That(loot!.TextContent, Does.Contain("store/market_candidate (Expensive)"));
+        Assert.That(loot.TextContent, Does.Contain("Dragon Armor +9"));
+        Assert.That(loot.GetAttribute("title"), Does.Contain(previous.Summary));
+        Assert.That(RowOf(panel, "bot-fine").TextContent, Does.Not.Contain("market_candidate"));
+    }
+
+    /// <summary>
     /// The alarm about the bots which need attention is shown above the table, where the operator looks before
     /// reading any row.
     /// </summary>
@@ -233,7 +266,7 @@ public class BotListPanelTests
         var panel = context.Render<BotListPanel>(parameters => parameters.Add(p => p.AlarmLine, (string?)null));
 
         Assert.That(panel.FindAll("#bots-stuck-alarm"), Is.Empty);
-        Assert.That(panel.FindAll("thead th"), Has.Count.EqualTo(9));
+        Assert.That(panel.FindAll("thead th"), Has.Count.EqualTo(10));
         Assert.That(panel.FindAll(".badge"), Is.Empty);
         Assert.That(panel.FindAll("button.admin-table-action"), Is.Empty);
     }
@@ -249,8 +282,26 @@ public class BotListPanelTests
     private static AngleSharp.Dom.IElement RowOf(IRenderedComponent<BotListPanel> panel, string loginName)
         => panel.FindAll("tbody tr").Single(row => row.QuerySelector("td")!.TextContent.Trim() == loginName);
 
-    private static BotAccount Bot(string loginName, string characterName, int restarts = 0, double quarantinedSeconds = 0, BotMeetingActivity? meeting = null, BotMeetingOutcome? lastMeeting = null)
-        => new(loginName, 1, characterName, new DateTime(2026, 2, 11, 9, 12, 4, DateTimeKind.Utc), State: "Hunt for 0:30 (monsters nearby)", SecondsInState: 30, Restarts: restarts, QuarantinedSeconds: quarantinedSeconds, Meeting: meeting, LastMeeting: lastMeeting);
+    private static BotAccount Bot(
+        string loginName,
+        string characterName,
+        int restarts = 0,
+        double quarantinedSeconds = 0,
+        BotMeetingActivity? meeting = null,
+        BotMeetingOutcome? lastMeeting = null,
+        IReadOnlyList<BotLootDecisionInfo>? lootDecisions = null)
+        => new(
+            loginName,
+            1,
+            characterName,
+            new DateTime(2026, 2, 11, 9, 12, 4, DateTimeKind.Utc),
+            State: "Hunt for 0:30 (monsters nearby)",
+            SecondsInState: 30,
+            Restarts: restarts,
+            QuarantinedSeconds: quarantinedSeconds,
+            Meeting: meeting,
+            LastMeeting: lastMeeting,
+            LootDecisions: lootDecisions);
 
     private sealed class FixedBotService(params BotAccount[] bots) : IDataService<BotAccount>
     {

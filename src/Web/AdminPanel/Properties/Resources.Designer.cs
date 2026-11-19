@@ -7882,6 +7882,15 @@ namespace MUnique.OpenMU.Web.AdminPanel.Properties {
         }
 
         /// <summary>
+        ///   Looks up a localized string similar to Loot decisions.
+        /// </summary>
+        public static string BotLootDecisions {
+            get {
+                return ResourceManager.GetString("BotLootDecisions", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to Start install.
         /// </summary>
         public static string StartInstall {
