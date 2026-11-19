@@ -249,7 +249,7 @@ internal static class BotPartyComposer
             var intent = intents[leader];
             var members = new List<OfflinePlayer> { leader };
             var leaderLevel = BotResetHandler.GetEffectiveLevel(leader);
-            var supports = 0;
+            var supports = BotPartyReadiness.GetRole(leader) == BotPartyRole.Support ? 1 : 0;
             foreach (var candidate in remaining)
             {
                 if (members.Count >= BotPartyPolicy.MaxPartySize)
@@ -257,7 +257,7 @@ internal static class BotPartyComposer
                     break;
                 }
 
-                if (BotResetHandler.GetEffectiveLevel(candidate) - leaderLevel > BotPartyPolicy.MaxLevelGap
+                if (Math.Abs(BotResetHandler.GetEffectiveLevel(candidate) - leaderLevel) > BotPartyPolicy.MaxLevelGap
                     || !BotPartyReadiness.IsAvailable(candidate, BotPartyGoal.BossAttempt, now)
                     || !BotPartyReadiness.HasGearFor(candidate, BotPartyGoal.BossAttempt))
                 {

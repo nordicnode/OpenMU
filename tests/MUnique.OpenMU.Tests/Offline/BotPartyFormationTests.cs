@@ -237,6 +237,93 @@ public class BotPartyFormationTests
     }
 
     /// <summary>
+    /// Tests that a boss-attempt leader picked for its readiness does not drag in a bot far below its
+    /// level, which the next rebalance would only split up again.
+    /// </summary>
+    [Test]
+    public async ValueTask BossAttemptKeepsLowLevelBotsOutAsync()
+    {
+        var now = DateTime.UtcNow;
+        var map = this._gameContext.Configuration.Maps.First();
+        var highKnight = await this.CreateBotAsync("H", 4, 90).ConfigureAwait(false);
+        var highElf = await this.CreateBotAsync("B", 8, 90).ConfigureAwait(false);
+        var lowKnight = await this.CreateBotAsync("C", 4, 40).ConfigureAwait(false);
+        var bots = new[] { highKnight, highElf, lowKnight };
+        foreach (var bot in bots)
+        {
+            bot.BossAttempt = new BotBossAttempt(map, now.AddMinutes(10));
+        }
+
+        var formation = BotPartyComposer.Compose(
+            bots.OrderBy(BotResetHandler.GetEffectiveLevel).ToList(),
+            bot => BotPartyIntentPlanner.GetIntent(bot, now),
+            now);
+
+        Assert.That(formation.Plans, Has.Count.EqualTo(1));
+        Assert.That(formation.Plans[0].Goal, Is.EqualTo(BotPartyGoal.BossAttempt));
+        Assert.That(formation.Plans[0].Members, Does.Not.Contain(lowKnight));
+        var levels = formation.Plans[0].Members.Select(BotResetHandler.GetEffectiveLevel).ToList();
+        Assert.That(levels.Max() - levels.Min(), Is.LessThanOrEqualTo(BotPartyPolicy.MaxLevelGap));
+    }
+
+    /// <summary>
+    /// Tests that a boss attempt which has to fall back to a support leader still takes at most one
+    /// support, so it is not a group of buffers without anyone to take the front.
+    /// </summary>
+    [Test]
+    public async ValueTask BossAttemptHasAtMostOneSupportAsync()
+    {
+        var now = DateTime.UtcNow;
+        var map = this._gameContext.Configuration.Maps.First();
+        var leader = await this.CreateBotAsync("A", 8, 90).ConfigureAwait(false);
+        var secondSupport = await this.CreateBotAsync("C", 8, 89).ConfigureAwait(false);
+        var damage = await this.CreateBotAsync("B", 8, 80).ConfigureAwait(false);
+        var bots = new[] { leader, secondSupport, damage };
+        foreach (var bot in bots)
+        {
+            bot.BossAttempt = new BotBossAttempt(map, now.AddMinutes(10));
+        }
+
+        var formation = BotPartyComposer.Compose(
+            bots.OrderBy(BotResetHandler.GetEffectiveLevel).ToList(),
+            bot => BotPartyIntentPlanner.GetIntent(bot, now),
+            now);
+
+        Assert.That(formation.Plans, Has.Count.EqualTo(1));
+        Assert.That(formation.Plans[0].Members.Count(BotBuild.IsSupportElf), Is.EqualTo(1));
+        Assert.That(formation.Plans[0].Members, Does.Contain(damage));
+    }
+
+    /// <summary>
+    /// Tests that a merchant which also has an event meeting still gets its escort instead of being
+    /// left out of both the event party (it may not join one on a shift) and the escort.
+    /// </summary>
+    [Test]
+    public async ValueTask MerchantWithAnEventMeetingStillGetsAnEscortAsync()
+    {
+        var now = DateTime.UtcNow;
+        var map = this._gameContext.Configuration.Maps.First();
+        var eventDefinition = new MiniGameDefinition { Type = MiniGameType.BloodCastle, GameLevel = 1 };
+        var merchant = await this.CreateBotAsync("A", 4, 50).ConfigureAwait(false);
+        merchant.MarketShift = new BotMarketShift(map, new Point(10, 10), "Store", now, now.AddMinutes(30));
+        merchant.EventMeeting = new BotEventMeeting(map, null, now.AddMinutes(10), Event: eventDefinition);
+        var guards = new[]
+        {
+            await this.CreateBotAsync("H", 4, 51).ConfigureAwait(false),
+            await this.CreateBotAsync("B", 8, 52).ConfigureAwait(false),
+        };
+
+        var formation = BotPartyComposer.Compose(
+            new[] { merchant }.Concat(guards).OrderBy(BotResetHandler.GetEffectiveLevel).ToList(),
+            bot => BotPartyIntentPlanner.GetIntent(bot, now),
+            now);
+
+        Assert.That(formation.Plans, Has.Count.EqualTo(1));
+        Assert.That(formation.Plans[0].Goal, Is.EqualTo(BotPartyGoal.MarketEscort));
+        Assert.That(formation.Plans[0].Members[0], Is.SameAs(merchant));
+    }
+
+    /// <summary>
     /// Tests that the escort around a merchant does not count as a player taking it into a party, which
     /// would end the shift before the bot reached its stall.
     /// </summary>

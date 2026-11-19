@@ -926,10 +926,16 @@ internal sealed class BotNavigator : AsyncDisposable
 
         if (map.Definition.Number != attempt.Map.Number)
         {
-            if (this._timeProvider.GetUtcNow() - this._lastWarpUtc < FollowWarpCooldown
-                || BotEventMeetingPlanner.GetLegalWarps(this._player, attempt.Map).FirstOrDefault() is not { Gate: { } gate })
+            if (BotEventMeetingPlanner.GetLegalWarps(this._player, attempt.Map).FirstOrDefault() is not { Gate: { } gate })
             {
                 this._player.BossAttempt = null;
+                return false;
+            }
+
+            if (this._timeProvider.GetUtcNow() - this._lastWarpUtc < FollowWarpCooldown)
+            {
+                // Like following a leader: a warp which just happened only defers this one, it does not
+                // abandon the attempt. The routine holds the bot on its current map until the cooldown ends.
                 return false;
             }
 
