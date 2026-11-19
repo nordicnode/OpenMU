@@ -13,8 +13,8 @@ using MUnique.OpenMU.GameLogic.Offline;
 /// </summary>
 /// <param name="Persona">The persona this profile belongs to.</param>
 /// <param name="CombatTolerance">
-/// Factor applied to the share of its health a single monster hit may take. Below 1 the bot accepts
-/// bigger hits (aggressive), above 1 it keeps more distance (cautious).
+/// Factor applied to the share of its health a single monster hit may take, so it scales the damage the
+/// bot accepts: above 1 it takes bigger hits (aggressive), below 1 it keeps more distance (cautious).
 /// </param>
 /// <param name="ShoppingSlotBonus">
 /// Extra free backpack slots below which the bot heads to a merchant. Positive means it shops earlier.
@@ -34,8 +34,8 @@ internal sealed record BotPersonaProfile(
     private static readonly BotPersonaProfile[] Profiles =
     [
         new(BotPersona.Balanced, CombatTolerance: 1f, ShoppingSlotBonus: 0, SocialDelayFactor: 1f),
-        new(BotPersona.Aggressive, CombatTolerance: 0.85f, ShoppingSlotBonus: 0, SocialDelayFactor: 0.9f),
-        new(BotPersona.Cautious, CombatTolerance: 1.25f, ShoppingSlotBonus: 4, SocialDelayFactor: 1.15f),
+        new(BotPersona.Aggressive, CombatTolerance: 1.25f, ShoppingSlotBonus: 0, SocialDelayFactor: 0.9f),
+        new(BotPersona.Cautious, CombatTolerance: 0.85f, ShoppingSlotBonus: 4, SocialDelayFactor: 1.15f),
         new(BotPersona.Trader, CombatTolerance: 1f, ShoppingSlotBonus: 10, SocialDelayFactor: 1f),
         new(BotPersona.Social, CombatTolerance: 1f, ShoppingSlotBonus: 0, SocialDelayFactor: 0.55f),
     ];

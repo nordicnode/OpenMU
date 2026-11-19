@@ -4,7 +4,14 @@
 
 namespace MUnique.OpenMU.Tests;
 
+using MUnique.OpenMU.AttributeSystem;
+using MUnique.OpenMU.DataModel.Configuration;
+using MUnique.OpenMU.GameLogic;
+using MUnique.OpenMU.GameLogic.Attributes;
 using MUnique.OpenMU.GameLogic.Bots;
+using MUnique.OpenMU.GameLogic.Offline;
+using MonsterAttribute = MUnique.OpenMU.Persistence.BasicModel.MonsterAttribute;
+using MonsterDefinition = MUnique.OpenMU.Persistence.BasicModel.MonsterDefinition;
 
 /// <summary>
 /// Tests the human-like variability of the bot population: the persona mix, the deterministic persona
@@ -146,10 +153,10 @@ public class BotVariabilityTest
         var trader = BotPersonaProfile.Of(BotPersona.Trader);
         var social = BotPersonaProfile.Of(BotPersona.Social);
 
-        Assert.That(aggressive.CombatTolerance, Is.LessThan(balanced.CombatTolerance));
-        Assert.That(cautious.CombatTolerance, Is.GreaterThan(balanced.CombatTolerance));
-        Assert.That(aggressive.CombatTolerance, Is.GreaterThanOrEqualTo(0.8f));
-        Assert.That(cautious.CombatTolerance, Is.LessThanOrEqualTo(1.3f));
+        Assert.That(aggressive.CombatTolerance, Is.GreaterThan(balanced.CombatTolerance));
+        Assert.That(cautious.CombatTolerance, Is.LessThan(balanced.CombatTolerance));
+        Assert.That(aggressive.CombatTolerance, Is.LessThanOrEqualTo(1.3f));
+        Assert.That(cautious.CombatTolerance, Is.GreaterThanOrEqualTo(0.8f));
         Assert.That(trader.ShoppingSlotBonus, Is.GreaterThan(0));
         Assert.That(social.SocialDelayFactor, Is.LessThan(balanced.SocialDelayFactor));
         Assert.That(cautious.SocialDelayFactor, Is.GreaterThan(balanced.SocialDelayFactor));
@@ -169,5 +176,67 @@ public class BotVariabilityTest
 
         player.Persona = BotPersona.Cautious;
         Assert.That(BotPersonaProfile.For(player), Is.SameAs(BotPersonaProfile.Of(BotPersona.Cautious)));
+    }
+
+    /// <summary>
+    /// The dial means what its name says: a hit which is too big for a cautious bot is still acceptable to
+    /// an aggressive one. Deliberately measured through <see cref="Offline.CombatHandler.IsSafeTarget"/>
+    /// rather than on the profile numbers, because a tolerance factor applied to a maximum is easy to get
+    /// backwards - and did ship backwards once.
+    /// </summary>
+    [Test]
+    public async ValueTask AggressiveAcceptsAHitWhichCautiousRefusesAsync()
+    {
+        var gameContext = GameContextTestHelper.CreateGameContext();
+        var bot = await PlayerTestHelper.CreateOfflineLevelingPlayerAsync(gameContext).ConfigureAwait(false);
+        await bot.PlayerState.TryAdvanceToAsync(PlayerState.EnteredWorld).ConfigureAwait(false);
+        bot.IsAlive = true;
+        bot.Attributes![Stats.Level] = 100;
+
+        // The test character class brings neither a damage stat nor a damage relation, so the attack power
+        // has to be added to the live attribute system. Without it IsSafeTarget refuses every fight for the
+        // attack check alone, and the damage-per-hit decision would never be reached.
+        Assert.That(bot.Attributes.TryAddStatAttribute(new StatAttribute(Stats.MinimumPhysBaseDmg, 1000)), Is.True);
+        Assert.That(bot.Attributes.TryAddStatAttribute(new StatAttribute(Stats.MaximumPhysBaseDmg, 1000)), Is.True);
+
+        // 17% of the bot's health per hit: above the balanced threshold (15%), and above what the cautious
+        // profile allows (12.75%), but below what the aggressive one accepts (18.75%). The values are read
+        // back, because the attribute system composes the maximum health of the character with its class
+        // and level - writing a base value does not necessarily define the final one.
+        var health = bot.Attributes[Stats.MaximumHealth];
+        Assert.That(health, Is.GreaterThan(0f));
+        var monster = CreateBruiserDefinition(bot.Attributes[Stats.DefensePvm] + (health * 0.17f));
+
+        bot.Persona = BotPersona.Cautious;
+        Assert.That(CombatHandler.IsSafeTarget(bot, monster), Is.False, "the cautious profile must keep its distance");
+
+        bot.Persona = BotPersona.Balanced;
+        Assert.That(CombatHandler.IsSafeTarget(bot, monster), Is.False, "the balanced profile keeps the original threshold");
+
+        bot.Persona = BotPersona.Aggressive;
+        Assert.That(CombatHandler.IsSafeTarget(bot, monster), Is.True, "the aggressive profile accepts the bigger hit");
+    }
+
+    /// <summary>
+    /// The monster of <see cref="AggressiveAcceptsAHitWhichCautiousRefusesAsync"/>: it hits hard, but dies in
+    /// one hit of the bot, so only the damage-per-hit check decides whether the fight is safe.
+    /// </summary>
+    /// <param name="damage">The average damage of one hit.</param>
+    /// <returns>The monster definition.</returns>
+    private static MonsterDefinition CreateBruiserDefinition(float damage)
+    {
+        var definition = new MonsterDefinition
+        {
+            Id = Guid.NewGuid(),
+            Number = 32123,
+            ObjectKind = NpcObjectKind.Monster,
+        };
+        definition.Attributes.Add(new MonsterAttribute { AttributeDefinition = Stats.Level, Value = 10 });
+        definition.Attributes.Add(new MonsterAttribute { AttributeDefinition = Stats.MinimumPhysBaseDmg, Value = damage });
+        definition.Attributes.Add(new MonsterAttribute { AttributeDefinition = Stats.MaximumPhysBaseDmg, Value = damage });
+        definition.Attributes.Add(new MonsterAttribute { AttributeDefinition = Stats.DefenseBase, Value = 0 });
+        definition.Attributes.Add(new MonsterAttribute { AttributeDefinition = Stats.MaximumHealth, Value = 1 });
+        definition.Attributes.Add(new MonsterAttribute { AttributeDefinition = Stats.AttackRatePvm, Value = 0 });
+        return definition;
     }
 }
