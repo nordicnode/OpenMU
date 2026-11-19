@@ -106,6 +106,7 @@ public partial class ItemTable<TItem>
     {
         base.OnParametersSet();
         this._showSearch = this.Value is not null && this.Value.Count > this._searchThreshold;
+        this.PruneEditContexts();
     }
 
     /// <inheritdoc />
@@ -134,6 +135,24 @@ public partial class ItemTable<TItem>
         }
 
         return editContext;
+    }
+
+    /// <summary>
+    /// Drops the edit contexts of items which are no longer in the collection, e.g. after the collection
+    /// was replaced or reloaded while the page stayed open.
+    /// </summary>
+    private void PruneEditContexts()
+    {
+        if (this._editContexts.Count == 0)
+        {
+            return;
+        }
+
+        var items = this.Value;
+        foreach (var item in this._editContexts.Keys.Where(item => items is null || !items.Contains(item)).ToList())
+        {
+            this._editContexts.Remove(item);
+        }
     }
 
     private void OnToggleCollapseClick()

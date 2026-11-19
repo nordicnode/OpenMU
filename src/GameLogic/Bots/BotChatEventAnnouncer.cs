@@ -161,6 +161,7 @@ internal sealed class BotChatEventAnnouncer
                 continue;
             }
 
+            BotChatReplySelector.RememberLine(throttle, bot, configuration.EventReminderLines, line);
             var values = BotChatValues.Create(bot);
             values["event"] = culture => definition.Name.GetTranslation(culture) ?? string.Empty;
             await BotChatSpeaker.SayAsync(bot, line.Text, values, gesture: line.Gesture).ConfigureAwait(false);
@@ -207,6 +208,7 @@ internal sealed class BotChatEventAnnouncer
             return;
         }
 
+        BotChatReplySelector.RememberLine(throttle, chosen, configuration.EventLines, line);
         chosen.EventMeeting = meeting! with { Event = definition };
 
         // The other bots which wait at the same place become its event party: one invitation then takes
@@ -249,6 +251,8 @@ internal sealed class BotChatEventAnnouncer
         {
             return;
         }
+
+        BotChatReplySelector.RememberLine(throttle, bot, configuration.InvasionLines, line);
 
         // A few bots which may reach the invaded map make it their goal and group up for the attempt.
         // The rest keep hunting; an invasion is an opportunity, not a draft.

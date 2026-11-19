@@ -464,11 +464,15 @@ public class BotChatTest
             new() { Text = "third" },
         };
 
-        var picked = Enumerable.Range(0, 3)
-            .Select(_ => BotChatReplySelector.PickLineFor(throttle, bot, lines))
-            .ToList();
+        var picked = new List<BotChatLine>();
+        for (var i = 0; i < 3; i++)
+        {
+            var line = BotChatReplySelector.PickLineFor(throttle, bot, lines);
+            Assert.That(line, Is.Not.Null);
+            picked.Add(line!);
+            BotChatReplySelector.RememberLine(throttle, bot, lines, line!);
+        }
 
-        Assert.That(picked, Has.None.Null);
         Assert.That(picked.Distinct().Count(), Is.EqualTo(3));
         Assert.That(BotChatReplySelector.PickLineFor(throttle, bot, lines), Is.Not.Null);
     }
@@ -491,12 +495,82 @@ public class BotChatTest
             new() { Text = "third" },
         };
 
-        var picked = Enumerable.Range(0, 3)
-            .Select(_ => BotChatReplySelector.PickReplyFor(throttle, bot, listener, replies, "hello"))
-            .ToList();
+        var picked = new List<BotChatReply>();
+        for (var i = 0; i < 3; i++)
+        {
+            var reply = BotChatReplySelector.PickReplyFor(throttle, bot, listener, replies, "hello");
+            Assert.That(reply, Is.Not.Null);
+            picked.Add(reply!);
+            BotChatReplySelector.RememberReply(throttle, bot, listener, replies, reply!);
+        }
 
-        Assert.That(picked, Has.None.Null);
         Assert.That(picked.Distinct().Count(), Is.EqualTo(3));
+    }
+
+    /// <summary>
+    /// Picking a line doesn't use up the recent-line memory: a line which a budget, a mute or a
+    /// cooldown denies must not count as seen, so the bot can still say it later.
+    /// </summary>
+    /// <returns>The task.</returns>
+    [Test]
+    public async ValueTask PickingALineDoesNotUseTheMemoryAsync()
+    {
+        var gameContext = GameContextTestHelper.CreateGameContext();
+        var bot = await PlayerTestHelper.CreateOfflineLevelingPlayerAsync(gameContext).ConfigureAwait(false);
+        var throttle = new BotChatThrottle();
+        var lines = new List<BotChatLine>
+        {
+            new() { Text = "first" },
+            new() { Text = "second" },
+        };
+
+        Assert.That(throttle.TryReserveChat(bot, Start, TimeSpan.FromMinutes(5)), Is.True);
+
+        var denied = BotChatReplySelector.PickLineFor(throttle, bot, lines);
+        Assert.That(denied, Is.Not.Null);
+
+        // The bot's cooldown denies the line; without a reserve nothing is remembered.
+        Assert.That(throttle.TryReserveChat(bot, Start.AddMinutes(1), TimeSpan.FromMinutes(5)), Is.False);
+        Assert.That(throttle.GetRecentLines(bot, lines), Is.Empty);
+
+        // After the next successful reserve, the caller records the line which is then said.
+        Assert.That(throttle.TryReserveChat(bot, Start.AddMinutes(5), TimeSpan.FromMinutes(5)), Is.True);
+        var said = BotChatReplySelector.PickLineFor(throttle, bot, lines);
+        Assert.That(said, Is.Not.Null);
+        BotChatReplySelector.RememberLine(throttle, bot, lines, said!);
+        Assert.That(throttle.GetRecentLines(bot, lines), Is.EquivalentTo(new[] { said! }));
+    }
+
+    /// <summary>
+    /// Picking a reply doesn't use up the recent-line memory either: only a reply which was reserved
+    /// for sending is remembered.
+    /// </summary>
+    /// <returns>The task.</returns>
+    [Test]
+    public async ValueTask PickingAReplyDoesNotUseTheMemoryAsync()
+    {
+        var gameContext = GameContextTestHelper.CreateGameContext();
+        var bot = await PlayerTestHelper.CreateOfflineLevelingPlayerAsync(gameContext).ConfigureAwait(false);
+        var listener = await PlayerTestHelper.CreatePlayerAsync(gameContext).ConfigureAwait(false);
+        var throttle = new BotChatThrottle();
+        var replies = new List<BotChatReply>
+        {
+            new() { Text = "first" },
+            new() { Text = "second" },
+        };
+
+        Assert.That(throttle.TryReserveWhisperReply(bot, Start, TimeSpan.FromMinutes(5)), Is.True);
+
+        var denied = BotChatReplySelector.PickReplyFor(throttle, bot, listener, replies, "hello");
+        Assert.That(denied, Is.Not.Null);
+        Assert.That(throttle.TryReserveWhisperReply(bot, Start.AddMinutes(1), TimeSpan.FromMinutes(5)), Is.False);
+        Assert.That(throttle.GetRecentLines(bot, replies), Is.Empty);
+
+        Assert.That(throttle.TryReserveWhisperReply(bot, Start.AddMinutes(5), TimeSpan.FromMinutes(5)), Is.True);
+        var said = BotChatReplySelector.PickReplyFor(throttle, bot, listener, replies, "hello");
+        Assert.That(said, Is.Not.Null);
+        BotChatReplySelector.RememberReply(throttle, bot, listener, replies, said!);
+        Assert.That(throttle.GetRecentLines(bot, replies), Is.EquivalentTo(new[] { said! }));
     }
 
     /// <summary>
@@ -551,7 +625,9 @@ public class BotChatTest
         throttle.Configure(globalMessagesPerMinute: 0, channelMessagesPerMinute: 0, recentLineMemory: 4);
         for (var i = 0; i < 4; i++)
         {
-            BotChatReplySelector.PickLineFor(throttle, bot, lines);
+            var line = BotChatReplySelector.PickLineFor(throttle, bot, lines);
+            Assert.That(line, Is.Not.Null);
+            BotChatReplySelector.RememberLine(throttle, bot, lines, line!);
         }
 
         Assert.That(throttle.GetRecentLines(bot, lines), Has.Count.EqualTo(4));
@@ -561,7 +637,9 @@ public class BotChatTest
 
         throttle.Configure(globalMessagesPerMinute: 0, channelMessagesPerMinute: 0, recentLineMemory: 0);
         Assert.That(throttle.GetRecentLines(bot, lines), Is.Empty);
-        Assert.That(BotChatReplySelector.PickLineFor(throttle, bot, lines), Is.Not.Null);
+        var unpicked = BotChatReplySelector.PickLineFor(throttle, bot, lines);
+        Assert.That(unpicked, Is.Not.Null);
+        BotChatReplySelector.RememberLine(throttle, bot, lines, unpicked!);
         Assert.That(throttle.GetRecentLines(bot, lines), Is.Empty);
     }
 

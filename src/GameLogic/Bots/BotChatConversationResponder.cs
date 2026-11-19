@@ -66,23 +66,32 @@ internal sealed class BotChatConversationResponder
     /// </summary>
     /// <param name="configuration">The chat configuration.</param>
     /// <param name="state">The state of the meeting.</param>
-    /// <param name="throttle">The chat throttle which remembers the recent lines; <c>null</c> to pick without memory.</param>
+    /// <param name="throttle">The chat throttle which knows the recent lines; <c>null</c> to pick without memory.</param>
     /// <param name="bot">The bot which answers; required together with the throttle.</param>
     /// <returns>The line, or <c>null</c> when the configured list has no usable line.</returns>
     internal static BotChatLine? GetMeetingStatusLine(BotChatConfiguration configuration, BotMeetingState state, BotChatThrottle? throttle = null, Player? bot = null)
     {
-        var lines = state switch
-        {
-            BotMeetingState.Waiting => configuration.PartyWaitingLines ?? [],
-            BotMeetingState.Announced or BotMeetingState.Traveling => configuration.PartyOnTheWayLines ?? [],
-            _ => null,
-        };
+        var lines = GetMeetingStatusLines(configuration, state);
         return lines is null
             ? null
             : throttle is not null && bot is not null
                 ? BotChatReplySelector.PickLineFor(throttle, bot, lines)
                 : BotChatComposer.PickCurrentLine(lines);
     }
+
+    /// <summary>
+    /// Gets the configured lines which answer a whisper to a bot with an active meeting.
+    /// </summary>
+    /// <param name="configuration">The chat configuration.</param>
+    /// <param name="state">The state of the meeting.</param>
+    /// <returns>The lines of the state, or <c>null</c> for a terminal state.</returns>
+    private static ICollection<BotChatLine>? GetMeetingStatusLines(BotChatConfiguration configuration, BotMeetingState state)
+        => state switch
+        {
+            BotMeetingState.Waiting => configuration.PartyWaitingLines ?? [],
+            BotMeetingState.Announced or BotMeetingState.Traveling => configuration.PartyOnTheWayLines ?? [],
+            _ => null,
+        };
 
     /// <summary>
     /// Answers the player's suggestion where to meet: it names the place back, and either walks to its
@@ -113,6 +122,7 @@ internal sealed class BotChatConversationResponder
             if (throttle.TryReserveWhisperReply(bot, DateTime.UtcNow, configuration.WhisperReplyCooldown)
                 && BotChatReplySelector.PickLineFor(throttle, bot, configuration.PartyAskWhereLines, requester) is { } askLine)
             {
+                BotChatReplySelector.RememberLine(throttle, bot, configuration.PartyAskWhereLines, askLine, requester);
                 WhisperLater(bot, requester, askLine, values, language);
             }
 
@@ -137,6 +147,7 @@ internal sealed class BotChatConversationResponder
             // The offer stays open: the player may name another place until it expires.
             if (BotChatReplySelector.PickLineFor(throttle, bot, configuration.PartyCantGoLines, requester) is { } cantGoLine)
             {
+                BotChatReplySelector.RememberLine(throttle, bot, configuration.PartyCantGoLines, cantGoLine, requester);
                 WhisperLater(bot, requester, cantGoLine, values, language);
             }
 
@@ -147,6 +158,7 @@ internal sealed class BotChatConversationResponder
         bot.EventMeeting = new BotEventMeeting(map, entry.Position, DateTime.UtcNow + configuration.PartyMeetingWaitTime, entry.Gate);
         if (BotChatReplySelector.PickLineFor(throttle, bot, configuration.PartyOnTheWayLines, requester) is { } onTheWayLine)
         {
+            BotChatReplySelector.RememberLine(throttle, bot, configuration.PartyOnTheWayLines, onTheWayLine, requester);
             WhisperLater(bot, requester, onTheWayLine, values, language);
         }
     }
@@ -170,13 +182,15 @@ internal sealed class BotChatConversationResponder
         }
 
         var throttle = this._getThrottle(bot.GameContext);
-        var line = GetMeetingStatusLine(configuration, meeting.State, throttle, bot);
-        if (line is null
+        var lines = GetMeetingStatusLines(configuration, meeting.State);
+        if (lines is null
+            || BotChatReplySelector.PickLineFor(throttle, bot, lines) is not { } line
             || !throttle.TryReserveWhisperReply(bot, DateTime.UtcNow, configuration.WhisperReplyCooldown))
         {
             return false;
         }
 
+        BotChatReplySelector.RememberLine(throttle, bot, lines, line);
         var values = BotChatValues.Create(bot);
         values["player"] = _ => requester.SelectedCharacter?.Name ?? string.Empty;
         values["event"] = culture => meeting.Event?.Name.GetTranslation(culture) ?? string.Empty;

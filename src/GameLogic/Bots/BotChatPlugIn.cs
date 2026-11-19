@@ -145,6 +145,7 @@ public class BotChatPlugIn
             return;
         }
 
+        BotChatReplySelector.RememberLine(throttle, player, configuration.LevelMilestoneLines, line);
         RunLater(
             player.GameContext,
             BotChatTiming.RandomDelay(BotChatTiming.LevelMilestoneDelaySeconds),
@@ -190,14 +191,33 @@ public class BotChatPlugIn
         }
 
         var throttle = this.GetThrottle(receiver.GameContext);
-        if ((BotChatReplySelector.PickMerchantReplyFor(receiver, throttle, sender, message, configuration)
-             ?? BotChatReplySelector.PickReplyFor(throttle, receiver, sender, configuration.WhisperReplies, message)) is not { } line
+        var replies = configuration.WhisperReplies;
+        var line = BotChatReplySelector.PickMerchantReplyFor(receiver, throttle, sender, message, configuration);
+        if (line is not null)
+        {
+            replies = configuration.MerchantWhisperReplies;
+        }
+        else
+        {
+            line = BotChatReplySelector.PickReplyFor(throttle, receiver, sender, replies, message);
+        }
+
+        if (line is null
             || !throttle.TryReserveWhisperReply(receiver, DateTime.UtcNow, configuration.WhisperReplyCooldown))
         {
             return;
         }
 
-        var text = this.GetAnswerText(receiver, line.Text, configuration);
+        var text = this.GetAnswerText(receiver, line.Text, configuration, out var substitute);
+        if (substitute is not null)
+        {
+            BotChatReplySelector.RememberLine(throttle, receiver, configuration.WithoutWingsLines, substitute);
+        }
+        else
+        {
+            BotChatReplySelector.RememberReply(throttle, receiver, sender, replies, line);
+        }
+
         var values = BotChatValues.Create(receiver);
         var senderName = sender.SelectedCharacter?.Name ?? string.Empty;
         values["player"] = _ => senderName;
@@ -240,14 +260,17 @@ public class BotChatPlugIn
         var inviterIsFriend = inviter.SelectedCharacter?.Name is { } name && throttle.IsFriend(bot, name);
         throttle.RememberFriends(bot, (bot.Party?.PartyList ?? []).OfType<Player>().Append(inviter).Where(p => p is not OfflinePlayer).Select(p => p.SelectedCharacter?.Name).OfType<string>());
 
+        var joinedLines = inviterIsFriend && partyConfiguration.FriendLines.Count > 0 ? partyConfiguration.FriendLines : partyConfiguration.PartyJoinedLines;
         if (partyConfiguration is not { PartyChatChancePercent: > 0 } configuration
             || !Rand.NextRandomBool(configuration.PartyChatChancePercent)
             || bot.Party is not { } party
-            || BotChatReplySelector.PickLineFor(throttle, bot, inviterIsFriend && configuration.FriendLines.Count > 0 ? configuration.FriendLines : configuration.PartyJoinedLines, inviter) is not { } line
+            || BotChatReplySelector.PickLineFor(throttle, bot, joinedLines, inviter) is not { } line
             || !throttle.TryReserveChat(bot, DateTime.UtcNow, configuration.BotChatCooldown, BotChatChannel.Party))
         {
             return;
         }
+
+        BotChatReplySelector.RememberLine(throttle, bot, joinedLines, line, inviter);
 
         var values = BotChatValues.Create(bot);
         var inviterName = inviter.SelectedCharacter?.Name ?? string.Empty;
@@ -272,14 +295,16 @@ public class BotChatPlugIn
         var definition = miniGame.Definition;
         foreach (var bot in speakers)
         {
+            var throttle = this.GetThrottle(bot.GameContext);
             if (bot.Party is not { } party
                 || !Rand.NextRandomBool(configuration.PartyChatChancePercent)
-                || BotChatReplySelector.PickLineFor(this.GetThrottle(bot.GameContext), bot, configuration.EventFinishedLines) is not { } line
-                || !this.GetThrottle(bot.GameContext).TryReserveChat(bot, DateTime.UtcNow, configuration.BotChatCooldown, BotChatChannel.Party))
+                || BotChatReplySelector.PickLineFor(throttle, bot, configuration.EventFinishedLines) is not { } line
+                || !throttle.TryReserveChat(bot, DateTime.UtcNow, configuration.BotChatCooldown, BotChatChannel.Party))
             {
                 continue;
             }
 
+            BotChatReplySelector.RememberLine(throttle, bot, configuration.EventFinishedLines, line);
             var values = BotChatValues.Create(bot);
             values["event"] = culture => definition.Name.GetTranslation(culture) ?? string.Empty;
             RunLater(bot.GameContext, BotChatTiming.TypingDelay(line.Text), () => BotChatSpeaker.PartySayAsync(bot, party, line.Text, values, gesture: line.Gesture));
@@ -310,12 +335,14 @@ public class BotChatPlugIn
         {
             // Read after the delay: the revenge plugin registers the death in the same notification.
             var lines = bot.GetRecentDeathCount(killerPlayer) >= OfflinePlayer.RepeatedKillThreshold ? configuration.KilledAgainLines : configuration.KilledLines;
+            var throttle = this.GetThrottle(bot.GameContext);
             if (!this.MayTalkUnasked(bot, configuration)
-                || BotChatReplySelector.PickLineFor(this.GetThrottle(bot.GameContext), bot, lines, killerPlayer) is not { } line)
+                || BotChatReplySelector.PickLineFor(throttle, bot, lines, killerPlayer) is not { } line)
             {
                 return ValueTask.CompletedTask;
             }
 
+            BotChatReplySelector.RememberLine(throttle, bot, lines, line, killerPlayer);
             var values = BotChatValues.Create(bot);
             var killerName = killerPlayer.SelectedCharacter?.Name ?? string.Empty;
             values["player"] = _ => killerName;
@@ -370,15 +397,39 @@ public class BotChatPlugIn
         }
 
         if (mentionedBots.FirstOrDefault(BotChatAudience.IsAvailable) is not { } bot
-            || !Rand.NextRandomBool(configuration.WhisperReplyChancePercent)
-            || (BotChatReplySelector.PickMerchantReplyFor(bot, this.GetThrottle(bot.GameContext), sender, message, configuration)
-                ?? BotChatReplySelector.PickReplyFor(this.GetThrottle(bot.GameContext), bot, sender, configuration.WhisperReplies, message)) is not { } line
-            || !this.GetThrottle(bot.GameContext).TryReserveWhisperReply(bot, DateTime.UtcNow, configuration.WhisperReplyCooldown))
+            || !Rand.NextRandomBool(configuration.WhisperReplyChancePercent))
         {
             return;
         }
 
-        var text = this.GetAnswerText(bot, line.Text, configuration);
+        var throttle = this.GetThrottle(bot.GameContext);
+        var replies = configuration.WhisperReplies;
+        var line = BotChatReplySelector.PickMerchantReplyFor(bot, throttle, sender, message, configuration);
+        if (line is not null)
+        {
+            replies = configuration.MerchantWhisperReplies;
+        }
+        else
+        {
+            line = BotChatReplySelector.PickReplyFor(throttle, bot, sender, replies, message);
+        }
+
+        if (line is null
+            || !throttle.TryReserveWhisperReply(bot, DateTime.UtcNow, configuration.WhisperReplyCooldown))
+        {
+            return;
+        }
+
+        var text = this.GetAnswerText(bot, line.Text, configuration, out var substitute);
+        if (substitute is not null)
+        {
+            BotChatReplySelector.RememberLine(throttle, bot, configuration.WithoutWingsLines, substitute);
+        }
+        else
+        {
+            BotChatReplySelector.RememberReply(throttle, bot, sender, replies, line);
+        }
+
         var values = BotChatValues.Create(bot);
         values["player"] = _ => senderName;
         var language = BotChatComposer.GetLanguage(message, configuration);
@@ -487,6 +538,7 @@ public class BotChatPlugIn
             return;
         }
 
+        BotChatReplySelector.RememberLine(throttle, bot, configuration.NotableMonsterLines, line);
         var values = BotChatValues.Create(bot);
         var monsterName = monster.Definition.Designation;
         values["monster"] = culture => monsterName.GetTranslation(culture) ?? string.Empty;
@@ -517,6 +569,7 @@ public class BotChatPlugIn
                 return;
             }
 
+            BotChatReplySelector.RememberLine(throttle, bot, configuration.OwnWingsLines, line);
             await BotChatSpeaker.SayAsync(bot, line.Text, BotChatValues.Create(bot), gesture: line.Gesture).ConfigureAwait(false);
         });
     }
@@ -584,6 +637,8 @@ public class BotChatPlugIn
                 // Taken by another player's search since the candidates were picked.
                 continue;
             }
+
+            BotChatReplySelector.RememberLine(throttle, bot, configuration.PartyVolunteerLines, line);
 
             delay += BotChatTiming.RandomDelay(BotChatTiming.PartyVolunteerSpacingSeconds);
             var whisperDelay = delay + BotChatTiming.TypingDelay(line.Text);
@@ -664,12 +719,27 @@ public class BotChatPlugIn
     /// Gets the text a bot answers with: the chosen reply - unless it names the bot's wings and the
     /// bot has none, then one of the <see cref="BotChatConfiguration.WithoutWingsLines"/>.
     /// </summary>
-    private LocalizedString GetAnswerText(Player bot, LocalizedString text, BotChatConfiguration configuration)
-        => text.ValueInNeutralLanguage.Contains("{wings}", StringComparison.Ordinal)
-           && BotChatValues.GetWings(bot) is null
-           && BotChatReplySelector.PickLineFor(this.GetThrottle(bot.GameContext), bot, configuration.WithoutWingsLines) is { } withoutWings
-            ? withoutWings.Text
-            : text;
+    /// <param name="bot">The bot which answers.</param>
+    /// <param name="text">The text of the chosen reply.</param>
+    /// <param name="configuration">The chat configuration.</param>
+    /// <param name="substitute">The line which replaced the text, or <c>null</c> when the text is used.</param>
+    /// <returns>The text to send.</returns>
+    /// <remarks>
+    /// The caller remembers the returned <paramref name="substitute"/> line or the chosen reply after
+    /// it reserved the message - never the reply whose text was replaced.
+    /// </remarks>
+    private LocalizedString GetAnswerText(Player bot, LocalizedString text, BotChatConfiguration configuration, out BotChatLine? substitute)
+    {
+        substitute = null;
+        if (!text.ValueInNeutralLanguage.Contains("{wings}", StringComparison.Ordinal)
+            || BotChatValues.GetWings(bot) is not null)
+        {
+            return text;
+        }
+
+        substitute = BotChatReplySelector.PickLineFor(this.GetThrottle(bot.GameContext), bot, configuration.WithoutWingsLines);
+        return substitute?.Text ?? text;
+    }
 
     /// <summary>
     /// Determines whether the bot may say something nobody asked for in the normal chat: not while
@@ -714,7 +784,16 @@ public class BotChatPlugIn
             return;
         }
 
-        var text = this.GetAnswerText(speaker, line.Text, configuration);
+        var text = this.GetAnswerText(speaker, line.Text, configuration, out var substitute);
+        if (substitute is not null)
+        {
+            BotChatReplySelector.RememberLine(throttle, speaker, configuration.WithoutWingsLines, substitute);
+        }
+        else
+        {
+            BotChatReplySelector.RememberReply(throttle, speaker, sender, configuration.WhisperReplies, line);
+        }
+
         var values = BotChatValues.Create(speaker);
         values["player"] = _ => senderName;
         var language = BotChatComposer.GetLanguage(message, configuration);
@@ -736,19 +815,33 @@ public class BotChatPlugIn
 
         var bot = new[] { conversation.First, conversation.Second }.Where(b => BotChatAudience.IsAvailable(b) && BotChatAudience.IsInHearingRange(b, sender)).OrderBy(_ => Rand.NextInt(0, 2)).FirstOrDefault();
         var senderThrottle = this.GetThrottle(sender.GameContext);
-        LocalizedString? text = bot is null
-            ? null
-            : BotChatReplySelector.PickReplyFor(senderThrottle, bot, sender, configuration.WhisperReplies, message, requireKeyword: true) is { } reply
-                ? reply.Text
-                : BotChatReplySelector.PickLineFor(senderThrottle, bot, configuration.ConversationJoinLines)?.Text;
-        if (bot is null
-            || text is not { } chosen
+        if (bot is null)
+        {
+            return;
+        }
+
+        var reply = BotChatReplySelector.PickReplyFor(senderThrottle, bot, sender, configuration.WhisperReplies, message, requireKeyword: true);
+        var joinLine = reply is null ? BotChatReplySelector.PickLineFor(senderThrottle, bot, configuration.ConversationJoinLines) : null;
+        if ((reply is null && joinLine is null)
             || !this.GetThrottle(bot.GameContext).TryReserveWhisperReply(bot, DateTime.UtcNow, configuration.WhisperReplyCooldown))
         {
             return;
         }
 
-        var answer = this.GetAnswerText(bot, chosen, configuration);
+        var chosen = reply?.Text ?? joinLine!.Text;
+        var answer = this.GetAnswerText(bot, chosen, configuration, out var substitute);
+        if (substitute is not null)
+        {
+            BotChatReplySelector.RememberLine(senderThrottle, bot, configuration.WithoutWingsLines, substitute);
+        }
+        else if (reply is not null)
+        {
+            BotChatReplySelector.RememberReply(senderThrottle, bot, sender, configuration.WhisperReplies, reply);
+        }
+        else
+        {
+            BotChatReplySelector.RememberLine(senderThrottle, bot, configuration.ConversationJoinLines, joinLine!);
+        }
 
         var values = BotChatValues.Create(bot);
         values["player"] = _ => senderName;
@@ -762,10 +855,16 @@ public class BotChatPlugIn
     /// </summary>
     private void DeclineLater(Player bot, Player requester, BotChatConfiguration configuration, ICollection<BotChatLine> lines, Func<ValueTask>? refuse)
     {
+        var throttle = this.GetThrottle(bot.GameContext);
         var whisper = configuration.DeclineReplyChancePercent > 0
                       && Rand.NextRandomBool(configuration.DeclineReplyChancePercent)
-                      && this.GetThrottle(bot.GameContext).TryReserveWhisperReply(bot, DateTime.UtcNow, configuration.WhisperReplyCooldown);
-        var line = whisper ? BotChatReplySelector.PickLineFor(this.GetThrottle(bot.GameContext), bot, lines, requester) : null;
+                      && throttle.TryReserveWhisperReply(bot, DateTime.UtcNow, configuration.WhisperReplyCooldown);
+        var line = whisper ? BotChatReplySelector.PickLineFor(throttle, bot, lines, requester) : null;
+        if (line is not null)
+        {
+            BotChatReplySelector.RememberLine(throttle, bot, lines, line, requester);
+        }
+
         var values = BotChatValues.Create(bot);
         var requesterName = requester.SelectedCharacter?.Name ?? string.Empty;
         values["player"] = _ => requesterName;
@@ -826,6 +925,7 @@ public class BotChatPlugIn
             && BotChatReplySelector.PickLineFor(throttle, speaker, configuration.MerchantLines) is { } line
             && throttle.TryReserveChat(speaker, DateTime.UtcNow, configuration.BotChatCooldown, category: BotChatCategory.Merchant, categoryCooldown: configuration.GetCategoryCooldown(BotChatCategory.Merchant)))
         {
+            BotChatReplySelector.RememberLine(throttle, speaker, configuration.MerchantLines, line);
             await BotChatSpeaker.SayAsync(speaker, line.Text, BotChatValues.Create(speaker), gesture: line.Gesture).ConfigureAwait(false);
         }
     }
@@ -982,6 +1082,7 @@ public class BotChatPlugIn
                 return;
             }
 
+            BotChatReplySelector.RememberLine(throttle, bot, lines, line, player);
             var values = BotChatValues.Create(bot);
             values["player"] = _ => playerName;
             addValues(values);
@@ -1028,14 +1129,20 @@ public class BotChatPlugIn
         var now = DateTime.UtcNow;
         if (bot is null
             || !this.MayTalkUnasked(bot, configuration)
-            || !throttle.IsCategoryDue(bot, BotChatCategory.Greeting, now, configuration.GetCategoryCooldown(BotChatCategory.Greeting))
-            || BotChatReplySelector.PickLineFor(throttle, bot, throttle.IsFriend(bot, playerName) && configuration.FriendLines.Count > 0 ? configuration.FriendLines : configuration.GreetingLines, player) is not { } line
+            || !throttle.IsCategoryDue(bot, BotChatCategory.Greeting, now, configuration.GetCategoryCooldown(BotChatCategory.Greeting)))
+        {
+            return;
+        }
+
+        var greetingLines = throttle.IsFriend(bot, playerName) && configuration.FriendLines.Count > 0 ? configuration.FriendLines : configuration.GreetingLines;
+        if (BotChatReplySelector.PickLineFor(throttle, bot, greetingLines, player) is not { } line
             || !throttle.TryReserveOccasion($"greeting {playerName}", now, configuration.GreetingCooldown)
             || !throttle.TryReserveChat(bot, now, configuration.BotChatCooldown, category: BotChatCategory.Greeting, categoryCooldown: configuration.GetCategoryCooldown(BotChatCategory.Greeting)))
         {
             return;
         }
 
+        BotChatReplySelector.RememberLine(throttle, bot, greetingLines, line, player);
         var values = BotChatValues.Create(bot);
         values["player"] = _ => playerName;
         await BotChatSpeaker.SayAsync(bot, line.Text, values, gesture: line.Gesture, toward: player).ConfigureAwait(false);
