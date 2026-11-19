@@ -265,7 +265,7 @@ internal static class BotMarketPlanner
             return EndReason.TimeIsUp;
         }
 
-        if (bot.Party is not null)
+        if (bot.Party is not null && !IsEscortOfOwnShift(bot))
         {
             return EndReason.JoinedParty;
         }
@@ -293,6 +293,20 @@ internal static class BotMarketPlanner
         }
 
         return EndReason.None;
+    }
+
+    /// <summary>
+    /// Determines whether the party is the escort which a goal-driven formation put around this
+    /// merchant (see <see cref="BotPartyComposer"/>). Such a party does not end the shift - it is what
+    /// keeps the merchant safe on the way to its stall.
+    /// </summary>
+    /// <param name="bot">The merchant.</param>
+    /// <returns><c>true</c>, if the bot leads its bot-only market escort party.</returns>
+    internal static bool IsEscortOfOwnShift(Player bot)
+    {
+        return bot is OfflinePlayer { PartyGoal: BotPartyGoal.MarketEscort, Party: { } party }
+               && ReferenceEquals(party.PartyMaster, bot)
+               && party.PartyList.All(member => member is Player { Account.IsBot: true });
     }
 
     /// <summary>

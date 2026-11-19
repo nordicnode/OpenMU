@@ -88,7 +88,30 @@ internal static class BotEquipmentHandler
             return 0;
         }
 
-        return Score(item) - plan.Removed.Sum(Score);
+        return GetItemScore(item) - plan.Removed.Sum(GetItemScore);
+    }
+
+    /// <summary>
+    /// A rough, monotonic quality score of an equippable item: the definition's drop level tracks the
+    /// gear tier, the item level its upgrades, and excellent/ancient options add their extra worth.
+    /// </summary>
+    /// <param name="item">The item to score.</param>
+    /// <returns>The score; 0 for an item without a definition.</returns>
+    internal static int GetItemScore(Item item)
+    {
+        if (item.Definition is not { } definition)
+        {
+            return 0;
+        }
+
+        var score = definition.DropLevel + (item.Level * 3);
+        score += 12 * (item.ItemOptions?.Count(o => o.ItemOption?.OptionType == ItemOptionTypes.Excellent) ?? 0);
+        if (item.ItemSetGroups?.Any(s => s.AncientSetDiscriminator != 0) == true)
+        {
+            score += 15;
+        }
+
+        return score;
     }
 
     /// <summary>
@@ -179,7 +202,7 @@ internal static class BotEquipmentHandler
             return null;
         }
 
-        var candidateScore = Score(item);
+        var candidateScore = GetItemScore(item);
         EquipSwap? best = null;
         var bestReplacedScore = 0;
         foreach (var slot in GetTargetSlots(definition))
@@ -210,7 +233,7 @@ internal static class BotEquipmentHandler
                 removed.Add(blocking);
             }
 
-            var replacedScore = removed.Sum(Score);
+            var replacedScore = removed.Sum(GetItemScore);
             if (removed.Count > 0 && replacedScore + UpgradeScoreMargin > candidateScore)
             {
                 continue;
@@ -270,27 +293,6 @@ internal static class BotEquipmentHandler
         }
 
         return BotProgression.IsPreferredWeaponGroup(characterClass, player.SelectedCharacter!.Name, (byte)definition.Group);
-    }
-
-    /// <summary>
-    /// A rough, monotonic quality score of an equippable item: the definition's drop level tracks the
-    /// gear tier, the item level its upgrades, and excellent/ancient options add their extra worth.
-    /// </summary>
-    private static int Score(Item item)
-    {
-        if (item.Definition is not { } definition)
-        {
-            return 0;
-        }
-
-        var score = definition.DropLevel + (item.Level * 3);
-        score += 12 * item.ItemOptions.Count(o => o.ItemOption?.OptionType == ItemOptionTypes.Excellent);
-        if (item.ItemSetGroups.Any(s => s.AncientSetDiscriminator != 0))
-        {
-            score += 15;
-        }
-
-        return score;
     }
 
     /// <summary>

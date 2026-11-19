@@ -202,7 +202,19 @@ internal sealed class BotChatEventAnnouncer
         }
 
         var (chosen, meeting) = candidates[Rand.NextInt(0, candidates.Count)];
-        chosen.EventMeeting = meeting;
+        chosen.EventMeeting = meeting! with { Event = definition };
+
+        // The other bots which wait at the same place become its event party: one invitation then takes
+        // the whole group in (see BotPartyHandler.TryMergeEventPartyAsync).
+        foreach (var candidate in candidates
+                     .Where(c => !ReferenceEquals(c.Bot, chosen)
+                                 && c.Bot.Party is null
+                                 && c.Meeting!.Map.Number == meeting!.Map.Number)
+                     .Take(BotPartyPolicy.MaxPartySize - 1))
+        {
+            candidate.Bot.EventMeeting = candidate.Meeting! with { Event = definition };
+        }
+
         var values = BotChatValues.Create(chosen);
         values["event"] = culture => definition.Name.GetTranslation(culture) ?? string.Empty;
         values["map"] = culture => meeting!.Map.Name.GetTranslation(culture) ?? string.Empty;
@@ -229,6 +241,26 @@ internal sealed class BotChatEventAnnouncer
         }
 
         var (bot, map) = candidates[Rand.NextInt(0, candidates.Count)];
+
+        // A few bots which may reach the invaded map make it their goal and group up for the attempt.
+        // The rest keep hunting; an invasion is an opportunity, not a draft.
+        var bossAttemptBots = candidates
+            .Where(candidate => candidate.Map.Number == map.Number
+                                && candidate.Bot is OfflinePlayer bot
+                                && (bot.Party is null || bot.Party.PartyList.All(member => member is Player { Account.IsBot: true })))
+            .Select(candidate => (OfflinePlayer)candidate.Bot)
+            .Distinct()
+            .Where(candidate => BotPartyReadiness.IsAvailable(candidate, BotPartyGoal.BossAttempt, now)
+                                && BotPartyReadiness.HasGearFor(candidate, BotPartyGoal.BossAttempt))
+            .OrderByDescending(BotPartyReadiness.GetReadiness)
+            .Take(BotPartyPolicy.MaxPartySize)
+            .ToList();
+        var until = now + BotPartyPolicy.BossAttemptDuration;
+        foreach (var candidate in bossAttemptBots)
+        {
+            candidate.BossAttempt = new BotBossAttempt(map, until);
+        }
+
         var values = BotChatValues.Create(bot);
         values["event"] = culture => GetInvasionName(invasion, culture);
         values["map"] = culture => map.Name.GetTranslation(culture) ?? string.Empty;

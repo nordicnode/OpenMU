@@ -442,10 +442,12 @@ bots with enough goods go, so there are few right after a server start. A bot
 leaves early when it sold everything, after 30 minutes without a sale, or when
 it logs out; then it warps home and goes back hunting, and its next shift is two
 hours later at the earliest. A bot in a party of bots leaves it for the shift,
-like a player who goes selling; a party with a player is never left. At most 3
-bots start a shift every 30 seconds (`New merchants per 30 seconds`), so after a
-server start the market fills up within minutes and the parties don't fall apart
-at once. On a shift, a bot declines party invitations.
+like a player who goes selling; a party with a player is never left. On the way,
+a merchant gets a small escort of up to two geared bots which follow it to the
+stall and back; that escort is its own party goal and does not end the shift. At
+most 3 bots start a shift every 30 seconds (`New merchants per 30 seconds`), so
+after a server start the market fills up within minutes and the parties don't
+fall apart at once. On a shift, a bot declines party invitations.
 
 A bot buys nothing, so the zen and the jewels paid for its goods are removed
 right after each sale. There are no discounts - players would learn to wait for
@@ -461,6 +463,11 @@ has no ticket and does not farm for one. It enters when a player who leads a
 party with bots enters with their own ticket: the leader's entry legitimizes the
 visit for the whole group.
 
+Bots which announced an event wait for it at the meeting point, and those
+waiting at the same place form an event party. Inviting its leader takes the
+whole group along, so one invitation is enough to fill the player's party with
+bots which are ready for that event.
+
 Each bot is checked against the entry restrictions a player faces (the level
 bracket, including the separate one for the special characters, the master-class
 requirement, the player-killer rule). A bot which does not qualify leaves the
@@ -475,12 +482,23 @@ event; the survivors are warped out when the event ends.
 
 ### Company and rhythm
 
-Bots hunt in parties of two to five, grouped by level so the whole party can
-hunt the leader's maps. Each party holds exactly one energy elf buffer and
-one of each build at most, and buffers group up whenever a party can be
-formed around them. Generation sizes the buffer count to the expected party
-count. The elf heals, the buffs are shared,
-the party experience bonus applies. Parties re-form every hour.
+Bots hunt in parties of two to five. An experience party is grouped by level so
+the whole party can hunt the leader's maps. Each such party holds exactly one
+energy elf buffer and one of each build at most, and buffers group up whenever a
+party can be formed around them. Generation sizes the buffer count to the
+expected party count. The elf heals, the buffs are shared, and the party
+experience bonus applies.
+
+A party also has a goal, which decides who belongs together and when the group
+is rebalanced: experience grinding, waiting for a mini game event, joining an
+announced invasion as a boss attempt, or escorting a merchant to its stall. An
+event party gathers at the announced meeting point; a boss attempt is led by a
+geared vanguard and heads to the invaded map to fight its champions; a market
+escort is a merchant with up to two guards. The goal checks roles, gear and
+readiness, so a nearly naked bot is not carried into an event or an invasion.
+Stale groups — a member logged out, the group out-leveled its level gap, or the
+event, invasion or shift ended — are dissolved and re-formed every two minutes.
+Parties with a player are never touched this way.
 
 A player may invite a bot into their own party: it accepts after a human-like
 pause of a few seconds, as long as it is not in the middle of an errand. There is

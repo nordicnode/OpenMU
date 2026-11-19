@@ -25,4 +25,9 @@ using MUnique.OpenMU.Pathfinding;
 /// the one closest to the named coordinates - on a map like the Lost Tower, whose floors aren't connected
 /// by walkable ground, the only way to get there; <c>null</c> for a spawn gate of the map.
 /// </param>
-internal sealed record BotEventMeeting(GameMapDefinition Map, Point? NpcPosition, DateTime UntilUtc, ExitGate? Gate = null);
+/// <param name="Event">
+/// The mini game whose entrance opened, when the meeting was created by the event announcement (see
+/// <see cref="BotChatEventAnnouncer"/>). It carries the entry rules which make the waiting bots a
+/// goal-driven event party; <c>null</c> when a player named the place.
+/// </param>
+internal sealed record BotEventMeeting(GameMapDefinition Map, Point? NpcPosition, DateTime UntilUtc, ExitGate? Gate = null, MiniGameDefinition? Event = null);

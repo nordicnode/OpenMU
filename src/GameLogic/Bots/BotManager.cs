@@ -273,13 +273,16 @@ public sealed class BotManager
     /// <param name="gameContext">The game context (provides the party manager).</param>
     public async ValueTask FormPartiesAsync(IGameContext gameContext)
     {
+        await this.RebalancePartiesAsync().ConfigureAwait(false);
+
         var candidates = this._bots.Values
-            .Where(b => b.Party is null && b.Attributes is not null && b.MarketShift is null)
+            .Where(b => b.Party is null && b.Attributes is not null)
             .OrderBy(BotResetHandler.GetEffectiveLevel)
             .ToList();
 
-        var formation = BotPartyComposer.Compose(candidates);
-        await this.CreatePartiesAsync(gameContext, formation.Parties).ConfigureAwait(false);
+        var now = DateTime.UtcNow;
+        var formation = BotPartyComposer.Compose(candidates, bot => BotPartyIntentPlanner.GetIntent(bot, now), now);
+        await this.CreatePartiesAsync(gameContext, formation.Plans).ConfigureAwait(false);
         this.LogWaitingBuffers(formation.UnplacedBuffers);
     }
 
@@ -361,12 +364,21 @@ public sealed class BotManager
         }
     }
 
-    private async ValueTask CreatePartiesAsync(IGameContext gameContext, IReadOnlyList<IReadOnlyList<OfflinePlayer>> parties)
+    private async ValueTask CreatePartiesAsync(IGameContext gameContext, IReadOnlyList<BotPartyComposer.FormedParty> plans)
     {
-        foreach (var members in parties)
+        foreach (var plan in plans)
         {
+            var members = plan.Members;
             var party = gameContext.PartyManager.CreateParty();
             var added = 0;
+
+            // The goal is set before the first member joins: a merchant's next tick checks the party
+            // goal when it decides whether its shift continues (see BotMarketPlanner.GetEndReason).
+            foreach (var member in members)
+            {
+                member.PartyGoal = plan.Goal;
+            }
+
             foreach (var member in members)
             {
                 if (!await party.AddAsync(member).ConfigureAwait(false))
@@ -385,13 +397,65 @@ public sealed class BotManager
                     leader.Name,
                     members.Count - added,
                     members.Count);
+
+                for (var i = added; i < members.Count; i++)
+                {
+                    members[i].PartyGoal = BotPartyGoal.Experience;
+                }
             }
 
             leader.Logger.LogDebug(
-                "Formed bot party of {Count} around '{Leader}' (level {Level}).",
+                "Formed bot party of {Count} around '{Leader}' (level {Level}, goal {Goal}).",
                 added,
                 leader.Name,
-                BotResetHandler.GetEffectiveLevel(leader));
+                BotResetHandler.GetEffectiveLevel(leader),
+                plan.Goal);
+        }
+    }
+
+    /// <summary>
+    /// Dissolves bot-only parties which no longer fit their goal (a member logged out, the group
+    /// out-leveled the gap, or the event, invasion or shift is over), so the next composition pass can
+    /// regroup their members. Parties with a human are never touched.
+    /// </summary>
+    private async ValueTask RebalancePartiesAsync()
+    {
+        var now = DateTime.UtcNow;
+        var parties = this._bots.Values
+            .Select(bot => bot.Party)
+            .OfType<Party>()
+            .Distinct()
+            .ToList();
+        foreach (var party in parties)
+        {
+            if (!BotPartyComposer.IsStale(party, now))
+            {
+                continue;
+            }
+
+            var members = party.PartyList.OfType<OfflinePlayer>().ToList();
+            var goal = members[0].PartyGoal;
+            foreach (var member in members)
+            {
+                try
+                {
+                    await party.KickMySelfAsync(member).ConfigureAwait(false);
+                    member.PartyGoal = BotPartyGoal.Experience;
+                }
+                catch (Exception ex)
+                {
+                    member.Logger.LogWarning(ex, "Bot '{Name}' couldn't leave its stale party for rebalancing.", member.Name);
+                }
+            }
+
+            if (members.Count > 0)
+            {
+                members[0].Logger.LogDebug(
+                    "Dissolved a stale bot party of {Count} around '{Leader}' for rebalancing (goal {Goal}).",
+                    members.Count,
+                    members[0].Name,
+                    goal);
+            }
         }
     }
 

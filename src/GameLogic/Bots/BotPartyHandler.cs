@@ -156,6 +156,14 @@ internal static class BotPartyHandler
             return;
         }
 
+        // An event party which waited at the meeting point goes in together: a player who invites its
+        // leader takes the whole group, so the bots follow the player into the event like one party
+        // (see BotMiniGameHandler) instead of leaving the others behind.
+        if (await TryMergeEventPartyAsync(bot, requester).ConfigureAwait(false))
+        {
+            return;
+        }
+
         await LeaveBotPartyAsync(bot).ConfigureAwait(false);
         if (bot.Party is not null)
         {
@@ -191,12 +199,89 @@ internal static class BotPartyHandler
     }
 
     /// <summary>
+    /// Moves an event party which the bot leads into the inviter's party, as many members as fit. This
+    /// is what makes an event run a group: the player invites the bot which waited at the meeting point
+    /// and gets the other waiting bots with it.
+    /// </summary>
+    /// <param name="bot">The invited bot.</param>
+    /// <param name="requester">The player who sent the invitation.</param>
+    /// <returns><c>true</c>, if at least one bot joined the inviter's party this way.</returns>
+    private static async ValueTask<bool> TryMergeEventPartyAsync(OfflinePlayer bot, Player requester)
+    {
+        if (bot.Party is not { } botParty
+            || !ReferenceEquals(botParty.PartyMaster, bot)
+            || bot.PartyGoal != BotPartyGoal.EventRun)
+        {
+            return false;
+        }
+
+        var members = botParty.PartyList
+            .OfType<OfflinePlayer>()
+            .Where(member => member.Account?.IsBot == true)
+            .ToList();
+        if (members.Count != botParty.PartyList.Count)
+        {
+            return false;
+        }
+
+        Party target;
+        if (requester.Party is { } requesterParty)
+        {
+            if (!Equals(requesterParty.PartyMaster, requester))
+            {
+                return false;
+            }
+
+            target = requesterParty;
+        }
+        else
+        {
+            target = bot.GameContext.PartyManager.CreateParty();
+            if (!await target.AddAsync(requester).ConfigureAwait(false))
+            {
+                return false;
+            }
+        }
+
+        var moved = 0;
+        foreach (var member in members)
+        {
+            if (target.PartyList.Count >= target.MaxPartySize)
+            {
+                break;
+            }
+
+            // Leave the old group first: its cleanup resets the member's Party, which would otherwise
+            // overwrite the target party it was just added to.
+            await botParty.KickMySelfAsync(member).ConfigureAwait(false);
+            if (await target.AddAsync(member).ConfigureAwait(false))
+            {
+                member.PartyGoal = BotPartyGoal.Experience;
+                moved++;
+            }
+        }
+
+        if (moved == 0)
+        {
+            return false;
+        }
+
+        bot.Logger.LogDebug(
+            "Bot '{Name}' brings {Count} of its event party into the party of '{Requester}'.",
+            bot.Name,
+            moved,
+            requester.Name);
+        bot.GameContext.PlugInManager.GetPlugInPoint<IBotPartyJoinedPlugIn>()?.BotJoinedParty(bot, requester);
+        return true;
+    }
+
+    /// <summary>
     /// Lets the bot leave the bot-only party it hunts in, so it can join the player who invited it: a
     /// living player takes precedence over the bot's own company. When the bot LEADS that party, the
     /// group is broken up instead - the engine does not hand the mastership over to another member when
     /// the master leaves (it only removes them from the member list), which would leave the remaining
-    /// bots following a leader who is not in their party anymore. Their next hourly re-formation groups
-    /// them again (see <see cref="BotManager"/>).
+    /// bots following a leader who is not in their party anymore. The next re-formation groups them
+    /// again (see <see cref="BotManager"/>).
     /// </summary>
     private static async ValueTask LeaveBotPartyAsync(OfflinePlayer bot)
     {
@@ -210,13 +295,20 @@ internal static class BotPartyHandler
             bot.Logger.LogDebug("Bot '{Name}' breaks up its bot party to join a player.", bot.Name);
             foreach (var member in party.PartyList.ToList())
             {
+                if (member is OfflinePlayer other)
+                {
+                    other.PartyGoal = BotPartyGoal.Experience;
+                }
+
                 await party.KickMySelfAsync(member).ConfigureAwait(false);
             }
 
+            bot.PartyGoal = BotPartyGoal.Experience;
             return;
         }
 
         await party.KickMySelfAsync(bot).ConfigureAwait(false);
+        bot.PartyGoal = BotPartyGoal.Experience;
     }
 
     private static bool IsRequesterEligible(Player requester)

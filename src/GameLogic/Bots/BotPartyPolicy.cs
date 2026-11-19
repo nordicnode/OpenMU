@@ -22,10 +22,40 @@ internal static class BotPartyPolicy
     internal const int PartiedSharePercent = 80;
 
     /// <summary>
+    /// Share of the bot's level which its equipped gear score has to reach for an event run. An event
+    /// party enters content with a level bracket; a nearly naked bot would only be carried there.
+    /// </summary>
+    internal const double EventGearScorePerLevel = 0.35;
+
+    /// <summary>
+    /// Share of the bot's level which its equipped gear score has to reach for a boss attempt. Higher
+    /// than for an event: an invasion fights back with real damage instead of a level bracket.
+    /// </summary>
+    internal const double BossAttemptGearScorePerLevel = 0.75;
+
+    /// <summary>
+    /// Share of the bot's level which its equipped gear score has to reach to guard a merchant. A guard
+    /// only has to survive the trip through hostile ground.
+    /// </summary>
+    internal const double EscortGearScorePerLevel = 0.45;
+
+    /// <summary>
+    /// How many guards a merchant gets. More than two turns the escort into a hunting party which
+    /// blocks the market safezone.
+    /// </summary>
+    internal const int MarketEscortGuards = 2;
+
+    /// <summary>
     /// Planning divisor for population sizing. Below the 3.5 target mean:
     /// build key dedupe and level gaps truncate real parties.
     /// </summary>
     internal const double ExpectedPartySize = 3.0;
+
+    /// <summary>
+    /// How long an invasion stays a boss-attempt goal after it was announced. The invasion plugins run
+    /// for a few minutes; after that the map has nothing left to fight for the group.
+    /// </summary>
+    internal static readonly TimeSpan BossAttemptDuration = TimeSpan.FromMinutes(10);
 
     /// <summary>
     /// Estimates the party count for a population.

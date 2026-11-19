@@ -29,7 +29,13 @@ public class BotFeaturePlugIn : IFeaturePlugIn, IPeriodicTaskPlugIn, ISupportCus
     private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(15);
 
     private static readonly TimeSpan MaintenanceInterval = TimeSpan.FromSeconds(60);
-    private static readonly TimeSpan PartyReformInterval = TimeSpan.FromMinutes(60);
+
+    /// <summary>
+    /// How often unpartied bots are grouped and stale bot parties are rebalanced. Short enough to react
+    /// to a member logging out, an event opening or an invasion starting; long enough not to churn the
+    /// population for no reason (only stale parties are dissolved, the rest stays as it is).
+    /// </summary>
+    private static readonly TimeSpan PartyReformInterval = TimeSpan.FromMinutes(2);
 
     /// <summary>
     /// The typical activity of a player base by local hour (0..1): quietest in the early morning,
@@ -411,8 +417,8 @@ public class BotFeaturePlugIn : IFeaturePlugIn, IPeriodicTaskPlugIn, ISupportCus
 
     /// <summary>
     /// Runs the periodic post-spawn maintenance: the presence rotation (one bot in or out per pass, so
-    /// the population ebbs and flows smoothly over the day) and an hourly party re-formation which
-    /// groups bots that lost or never had a party (e.g. after rotating back in).
+    /// the population ebbs and flows smoothly over the day) and a periodic party re-formation which
+    /// regroups bots that lost their party and rebalances stale bot-only groups.
     /// </summary>
     private async ValueTask RunMaintenanceAsync(GameContext gameContext, ServerState state)
     {

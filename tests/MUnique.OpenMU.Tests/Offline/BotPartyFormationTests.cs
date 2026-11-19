@@ -5,10 +5,13 @@
 namespace MUnique.OpenMU.Tests.Offline;
 
 using MUnique.OpenMU.DataModel.Configuration;
+using MUnique.OpenMU.DataModel.Configuration.Items;
+using MUnique.OpenMU.DataModel.Entities;
 using MUnique.OpenMU.GameLogic;
 using MUnique.OpenMU.GameLogic.Attributes;
 using MUnique.OpenMU.GameLogic.Bots;
 using MUnique.OpenMU.GameLogic.Offline;
+using MUnique.OpenMU.Pathfinding;
 
 /// <summary>
 /// Tests for <see cref="BotPartyComposer"/>: one buffer per party,
@@ -142,6 +145,153 @@ public class BotPartyFormationTests
         }
     }
 
+    /// <summary>
+    /// Tests that bots waiting for the same event become an event-run party, so one invitation takes
+    /// the whole group in.
+    /// </summary>
+    [Test]
+    public async ValueTask EventRunnersGroupByMeetingAsync()
+    {
+        var now = DateTime.UtcNow;
+        var map = this._gameContext.Configuration.Maps.First();
+        var eventDefinition = new MiniGameDefinition { Type = MiniGameType.BloodCastle, GameLevel = 1 };
+        var meeting = new BotEventMeeting(map, null, now.AddMinutes(10), Event: eventDefinition);
+        var bots = new[]
+        {
+            await this.CreateBotAsync("A", 8, 40).ConfigureAwait(false),
+            await this.CreateBotAsync("H", 4, 41).ConfigureAwait(false),
+            await this.CreateBotAsync("B", 8, 42).ConfigureAwait(false),
+        };
+        foreach (var bot in bots)
+        {
+            bot.EventMeeting = meeting;
+            Assert.That(BotPartyReadiness.IsAvailable(bot, BotPartyGoal.EventRun, now), Is.True, $"available {bot.Name}");
+            Assert.That(BotPartyReadiness.HasGearFor(bot, BotPartyGoal.EventRun), Is.True, $"gear {bot.Name}: {BotPartyReadiness.GetGearScore(bot)} for level {BotPartyReadiness.GetLevel(bot)}");
+        }
+
+        var formation = BotPartyComposer.Compose(
+            bots.OrderBy(BotResetHandler.GetEffectiveLevel).ToList(),
+            bot => BotPartyIntentPlanner.GetIntent(bot, now),
+            now);
+
+        Assert.That(formation.Plans, Has.Count.EqualTo(1));
+        Assert.That(formation.Plans[0].Goal, Is.EqualTo(BotPartyGoal.EventRun));
+        Assert.That(formation.Plans[0].Members, Has.Count.InRange(2, 3));
+        Assert.That(formation.Plans[0].Intent.MiniGame, Is.SameAs(eventDefinition));
+    }
+
+    /// <summary>
+    /// Tests that a boss attempt is led by a geared vanguard and not by a buffer.
+    /// </summary>
+    [Test]
+    public async ValueTask BossAttemptIsLedByAVanguardAsync()
+    {
+        var now = DateTime.UtcNow;
+        var map = this._gameContext.Configuration.Maps.First();
+        var bots = new[]
+        {
+            await this.CreateBotAsync("A", 8, 50).ConfigureAwait(false),
+            await this.CreateBotAsync("H", 4, 51).ConfigureAwait(false),
+            await this.CreateBotAsync("B", 8, 52).ConfigureAwait(false),
+        };
+        foreach (var bot in bots)
+        {
+            bot.BossAttempt = new BotBossAttempt(map, now.AddMinutes(10));
+        }
+
+        var formation = BotPartyComposer.Compose(
+            bots.OrderBy(BotResetHandler.GetEffectiveLevel).ToList(),
+            bot => BotPartyIntentPlanner.GetIntent(bot, now),
+            now);
+
+        Assert.That(formation.Plans, Has.Count.EqualTo(1));
+        Assert.That(formation.Plans[0].Goal, Is.EqualTo(BotPartyGoal.BossAttempt));
+        Assert.That(BotPartyReadiness.GetRole(formation.Plans[0].Members[0]), Is.EqualTo(BotPartyRole.Vanguard));
+    }
+
+    /// <summary>
+    /// Tests that a merchant on its shift gets an escort of guards.
+    /// </summary>
+    [Test]
+    public async ValueTask MerchantGetsAnEscortAsync()
+    {
+        var now = DateTime.UtcNow;
+        var map = this._gameContext.Configuration.Maps.First();
+        var merchant = await this.CreateBotAsync("A", 4, 50).ConfigureAwait(false);
+        merchant.MarketShift = new BotMarketShift(map, new Point(10, 10), "Store", now, now.AddMinutes(30));
+        var guards = new[]
+        {
+            await this.CreateBotAsync("H", 4, 51).ConfigureAwait(false),
+            await this.CreateBotAsync("B", 8, 52).ConfigureAwait(false),
+        };
+
+        var formation = BotPartyComposer.Compose(
+            new[] { merchant }.Concat(guards).OrderBy(BotResetHandler.GetEffectiveLevel).ToList(),
+            bot => BotPartyIntentPlanner.GetIntent(bot, now),
+            now);
+
+        Assert.That(formation.Plans, Has.Count.EqualTo(1));
+        Assert.That(formation.Plans[0].Goal, Is.EqualTo(BotPartyGoal.MarketEscort));
+        Assert.That(formation.Plans[0].Members[0], Is.SameAs(merchant));
+        Assert.That(formation.Plans[0].Members, Has.Count.EqualTo(3));
+    }
+
+    /// <summary>
+    /// Tests that the escort around a merchant does not count as a player taking it into a party, which
+    /// would end the shift before the bot reached its stall.
+    /// </summary>
+    [Test]
+    public async ValueTask MerchantEscortKeepsTheShiftGoingAsync()
+    {
+        var now = DateTime.UtcNow;
+        var map = this._gameContext.Configuration.Maps.First();
+        var merchant = await this.CreateBotAsync("A", 4, 50).ConfigureAwait(false);
+        var guard = await this.CreateBotAsync("H", 4, 51).ConfigureAwait(false);
+        var party = this._gameContext.PartyManager.CreateParty();
+        await party.AddAsync(merchant).ConfigureAwait(false);
+        await party.AddAsync(guard).ConfigureAwait(false);
+        merchant.PartyGoal = BotPartyGoal.MarketEscort;
+        guard.PartyGoal = BotPartyGoal.MarketEscort;
+        var shift = new BotMarketShift(map, new Point(10, 10), "Store", now, now.AddMinutes(30));
+        merchant.MarketShift = shift;
+        var configuration = new BotMerchantConfiguration();
+
+        Assert.That(
+            BotMarketPlanner.GetEndReason(merchant, shift, configuration, now),
+            Is.EqualTo(BotMarketPlanner.EndReason.None));
+
+        merchant.PartyGoal = BotPartyGoal.Experience;
+        Assert.That(
+            BotMarketPlanner.GetEndReason(merchant, shift, configuration, now),
+            Is.EqualTo(BotMarketPlanner.EndReason.JoinedParty));
+    }
+
+    /// <summary>
+    /// Tests that a party is rebalanced when a member logged out or the group out-leveled the gap.
+    /// </summary>
+    [Test]
+    public async ValueTask StalePartiesAreDetectedAsync()
+    {
+        var now = DateTime.UtcNow;
+        var buffer = await this.CreateBotAsync("A", 8, 40).ConfigureAwait(false);
+        var knight = await this.CreateBotAsync("H", 4, 60).ConfigureAwait(false);
+        var party = this._gameContext.PartyManager.CreateParty();
+        await party.AddAsync(buffer).ConfigureAwait(false);
+        await party.AddAsync(knight).ConfigureAwait(false);
+        buffer.PartyGoal = BotPartyGoal.Experience;
+        knight.PartyGoal = BotPartyGoal.Experience;
+
+        Assert.That(BotPartyComposer.IsStale(party, now), Is.True, "level gap");
+
+        knight.Attributes![Stats.Level] = 45;
+        Assert.That(BotPartyComposer.IsStale(party, now), Is.False, "valid experience party");
+
+        await party.KickMySelfAsync(knight).ConfigureAwait(false);
+        var single = this._gameContext.PartyManager.CreateParty();
+        await single.AddAsync(buffer).ConfigureAwait(false);
+        Assert.That(BotPartyComposer.IsStale(single, now), Is.True, "party too small");
+    }
+
     private async ValueTask<OfflinePlayer> CreateBotAsync(string name, byte classNumber, int level)
     {
         var donor = await PlayerTestHelper.CreatePlayerAsync(this._gameContext).ConfigureAwait(false);
@@ -150,9 +300,13 @@ public class BotPartyFormationTests
         await bot.PlayerState.TryAdvanceToAsync(PlayerState.Authenticated).ConfigureAwait(false);
         await bot.PlayerState.TryAdvanceToAsync(PlayerState.CharacterSelection).ConfigureAwait(false);
         await bot.SetSelectedCharacterAsync(donor.SelectedCharacter!).ConfigureAwait(false);
+        await bot.PlayerState.TryAdvanceToAsync(PlayerState.EnteredWorld).ConfigureAwait(false);
         donor.SelectedCharacter!.Name = name;
         donor.SelectedCharacter.CharacterClass = new CharacterClass { Number = classNumber };
+        bot.Account!.IsBot = true;
+        bot.IsAlive = true;
         bot.Attributes![Stats.Level] = level;
+        bot.SelectedCharacter!.Inventory!.Items.Add(new Item { ItemSlot = 0, Definition = new ItemDefinition { DropLevel = (byte)Math.Min(level, byte.MaxValue) } });
         return bot;
     }
 }

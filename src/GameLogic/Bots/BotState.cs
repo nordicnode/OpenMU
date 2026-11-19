@@ -41,6 +41,11 @@ internal enum BotState
     EventMeeting,
 
     /// <summary>
+    /// Travelling to an invasion and fighting its champions.
+    /// </summary>
+    BossAttempt,
+
+    /// <summary>
     /// A market shift: travelling to the market, walking to the stall, or trading there.
     /// </summary>
     MarketShift,

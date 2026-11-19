@@ -307,6 +307,35 @@ public class BotPartyHandlerTest
         Assert.That((secondDelay - firstDelay).Duration(), Is.LessThan(TimeSpan.FromMilliseconds(250)));
     }
 
+    /// <summary>
+    /// An event party waits together at the meeting point; when a player invites its leader, the whole
+    /// bot group joins the player, so the event handler can bring all of them into the event.
+    /// </summary>
+    [Test]
+    public async ValueTask BringsEventPartyIntoInviterPartyAsync()
+    {
+        var gameContext = GameContextTestHelper.CreateGameContext();
+        var leader = await CreateBotAsync(gameContext, "Leader").ConfigureAwait(false);
+        var follower = await CreateBotAsync(gameContext, "Follower").ConfigureAwait(false);
+        var eventParty = gameContext.PartyManager.CreateParty();
+        await eventParty.AddAsync(leader).ConfigureAwait(false);
+        await eventParty.AddAsync(follower).ConfigureAwait(false);
+        leader.PartyGoal = BotPartyGoal.EventRun;
+        follower.PartyGoal = BotPartyGoal.EventRun;
+        var requester = await CreateHumanAsync(gameContext, "Human").ConfigureAwait(false);
+
+        var scheduled = await BotPartyHandler.TryScheduleAcceptAsync(leader, requester, TimeSpan.Zero).ConfigureAwait(false);
+        Assert.That(scheduled, Is.True);
+
+        await BotPartyHandler.ProcessAsync(leader).ConfigureAwait(false);
+
+        Assert.That(requester.Party, Is.Not.Null);
+        Assert.That(requester.Party!.PartyList, Has.Count.EqualTo(3));
+        Assert.That(leader.Party, Is.SameAs(requester.Party));
+        Assert.That(follower.Party, Is.SameAs(requester.Party));
+        Assert.That(eventParty.PartyList, Is.Empty);
+    }
+
     private static async ValueTask<OfflinePlayer> CreateBotAsync(IGameContext gameContext, string name, bool isBot = true)
     {
         var bot = await PlayerTestHelper.CreateOfflineLevelingPlayerAsync(gameContext).ConfigureAwait(false);

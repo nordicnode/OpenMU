@@ -20,9 +20,9 @@ using NUnit.Framework;
 public class BotTickOrderTest
 {
     /// <summary>
-    /// The steps run in exactly this order: an announced event meeting first, then the market shift and a due
-    /// reset, the upkeep, the town errands, the revenge march, following the leader, the warp to a better map -
-    /// and the routine last, which is what happens when nothing else claimed the tick.
+    /// The steps run in exactly this order: an announced event meeting first, then a boss attempt, the market
+    /// shift and a due reset, the upkeep, the town errands, the revenge march, following the leader, the warp to
+    /// a better map - and the routine last, which is what happens when nothing else claimed the tick.
     /// </summary>
     [Test]
     public void TheTickTriesTheModesInTheirPriorityOrder()
@@ -32,6 +32,7 @@ public class BotTickOrderTest
             Is.EqualTo(new BotState?[]
             {
                 BotState.EventMeeting,
+                BotState.BossAttempt,
                 BotState.MarketShift,
                 BotState.Reset,
                 null, // the master point upkeep, which claims no state
@@ -57,7 +58,7 @@ public class BotTickOrderTest
         var followIndex = order.IndexOf(BotState.FollowLeader);
         var routineIndex = order.Count - 1;
 
-        foreach (var errand in new[] { BotState.EventMeeting, BotState.MarketShift, BotState.Reset, BotState.Shopping, BotState.Buff, BotState.ChaosMachine, BotState.Revenge })
+        foreach (var errand in new[] { BotState.EventMeeting, BotState.BossAttempt, BotState.MarketShift, BotState.Reset, BotState.Shopping, BotState.Buff, BotState.ChaosMachine, BotState.Revenge })
         {
             var errandIndex = order.IndexOf(errand);
             Assert.That(errandIndex, Is.GreaterThanOrEqualTo(0), $"{errand} is not part of the tick");

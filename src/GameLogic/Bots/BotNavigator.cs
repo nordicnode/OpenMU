@@ -265,6 +265,11 @@ internal sealed class BotNavigator : AsyncDisposable
         // the party follow, and a due reset, which would change its level.
         new(BotState.EventMeeting, "announced event meeting", [BotState.EventMeeting], (navigator, map, tick, cancellationToken) => navigator.EventMeetingStepAsync(map, tick, cancellationToken)),
 
+        // A bot which announced an invasion heads there with its boss-attempt party and fights the
+        // event's champions until the attempt expires (see BotChatEventAnnouncer). The event meeting
+        // above outranks it: a published meeting place is a promise, a boss attempt is an opportunity.
+        new(BotState.BossAttempt, "boss attempt", [BotState.BossAttempt], (navigator, map, tick, cancellationToken) => navigator.BossAttemptStepAsync(map, tick, cancellationToken)),
+
         // A bot on a market shift sells the goods of its personal store at its stall (see BotMerchantPlugIn) -
         // its customers have to find it there, like the players of an event meeting.
         new(BotState.MarketShift, "market shift", [BotState.MarketShift], (navigator, map, _, cancellationToken) => navigator.MarketShiftStepAsync(map, cancellationToken)),
@@ -891,6 +896,60 @@ internal sealed class BotNavigator : AsyncDisposable
         // Waiting at the meeting point is not "stuck".
         this._lastMoveUtc = DateTime.UtcNow;
         return true;
+    }
+
+    /// <summary>
+    /// Drives a boss attempt (see <see cref="OfflinePlayer.BossAttempt"/>): the bot warps to the invaded
+    /// map and hunts the event's champions. The attempt ends when its window closes, a human takes the bot
+    /// into a party, or no legal warp leads to the map - then the bot simply hunts on where it is.
+    /// </summary>
+    /// <param name="map">The current map.</param>
+    /// <param name="cancellationToken">The token which aborts the travel wait on shutdown.</param>
+    /// <returns>True, if the attempt consumed this tick.</returns>
+    internal async ValueTask<bool> TryBossAttemptAsync(GameMap map, CancellationToken cancellationToken)
+    {
+        if (this._player.BossAttempt is not { } attempt)
+        {
+            return false;
+        }
+
+        if (DateTime.UtcNow >= attempt.UntilUtc
+            || this._player.CurrentMiniGame is not null
+            || BotPartyHandler.HasHumanCompanion(this._player))
+        {
+            this._player.BossAttempt = null;
+            return false;
+        }
+
+        // The invasion is a detour: don't keep the old hunting ground claimed while away.
+        this._player.HuntingSpot = null;
+
+        if (map.Definition.Number != attempt.Map.Number)
+        {
+            if (this._timeProvider.GetUtcNow() - this._lastWarpUtc < FollowWarpCooldown
+                || BotEventMeetingPlanner.GetLegalWarps(this._player, attempt.Map).FirstOrDefault() is not { Gate: { } gate })
+            {
+                this._player.BossAttempt = null;
+                return false;
+            }
+
+            this._lastWarpUtc = this._timeProvider.GetUtcNow();
+            this._player.Logger.LogDebug("Bot '{Name}' warps to {Map} for its boss attempt.", this._player.Name, attempt.Map.Name);
+            await this._player.WarpToAsync(gate).ConfigureAwait(false);
+            return true;
+        }
+
+        // On the invaded map: close in on the event's monsters instead of idling at the gate. The normal
+        // routine takes over when one is in combat range, and keeps the bot on this map while the attempt runs.
+        if (!map.GetAttackablesInRange(this._player.Position, TravelStopRange).Any(this.IsEventTarget)
+            && this.TryFindNearestEventTargetGround(map, out var ground))
+        {
+            await this.TravelTowardAsync(map, ground, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+
+        this._player.HuntingOrigin = this._player.Position;
+        return false;
     }
 
     /// <summary>
@@ -1694,6 +1753,17 @@ internal sealed class BotNavigator : AsyncDisposable
         => await this.TryEventMeetingAsync(map, tick.InSafezone, cancellationToken).ConfigureAwait(false);
 
     /// <summary>
+    /// The step of a boss attempt: the bot travels to the invaded map and fights the event's champions
+    /// (see BotChatEventAnnouncer).
+    /// </summary>
+    /// <param name="map">The map the bot is on.</param>
+    /// <param name="tick">What this tick gathered.</param>
+    /// <param name="cancellationToken">The token which aborts the tick on shutdown.</param>
+    /// <returns>True, if the step consumed the tick.</returns>
+    private async ValueTask<bool> BossAttemptStepAsync(GameMap map, TickContext tick, CancellationToken cancellationToken)
+        => await this.TryBossAttemptAsync(map, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
     /// The step of a market shift: the bot sells the goods of its personal store at its stall (see
     /// BotMerchantPlugIn).
     /// </summary>
@@ -2295,7 +2365,35 @@ internal sealed class BotNavigator : AsyncDisposable
         {
             this._player.MarketShift = null;
             this._leavesMarket = this._player.CurrentMap?.Definition.Number == shift.Map.Number;
+            await this.DissolveMarketEscortAsync().ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// Dissolves the escort which guarded the merchant on its shift, so its guards regroup with a hunting
+    /// party instead of waiting at an empty stall.
+    /// </summary>
+    /// <returns>The task.</returns>
+    private async ValueTask DissolveMarketEscortAsync()
+    {
+        if (this._player.PartyGoal != BotPartyGoal.MarketEscort
+            || this._player.Party is not { } party
+            || !ReferenceEquals(party.PartyMaster, this._player))
+        {
+            return;
+        }
+
+        foreach (var member in party.PartyList.ToList())
+        {
+            if (member is OfflinePlayer bot)
+            {
+                bot.PartyGoal = BotPartyGoal.Experience;
+            }
+
+            await party.KickMySelfAsync(member).ConfigureAwait(false);
+        }
+
+        this._player.PartyGoal = BotPartyGoal.Experience;
     }
 
     /// <summary>
@@ -2696,9 +2794,11 @@ internal sealed class BotNavigator : AsyncDisposable
     /// <returns>True, if a warp was performed.</returns>
     private async ValueTask<bool> TryWarpToBetterMapAsync()
     {
-        if (this._player.PlayerState.CurrentState != PlayerState.EnteredWorld
+        if (this._player.BossAttempt is not null
+            || this._player.PlayerState.CurrentState != PlayerState.EnteredWorld
             || this._player.SelectedCharacter is null)
         {
+            // A running boss attempt holds the bot on the invaded map; leaving would waste the trip.
             return false;
         }
 

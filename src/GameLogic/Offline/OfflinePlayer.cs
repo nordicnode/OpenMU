@@ -189,9 +189,23 @@ public class OfflinePlayer : Player
     internal Bots.BotEventMeeting? EventMeeting { get; set; }
 
     /// <summary>
+    /// Gets or sets an invasion which the bot wants to join (see <see cref="Bots.BotChatEventAnnouncer"/>),
+    /// set by the chat plugin and carried out by <see cref="Bots.BotNavigator"/>. It is a goal-driven party
+    /// target: bots heading for the same invasion group up before they travel.
+    /// </summary>
+    internal Bots.BotBossAttempt? BossAttempt { get; set; }
+
+    /// <summary>
+    /// Gets or sets the goal of the bot-only party this bot currently belongs to. It is set when a
+    /// goal-driven party is formed and cleared when the party is disbanded or the bot joins a player.
+    /// </summary>
+    internal Bots.BotPartyGoal PartyGoal { get; set; } = Bots.BotPartyGoal.Experience;
+
+    /// <summary>
     /// Gets or sets the shift on the market during which the bot sells the goods of its personal store,
     /// set by <see cref="Bots.BotMerchantPlugIn"/> and carried out by <see cref="Bots.BotNavigator"/>.
-    /// Like an errand, it makes the bot decline party invitations meanwhile.
+    /// Like an errand, it makes the bot decline party invitations meanwhile - except the escort party
+    /// which a goal-driven formation puts around it.
     /// </summary>
     internal Bots.BotMarketShift? MarketShift { get; set; }
 
