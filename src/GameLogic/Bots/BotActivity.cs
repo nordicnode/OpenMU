@@ -13,12 +13,17 @@ namespace MUnique.OpenMU.GameLogic.Bots;
 /// <param name="Reason">Why the navigation tick put the bot into that mode, e.g. <c>monsters nearby</c>.</param>
 /// <param name="TimeInState">How long the bot has already been in that mode.</param>
 /// <param name="Summary">The mode, its duration and its reason in one line.</param>
-/// <param name="Detail">The long form: where the bot's time went, its recent transitions and its guard violations.</param>
+/// <param name="Detail">The long form: where the bot's time went, its recent transitions, its guard violations
+/// and its event meeting, if it is on one.</param>
 /// <param name="Failures">How many ticks failed so far, over all modes.</param>
 /// <param name="LastFailure">Why the last failed tick failed, or <c>null</c> while no tick failed.</param>
 /// <param name="Restarts">How many times the account was restarted to heal a bot whose ticks kept failing.</param>
 /// <param name="QuarantinedUntilUtc">Until when the bot is kept from being restarted because restarts did not
 /// help, or <c>null</c> while it may be restarted.</param>
+/// <param name="Meeting">The event meeting the bot is on - announced, traveling or waiting, with its place
+/// and remaining wait time - or <c>null</c> while it has none.</param>
+/// <param name="LastMeeting">How the bot's last event meeting ended - joined, expired or abandoned, where and
+/// why - or <c>null</c> while it never had one.</param>
 public sealed record BotActivity(
     string State,
     string Reason,
@@ -28,4 +33,6 @@ public sealed record BotActivity(
     int Failures = 0,
     string? LastFailure = null,
     int Restarts = 0,
-    DateTimeOffset? QuarantinedUntilUtc = null);
+    DateTimeOffset? QuarantinedUntilUtc = null,
+    BotMeetingActivity? Meeting = null,
+    BotMeetingOutcome? LastMeeting = null);

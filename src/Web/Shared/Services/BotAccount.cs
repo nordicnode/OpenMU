@@ -4,6 +4,8 @@
 
 namespace MUnique.OpenMU.Web.Shared.Services;
 
+using MUnique.OpenMU.GameLogic.Bots;
+
 /// <summary>
 /// Keeps the displayed data of an active server-side bot.
 /// </summary>
@@ -21,6 +23,10 @@ namespace MUnique.OpenMU.Web.Shared.Services;
 /// passing hiccup from one which breaks itself again and again.</param>
 /// <param name="QuarantinedSeconds">For how many seconds the bot is held back from another restart, or <c>0</c>
 /// while it may be restarted.</param>
+/// <param name="Meeting">The event meeting the bot is on, with its state, place and remaining wait time, or
+/// <c>null</c> while it has none.</param>
+/// <param name="LastMeeting">How the last event meeting ended, with its state, place, event and reason, or
+/// <c>null</c> while the bot never had one.</param>
 public record BotAccount(
     string LoginName,
     byte ServerId,
@@ -33,4 +39,6 @@ public record BotAccount(
     string? StateDetail = null,
     double SecondsInState = 0,
     int Restarts = 0,
-    double QuarantinedSeconds = 0) : IPartyGroupedAccount;
+    double QuarantinedSeconds = 0,
+    BotMeetingActivity? Meeting = null,
+    BotMeetingOutcome? LastMeeting = null) : IPartyGroupedAccount;

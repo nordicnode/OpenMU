@@ -103,9 +103,14 @@
         }
     }
 
-    private Task RefreshAsync()
+    /// <summary>
+    /// Reloads the current page without showing the loading state - for tables whose rows contain a countdown or
+    /// another value which changes with the clock and should stay current.
+    /// </summary>
+    /// <returns>The task.</returns>
+    public Task RefreshAsync()
     {
-        return this.GetPageAsync(this.Page);
+        return this.GetPageAsync(this.Page, showLoading: false);
     }
 
     private Task GetNextPageAsync()
@@ -128,13 +133,17 @@
         return this.GetPageAsync(this.Page - 1);
     }
 
-    private async Task GetPageAsync(int page)
+    private async Task GetPageAsync(int page, bool showLoading = true)
     {
         var restartFromFirstPage = false;
-        this._isLoading = true;
+        if (showLoading)
+        {
+            this._isLoading = true;
+            await this.InvokeAsync(this.StateHasChanged).ConfigureAwait(false);
+        }
+
         try
         {
-            await this.InvokeAsync(this.StateHasChanged).ConfigureAwait(false);
             var loadedItems = await this.DataService.GetAsync((page - 1) * this.PageSize, this.PageSize);
             var isRefresh = this.Page == page;
             if (isRefresh)
@@ -160,13 +169,17 @@
         }
         finally
         {
-            this._isLoading = false;
+            if (showLoading)
+            {
+                this._isLoading = false;
+            }
+
             await this.InvokeAsync(this.StateHasChanged).ConfigureAwait(false);
         }
 
         if (restartFromFirstPage)
         {
-            await this.GetPageAsync(1);
+            await this.GetPageAsync(1, showLoading);
         }
     }
 }

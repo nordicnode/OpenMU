@@ -89,6 +89,8 @@ public sealed class BotReadOperations(IServerProvider servers, AdminOperationExe
                 ["restarts"] = row.Restarts,
                 ["quarantinedSeconds"] = row.QuarantinedSeconds,
                 ["startedAtUtc"] = row.StartedAtUtc,
+                ["meeting"] = MeetingJson(row.Meeting),
+                ["lastMeeting"] = OutcomeJson(row.LastMeeting),
             });
         }
 
@@ -127,6 +129,44 @@ public sealed class BotReadOperations(IServerProvider servers, AdminOperationExe
             line,
             flapping);
     }
+
+    /// <summary>
+    /// Shapes the event meeting of a bot for the bot list: its state, place, event and remaining wait time -
+    /// so an agent sees why a bot which promised to come isn't there yet, or how long it is still worth waiting
+    /// for it.
+    /// </summary>
+    /// <param name="meeting">The meeting of the bot, or <c>null</c> while it has none.</param>
+    /// <returns>The meeting as JSON, or <c>null</c> while the bot has none.</returns>
+    internal static JsonObject? MeetingJson(BotMeetingActivity? meeting)
+        => meeting is null
+            ? null
+            : new JsonObject
+            {
+                ["state"] = meeting.State,
+                ["place"] = meeting.Place,
+                ["event"] = meeting.Event,
+                ["secondsRemaining"] = meeting.TimeRemaining.TotalSeconds,
+                ["summary"] = meeting.Summary,
+            };
+
+    /// <summary>
+    /// Shapes the outcome of a bot's last ended event meeting: joined, expired or abandoned, the place, the
+    /// event and why it was given up - so an agent can tell a bot which joined a party from one which never
+    /// arrived, after the meeting itself is gone.
+    /// </summary>
+    /// <param name="outcome">The outcome of the last meeting, or <c>null</c> while the bot never had one.</param>
+    /// <returns>The outcome as JSON, or <c>null</c> while the bot never had a meeting.</returns>
+    internal static JsonObject? OutcomeJson(BotMeetingOutcome? outcome)
+        => outcome is null
+            ? null
+            : new JsonObject
+            {
+                ["state"] = outcome.State,
+                ["place"] = outcome.Place,
+                ["event"] = outcome.Event,
+                ["reason"] = outcome.Reason,
+                ["summary"] = outcome.Summary,
+            };
 
     /// <summary>
     /// Shapes the alarm for the answer which carries nothing else, and for the alarm node of the bot list, so
@@ -208,6 +248,9 @@ public sealed class BotReadOperations(IServerProvider servers, AdminOperationExe
     /// <param name="Restarts">How many times the account was restarted to heal it.</param>
     /// <param name="QuarantinedSeconds">For how many seconds the bot is still kept from being restarted because
     /// restarts did not help, or <c>0</c> while it may be restarted.</param>
+    /// <param name="Meeting">The event meeting the bot is on, or <c>null</c> while it has none.</param>
+    /// <param name="LastMeeting">How the bot's last event meeting ended, or <c>null</c> while it never had
+    /// one.</param>
     internal readonly record struct BotRow(
         byte ServerId,
         string? LoginName,
@@ -222,7 +265,9 @@ public sealed class BotReadOperations(IServerProvider servers, AdminOperationExe
         int Failures = 0,
         string? LastFailure = null,
         int Restarts = 0,
-        double QuarantinedSeconds = 0)
+        double QuarantinedSeconds = 0,
+        BotMeetingActivity? Meeting = null,
+        BotMeetingOutcome? LastMeeting = null)
     {
         /// <summary>Reads the facts of one bot off the live player.</summary>
         /// <param name="serverId">The server which animates the bot.</param>
@@ -248,7 +293,9 @@ public sealed class BotReadOperations(IServerProvider servers, AdminOperationExe
                 activity?.Failures ?? 0,
                 activity?.LastFailure,
                 activity?.Restarts ?? 0,
-                quarantinedSeconds);
+                quarantinedSeconds,
+                activity?.Meeting,
+                activity?.LastMeeting);
         }
     }
 

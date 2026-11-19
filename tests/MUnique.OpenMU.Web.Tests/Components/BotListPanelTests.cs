@@ -6,6 +6,7 @@ namespace MUnique.OpenMU.Web.Tests.Components;
 
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
+using MUnique.OpenMU.GameLogic.Bots;
 using MUnique.OpenMU.Web.AdminPanel.Components.Bots;
 using MUnique.OpenMU.Web.Shared.Services;
 
@@ -51,6 +52,94 @@ public class BotListPanelTests
         Assert.That(badge, Is.Not.Null);
         Assert.That(badge!.TextContent, Is.EqualTo("quarantined 3 min"));
         Assert.That(badge.ClassList, Does.Contain("bg-warning"));
+    }
+
+    /// <summary>
+    /// A bot which announced an event meeting says which state it is in, where the meeting is and how long it
+    /// still waits - in the row the operator already reads, without opening a log or asking the bot.
+    /// </summary>
+    [Test]
+    public void ShowsTheEventMeetingOfABot()
+    {
+        using var context = CreateContext(
+            Bot(
+                "bot-meet",
+                "Kai",
+                meeting: new BotMeetingActivity(
+                    "Waiting",
+                    "Devias 215, 40",
+                    "Blood Castle",
+                    DateTime.UtcNow.AddMinutes(7).AddSeconds(48))),
+            Bot("bot-fine", "Lena"));
+
+        var panel = context.Render<BotListPanel>(parameters => parameters.Add(p => p.AlarmLine, (string?)null));
+
+        var meeting = RowOf(panel, "bot-meet");
+        Assert.That(meeting.TextContent, Does.Match("Waiting at Devias 215, 40, [0-9]+:[0-9]{2} left"));
+        Assert.That(RowOf(panel, "bot-fine").TextContent, Does.Not.Contain("left"));
+    }
+
+    /// <summary>
+    /// The countdown of a meeting keeps moving while the panel is open instead of freezing at the value read
+    /// with the page - the panel re-renders it every second from the meeting's end time.
+    /// </summary>
+    /// <returns>The task.</returns>
+    [Test]
+    public async Task CountsTheMeetingDownWhileThePanelIsOpenAsync()
+    {
+        using var context = CreateContext(
+            Bot(
+                "bot-meet",
+                "Kai",
+                meeting: new BotMeetingActivity("Waiting", "Devias 215, 40", null, DateTime.UtcNow.AddMinutes(1))));
+        var panel = context.Render<BotListPanel>(parameters => parameters.Add(p => p.AlarmLine, (string?)null));
+
+        var before = RowOf(panel, "bot-meet").TextContent;
+        Assert.That(before, Does.Match("Waiting at Devias 215, 40, [0-9]+:[0-9]{2} left"));
+
+        // Nothing renders the panel here: the row has to change because the panel re-renders itself.
+        var deadline = DateTime.UtcNow.AddSeconds(3);
+        while (panel.RenderCount == 1 && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(50).ConfigureAwait(false);
+        }
+
+        Assert.That(panel.RenderCount, Is.GreaterThan(1), "the open panel re-renders itself");
+        Assert.That(RowOf(panel, "bot-meet").TextContent, Is.Not.EqualTo(before));
+    }
+
+    /// <summary>
+    /// A meeting which is over still explains itself in the row: what became of it and where, with the reason
+    /// in the tooltip - and a new, active meeting takes the line over.
+    /// </summary>
+    [Test]
+    public void ShowsTheOutcomeOfAnEndedMeeting()
+    {
+        var waiting = new BotMeetingActivity(
+            "Waiting",
+            "Devias 215, 40",
+            "Blood Castle",
+            DateTime.UtcNow.AddMinutes(7).AddSeconds(48));
+        using var context = CreateContext(
+            Bot(
+                "bot-lost",
+                "Kai",
+                lastMeeting: new BotMeetingOutcome("Abandoned", "Lost Tower 200, 200", "Blood Castle", "no route to the entry NPC")),
+            Bot(
+                "bot-meet",
+                "Lena",
+                meeting: waiting,
+                lastMeeting: new BotMeetingOutcome("Expired", "Devias 215, 40", null, null)));
+
+        var panel = context.Render<BotListPanel>(parameters => parameters.Add(p => p.AlarmLine, (string?)null));
+
+        var lost = RowOf(panel, "bot-lost");
+        Assert.That(lost.TextContent, Does.Contain("Last meeting: abandoned at Lost Tower 200, 200"));
+        Assert.That(lost.QuerySelector(".text-muted")!.GetAttribute("title"), Does.Contain("no route to the entry NPC"));
+
+        var meeting = RowOf(panel, "bot-meet");
+        Assert.That(meeting.TextContent, Does.Match("Waiting at Devias 215, 40, [0-9]+:[0-9]{2} left"));
+        Assert.That(meeting.TextContent, Does.Not.Contain("Last meeting:"));
     }
 
     /// <summary>
@@ -121,8 +210,8 @@ public class BotListPanelTests
     private static AngleSharp.Dom.IElement RowOf(IRenderedComponent<BotListPanel> panel, string loginName)
         => panel.FindAll("tbody tr").Single(row => row.QuerySelector("td")!.TextContent.Trim() == loginName);
 
-    private static BotAccount Bot(string loginName, string characterName, int restarts = 0, double quarantinedSeconds = 0)
-        => new(loginName, 1, characterName, new DateTime(2026, 2, 11, 9, 12, 4, DateTimeKind.Utc), State: "Hunt for 0:30 (monsters nearby)", SecondsInState: 30, Restarts: restarts, QuarantinedSeconds: quarantinedSeconds);
+    private static BotAccount Bot(string loginName, string characterName, int restarts = 0, double quarantinedSeconds = 0, BotMeetingActivity? meeting = null, BotMeetingOutcome? lastMeeting = null)
+        => new(loginName, 1, characterName, new DateTime(2026, 2, 11, 9, 12, 4, DateTimeKind.Utc), State: "Hunt for 0:30 (monsters nearby)", SecondsInState: 30, Restarts: restarts, QuarantinedSeconds: quarantinedSeconds, Meeting: meeting, LastMeeting: lastMeeting);
 
     private sealed class FixedBotService(params BotAccount[] bots) : IDataService<BotAccount>
     {

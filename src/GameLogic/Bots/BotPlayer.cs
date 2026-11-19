@@ -49,23 +49,45 @@ public sealed class BotPlayer : OfflinePlayer
     public bool AwaitsFaultRestart { get; set; }
 
     /// <summary>
-    /// Gets what this bot is doing right now - its mode, why it is in it, how long it has been there and the
-    /// long form with its recent transitions - or <c>null</c> while it isn't navigating (not in the world).
-    /// The administration surfaces report it next to the bot.
+    /// Gets what this bot is doing right now - its mode, why it is in it, how long it has been there, the
+    /// long form with its recent transitions and the event meeting it is on - or <c>null</c> while it isn't
+    /// navigating (not in the world). The administration surfaces report it next to the bot.
     /// </summary>
     public BotActivity? Activity
-        => this._navigator is { } navigator
-            ? new BotActivity(
+    {
+        get
+        {
+            if (this._navigator is not { } navigator)
+            {
+                return null;
+            }
+
+            var meeting = BotMeetingActivity.From(this.EventMeeting);
+            var lastMeeting = this.LastEventMeeting;
+            var detail = navigator.States.Describe();
+            if (meeting is { } activeMeeting)
+            {
+                detail += "\n" + activeMeeting.Detail;
+            }
+            else if (lastMeeting is { } endedMeeting)
+            {
+                detail += "\n" + endedMeeting.Detail;
+            }
+
+            return new BotActivity(
                 navigator.States.Current.ToString(),
                 navigator.States.CurrentReason,
                 navigator.States.CurrentDuration,
                 navigator.States.Summarize(),
-                navigator.States.Describe(),
+                detail,
                 navigator.States.TotalFailures,
                 navigator.States.LastFailure,
                 this.Health.Restarts,
-                this.Health.QuarantinedUntilUtc)
-            : null;
+                this.Health.QuarantinedUntilUtc,
+                meeting,
+                lastMeeting);
+        }
+    }
 
     /// <summary>
     /// Gets or sets the health supervisor of the account this bot drives. It counts the failing ticks, decides

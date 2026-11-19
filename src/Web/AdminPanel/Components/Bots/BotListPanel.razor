@@ -1,11 +1,13 @@
+@using System.Threading
 @using MUnique.OpenMU.DataModel
 @using MUnique.OpenMU.DataModel.Entities
 @using MUnique.OpenMU.Web.AdminPanel.Properties
+@implements IDisposable
 
 @* The bot table of the "Logged In" page. It is its own component so it can be rendered and checked without a
    running game server: the page decides whether the tab exists, this panel shows what is in it. *@
 <BotStuckAlarmBanner Line="@this.AlarmLine" />
-<DataTable TItem=@BotAccount>
+<DataTable TItem=@BotAccount @ref="this._table">
     <TableHeader>
         <th class="col-2">@typeof(Account).GetPropertyCaption(nameof(Account.LoginName))</th>
         <th class="col-1">@Resources.Character</th>
@@ -21,7 +23,19 @@
         <td>@item.LoginName</td>
         <td>@(item.CharacterName ?? Resources.EmptyValue)</td>
         <td>@item.ServerId</td>
-        <td title="@item.StateDetail">@(item.State ?? Resources.EmptyValue)</td>
+        <td title="@item.StateDetail">
+            @(item.State ?? Resources.EmptyValue)
+            @if (item.Meeting is { } meeting)
+            {
+                @* A bot on its way to an event meeting or waiting at one says where it is and how long it still waits, not only which mode it is in. *@
+                <div class="small text-muted">@meeting.Summary</div>
+            }
+            else if (item.LastMeeting is { } lastMeeting)
+            {
+                @* An ended meeting stays visible: a bot which promised to come and didn't can be checked after the fact, not only in the log. *@
+                <div class="small text-muted" title="@lastMeeting.Detail">@lastMeeting.Summary</div>
+            }
+        </td>
         <td>
             @if (item.QuarantinedSeconds > 0)
             {
@@ -53,6 +67,18 @@
 
 @code {
     /// <summary>
+    /// How many one-second ticks pass before the rows are read again. It matches the cache lifetime of the bot
+    /// service: the countdown itself is re-rendered every second, the rows only need to follow the server every
+    /// few seconds.
+    /// </summary>
+    private const int DataRefreshTicks = 5;
+
+    private DataTable<BotAccount>? _table;
+    private Timer? _refreshTimer;
+    private volatile bool _disposed;
+    private int _ticks;
+
+    /// <summary>
     /// Gets or sets the alarm sentence about the bots which need attention, or <c>null</c> while none does.
     /// </summary>
     [Parameter]
@@ -65,5 +91,52 @@
     [Parameter]
     public EventCallback<BotAccount> OnResetHealth { get; set; }
 
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        this._disposed = true;
+        this._refreshTimer?.Dispose();
+        this._refreshTimer = null;
+    }
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        this._refreshTimer = new Timer(this.RefreshTick, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    }
+
     private int QuarantineMinutes(double seconds) => Math.Max(1, (int)Math.Ceiling(seconds / 60));
+
+    /// <summary>
+    /// Re-renders the panel every second, so the meeting countdown moves without reloading the page, and reads
+    /// the rows again every few seconds, so an ended meeting turns into its outcome and a new one appears.
+    /// </summary>
+    /// <param name="state">The unused timer state.</param>
+    private void RefreshTick(object? state)
+    {
+        if (this._disposed)
+        {
+            return;
+        }
+
+        var tick = Interlocked.Increment(ref this._ticks);
+        _ = this.InvokeAsync(async () =>
+        {
+            if (this._disposed)
+            {
+                return;
+            }
+
+            if (this._table is { } table && tick % DataRefreshTicks == 0)
+            {
+                await table.RefreshAsync();
+            }
+
+            if (!this._disposed)
+            {
+                this.StateHasChanged();
+            }
+        });
+    }
 }

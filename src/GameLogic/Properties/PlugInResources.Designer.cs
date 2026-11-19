@@ -1357,7 +1357,7 @@ namespace MUnique.OpenMU.GameLogic.Properties {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Whispered when the bot sets off to the meeting place. Placeholders: {player}, {map} and {location} (the meeting place)..
+        ///   Looks up a localized string similar to Whispered when the bot sets off to the meeting place - and when a player whispers to it while it is still on the way. Placeholders: {player}, {map} and {location} (the meeting place)..
         /// </summary>
         public static string BotChatConfiguration_PartyOnTheWayLines_Description {
             get {
@@ -1374,6 +1374,24 @@ namespace MUnique.OpenMU.GameLogic.Properties {
             }
         }
         
+        /// <summary>
+        ///   Looks up a localized string similar to Whispered when a player asks a bot which already waits at its meeting place - during an announced event, for example. Placeholders: {player}, {event} (the opened event, empty when a player named the place), {map} and {location} (the meeting place)..
+        /// </summary>
+        public static string BotChatConfiguration_PartyWaitingLines_Description {
+            get {
+                return ResourceManager.GetString("BotChatConfiguration_PartyWaitingLines_Description", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Party search: waiting there.
+        /// </summary>
+        public static string BotChatConfiguration_PartyWaitingLines_Name {
+            get {
+                return ResourceManager.GetString("BotChatConfiguration_PartyWaitingLines_Name", resourceCulture);
+            }
+        }
+
         /// <summary>
         ///   Looks up a localized string similar to Comma-separated words which mark a /post as a party search. The post also needs a level: &quot;300-350&quot;, &quot;300+&quot;, &quot;min 300&quot; or &quot;300&quot; - or an event with its level, like &quot;bc7&quot;..
         /// </summary>

@@ -540,6 +540,19 @@ public class BotChatConfiguration
     public ICollection<BotChatLine> PartyOnTheWayLines { get; set; } = new List<BotChatLine>();
 
     /// <summary>
+    /// Gets or sets the whispers with which a bot which already waits at its meeting place answers a
+    /// player: where exactly it stands, and that the player may come and invite it. It's the answer to
+    /// a whisper during the event window, when the bot has no time for small talk.
+    /// Placeholders: <c>{player}</c>, <c>{event}</c> (the opened event, empty when a player named the
+    /// place), <c>{map}</c> and <c>{location}</c> (the meeting place).
+    /// </summary>
+    [MemberOfAggregate]
+    [ScaffoldColumn(true)]
+    [CollapsedByDefault]
+    [Display(ResourceType = typeof(PlugInResources), Name = nameof(PlugInResources.BotChatConfiguration_PartyWaitingLines_Name), Description = nameof(PlugInResources.BotChatConfiguration_PartyWaitingLines_Description))]
+    public ICollection<BotChatLine> PartyWaitingLines { get; set; } = new List<BotChatLine>();
+
+    /// <summary>
     /// Gets or sets the whispers with which a bot declines a meeting place it may not go to - its level
     /// is too low for the map, or the map can't be reached by warp.
     /// Placeholders: <c>{player}</c>, <c>{map}</c> (the named map), <c>{level}</c>.
@@ -824,6 +837,14 @@ public class BotChatConfiguration
             ("on my way", "już lecę"),
             ("be there in a minute", "zaraz będę"),
             ("coming, wait for me at {location}", "idę, czekaj na mnie w {location}"));
+        Add(
+            configuration.PartyWaitingLines,
+            ("waiting at {location}, come and invite me", "czekam na {location}, przyjdź i zaproś mnie"),
+            ("i'm at {location}, still waiting", "jestem na {location}, czekam dalej"),
+            ("come to {location}, i'll wait here", "przyjdź na {location}, poczekam"),
+            ("already at {location}, where are you?", "już jestem na {location}, a ty gdzie?"),
+            ("{location} - waiting for the party", "{location} - czekam na grupę"),
+            ("still at {location}, hurry up", "wciąż na {location}, pospiesz się"));
         Add(
             configuration.PartyCantGoLines,
             ("can't go to {map}, sry", "nie mogę iść do {map}, sorki"),

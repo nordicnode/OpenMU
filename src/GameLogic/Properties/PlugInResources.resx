@@ -1980,7 +1980,9 @@
   <data name="BotChatConfiguration_PartyAskWhereLines_Name" xml:space="preserve"><value>Party search: where?</value></data>
   <data name="BotChatConfiguration_PartyAskWhereLines_Description" xml:space="preserve"><value>Whispered when the bot didn't understand where to meet. Placeholders: {player}, {level}, {class}.</value></data>
   <data name="BotChatConfiguration_PartyOnTheWayLines_Name" xml:space="preserve"><value>Party search: on the way</value></data>
-  <data name="BotChatConfiguration_PartyOnTheWayLines_Description" xml:space="preserve"><value>Whispered when the bot sets off to the meeting place. Placeholders: {player}, {map} and {location} (the meeting place).</value></data>
+  <data name="BotChatConfiguration_PartyOnTheWayLines_Description" xml:space="preserve"><value>Whispered when the bot sets off to the meeting place - and when a player whispers to it while it is still on the way. Placeholders: {player}, {map} and {location} (the meeting place).</value></data>
+  <data name="BotChatConfiguration_PartyWaitingLines_Name" xml:space="preserve"><value>Party search: waiting there</value></data>
+  <data name="BotChatConfiguration_PartyWaitingLines_Description" xml:space="preserve"><value>Whispered when a player asks a bot which already waits at its meeting place - during an announced event, for example. Placeholders: {player}, {event} (the opened event, empty when a player named the place), {map} and {location} (the meeting place).</value></data>
   <data name="BotChatConfiguration_PartyCantGoLines_Name" xml:space="preserve"><value>Party search: can't go</value></data>
   <data name="BotChatConfiguration_PartyCantGoLines_Description" xml:space="preserve"><value>Whispered when the bot may not go to the named map: its level is too low, or the map can't be reached by warp. Placeholders: {player}, {map} (the named map), {level}.</value></data>
   <data name="BotChatConfiguration_PartyClassAliases_Name" xml:space="preserve"><value>Party search: class words</value></data>

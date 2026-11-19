@@ -182,11 +182,20 @@ public class OfflinePlayer : Player
 
     /// <summary>
     /// Gets or sets the meeting point at which the bot waits for players after announcing an opened
-    /// event, set by <see cref="Bots.BotChatPlugIn"/> and carried out by <see cref="Bots.BotNavigator"/>.
+    /// event, set by <see cref="Bots.BotChatPlugIn"/> and carried out by <see cref="Bots.BotNavigator"/>,
+    /// which also tracks how far the bot got with it (see <see cref="Bots.BotEventMeeting.State"/>).
     /// Unlike an errand, it does not make the bot decline party invitations - being invited is what
     /// it waits for.
     /// </summary>
     internal Bots.BotEventMeeting? EventMeeting { get; set; }
+
+    /// <summary>
+    /// Gets or sets how the last event meeting ended, recorded by <see cref="Bots.BotNavigator"/> when the bot
+    /// is taken into a party, the meeting time runs out or the place turns out to be unreachable. The
+    /// administration surfaces report it after the meeting itself is gone, so a bot which promised to come and
+    /// didn't can be checked without searching the log.
+    /// </summary>
+    internal Bots.BotMeetingOutcome? LastEventMeeting { get; set; }
 
     /// <summary>
     /// Gets or sets an invasion which the bot wants to join (see <see cref="Bots.BotChatEventAnnouncer"/>),

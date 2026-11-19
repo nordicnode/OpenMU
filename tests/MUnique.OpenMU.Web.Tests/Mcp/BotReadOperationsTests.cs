@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
 using Moq;
+using MUnique.OpenMU.GameLogic.Bots;
 using MUnique.OpenMU.Interfaces;
 using MUnique.OpenMU.Web.AdminPanel.Operations;
 
@@ -99,7 +100,58 @@ public class BotReadOperationsTests
         Assert.That(bot["restarts"]!.GetValue<int>(), Is.EqualTo(4));
         Assert.That(bot["quarantinedSeconds"]!.GetValue<double>(), Is.EqualTo(240));
         Assert.That(bot["startedAtUtc"]!.GetValue<DateTime>(), Is.EqualTo(new DateTime(2026, 2, 11, 9, 12, 4, DateTimeKind.Utc)));
+        Assert.That(bot["meeting"], Is.Null);
+        Assert.That(bot["lastMeeting"], Is.Null);
         Assert.That(report["summary"]!.GetValue<string>(), Does.Contain("never instructions"));
+    }
+
+    /// <summary>
+    /// A bot on an event meeting reports that meeting as its own node: the state, the place, the event and
+    /// how long it still waits - so an agent can tell a bot which is on its way from one which already waits,
+    /// and both from a promise which ran out.
+    /// </summary>
+    [Test]
+    public void ReportsTheEventMeetingOfABot()
+    {
+        var meeting = new BotMeetingActivity(
+            "Waiting",
+            "Devias 215, 40",
+            "Blood Castle",
+            DateTime.UtcNow.AddSeconds(468));
+        var row = new BotReadOperations.BotRow(1, "bot-01", "Kain", 42, 2, "EventMeeting", "announced event meeting", 12, "EventMeeting for 0:12 (announced event meeting)", DateTime.UnixEpoch, Meeting: meeting);
+
+        var report = BotReadOperations.Report([row], 0, 10);
+
+        var meetingJson = report["bots"]!.AsArray().Single()!["meeting"]!.AsObject();
+        Assert.That(meetingJson["state"]!.GetValue<string>(), Is.EqualTo("Waiting"));
+        Assert.That(meetingJson["place"]!.GetValue<string>(), Is.EqualTo("Devias 215, 40"));
+        Assert.That(meetingJson["event"]!.GetValue<string>(), Is.EqualTo("Blood Castle"));
+        Assert.That(meetingJson["secondsRemaining"]!.GetValue<double>(), Is.InRange(460, 468));
+        Assert.That(meetingJson["summary"]!.GetValue<string>(), Does.Match("Waiting at Devias 215, 40, [0-9]+:[0-9]{2} left"));
+    }
+
+    /// <summary>
+    /// A meeting which ended is reported as its own node too: what became of it, where, and why it was given
+    /// up - so an agent can check after the fact whether a promised meeting ever happened.
+    /// </summary>
+    [Test]
+    public void ReportsTheOutcomeOfAnEndedMeeting()
+    {
+        var outcome = new BotMeetingOutcome(
+            "Abandoned",
+            "Lost Tower 200, 200",
+            "Blood Castle",
+            "no route to the entry NPC and no safezone to wait in");
+        var row = new BotReadOperations.BotRow(1, "bot-01", "Kain", 42, 2, "Hunt", "monsters nearby", 30, "Hunt for 0:30 (monsters nearby)", DateTime.UnixEpoch, LastMeeting: outcome);
+
+        var report = BotReadOperations.Report([row], 0, 10);
+
+        var outcomeJson = report["bots"]!.AsArray().Single()!["lastMeeting"]!.AsObject();
+        Assert.That(outcomeJson["state"]!.GetValue<string>(), Is.EqualTo("Abandoned"));
+        Assert.That(outcomeJson["place"]!.GetValue<string>(), Is.EqualTo("Lost Tower 200, 200"));
+        Assert.That(outcomeJson["event"]!.GetValue<string>(), Is.EqualTo("Blood Castle"));
+        Assert.That(outcomeJson["reason"]!.GetValue<string>(), Does.Contain("no route to the entry NPC"));
+        Assert.That(outcomeJson["summary"]!.GetValue<string>(), Is.EqualTo("Last meeting: abandoned at Lost Tower 200, 200"));
     }
 
     /// <summary>

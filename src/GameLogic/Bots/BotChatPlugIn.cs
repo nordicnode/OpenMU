@@ -167,6 +167,18 @@ public class BotChatPlugIn
             return;
         }
 
+        // A bot which is under way to a meeting or already waits there has a concrete answer: where it
+        // is, and that the player may come and invite it - instead of a random small-talk line.
+        if (this.Configuration is { } meetingConfiguration
+            && receiver is OfflinePlayer meetingBot
+            && BotChatAudience.IsBot(meetingBot)
+            && sender is not OfflinePlayer
+            && meetingBot.EventMeeting is { IsActive: true } meeting
+            && this._conversations.AnswerMeetingStatus(meetingBot, sender, message, meeting, meetingConfiguration))
+        {
+            return;
+        }
+
         if (this.Configuration is not { WhisperReplyChancePercent: > 0 } configuration
             || !BotChatAudience.IsBot(receiver)
             || sender is OfflinePlayer

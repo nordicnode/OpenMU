@@ -103,6 +103,16 @@ internal sealed class BotStateMachine
     internal string? LastFailure => this._lastFailure;
 
     /// <summary>
+    /// Formats a duration the compact way the state surfaces use: <c>m:ss</c> below an hour, <c>h:mm:ss</c>
+    /// above. The meeting projection formats its remaining wait time the same way, so a bot's state and its
+    /// meeting read alike in the table.
+    /// </summary>
+    /// <param name="duration">The duration to format.</param>
+    /// <returns>The formatted duration.</returns>
+    internal static string FormatDuration(TimeSpan duration)
+        => duration.ToString(duration.TotalHours >= 1 ? @"h\:mm\:ss" : @"m\:ss", CultureInfo.InvariantCulture);
+
+    /// <summary>
     /// Reports the state the current tick put the bot in.
     /// </summary>
     /// <param name="next">The state the tick put the bot in.</param>
@@ -201,7 +211,7 @@ internal sealed class BotStateMachine
             CultureInfo.InvariantCulture,
             "{0} for {1} ({2})",
             this.Current,
-            Format(this.TimeInCurrent(now)),
+            FormatDuration(this.TimeInCurrent(now)),
             this._reason);
 
         // A bypassed errand is a defect in the priority order, so it belongs into the shortest form too: the
@@ -221,7 +231,7 @@ internal sealed class BotStateMachine
         var now = this._timeProvider.GetUtcNow();
         var builder = new StringBuilder();
         builder.Append("state ").Append(this.Current)
-            .Append(" for ").Append(Format(this.TimeInCurrent(now)))
+            .Append(" for ").Append(FormatDuration(this.TimeInCurrent(now)))
             .Append(" (").Append(this._reason).Append(')');
 
         if (this.GuardViolations > 0)
@@ -249,7 +259,7 @@ internal sealed class BotStateMachine
             .Select(state => (State: state, Time: this.SpentOf(state, now)))
             .Where(x => x.Time > TimeSpan.Zero)
             .OrderByDescending(x => x.Time)
-            .Select(x => x.State + " " + Format(x.Time))
+            .Select(x => x.State + " " + FormatDuration(x.Time))
             .ToList();
         if (spent.Count > 0)
         {
@@ -264,9 +274,6 @@ internal sealed class BotStateMachine
 
         return builder.ToString();
     }
-
-    private static string Format(TimeSpan duration)
-        => duration.ToString(duration.TotalHours >= 1 ? @"h\:mm\:ss" : @"m\:ss", CultureInfo.InvariantCulture);
 
     /// <summary>
     /// Formats a failure so that the line stays readable in a chat message: the type of the exception and its

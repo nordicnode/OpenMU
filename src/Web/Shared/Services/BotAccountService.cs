@@ -138,7 +138,9 @@ public class BotAccountService : IDataService<BotAccount>
                     activity?.Detail,
                     activity?.TimeInState.TotalSeconds ?? 0,
                     activity?.Restarts ?? 0,
-                    quarantinedSeconds);
+                    quarantinedSeconds,
+                    activity?.Meeting,
+                    activity?.LastMeeting);
             })
             .OrderLongestInState()
             .ToList();

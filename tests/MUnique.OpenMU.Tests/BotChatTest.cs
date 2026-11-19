@@ -551,6 +551,51 @@ public class BotChatTest
     }
 
     /// <summary>
+    /// A bot which answers a whisper during a meeting says something concrete: a waiting one names the
+    /// place it stands on, one which is still on its way says that it is coming.
+    /// </summary>
+    /// <param name="state">The name of the meeting state.</param>
+    /// <param name="waitingLinesExpected">Whether the waiting lines are expected instead of the on-the-way ones.</param>
+    [TestCase("Waiting", true)]
+    [TestCase("Traveling", false)]
+    [TestCase("Announced", false)]
+    public void MeetingStatusAnswersMatchTheMeetingState(string state, bool waitingLinesExpected)
+    {
+        var configuration = BotChatConfiguration.CreateDefault();
+        var meetingState = Enum.Parse<BotMeetingState>(state);
+
+        var line = BotChatConversationResponder.GetMeetingStatusLine(configuration, meetingState);
+
+        Assert.That(line, Is.Not.Null);
+        var expectedLines = waitingLinesExpected ? configuration.PartyWaitingLines : configuration.PartyOnTheWayLines;
+        Assert.That(expectedLines.Select(candidate => candidate.Text.ValueInNeutralLanguage), Does.Contain(line!.Text.ValueInNeutralLanguage));
+        Assert.That(line!.Text.GetTranslation(CultureInfo.GetCultureInfo("pl")), Is.Not.Empty);
+    }
+
+    /// <summary>
+    /// A meeting which is over gets no status answer anymore - there is no place to name.
+    /// </summary>
+    /// <param name="state">The name of the terminal meeting state.</param>
+    [TestCase("Expired")]
+    [TestCase("Joined")]
+    [TestCase("Abandoned")]
+    public void MeetingStatusAnswersAreSilentAfterTheMeeting(string state)
+        => Assert.That(BotChatConversationResponder.GetMeetingStatusLine(BotChatConfiguration.CreateDefault(), Enum.Parse<BotMeetingState>(state)), Is.Null);
+
+    /// <summary>
+    /// A waiting bot names the place in its answer - otherwise the player would have to guess where to
+    /// go. The lines work for both an announced event and a place a player named.
+    /// </summary>
+    [Test]
+    public void DefaultWaitingLinesNameThePlace()
+    {
+        var configuration = BotChatConfiguration.CreateDefault();
+
+        Assert.That(configuration.PartyWaitingLines.Select(line => line.Text.ValueInNeutralLanguage), Has.All.Contain("{location}"));
+        Assert.That(configuration.PartyWaitingLines.Select(line => line.Text.GetTranslation(CultureInfo.GetCultureInfo("pl"))), Has.All.Contain("{location}"));
+    }
+
+    /// <summary>
     /// The default configuration answers a question about the bot's wings by naming them - in English
     /// and in Polish, with or without diacritics.
     /// </summary>

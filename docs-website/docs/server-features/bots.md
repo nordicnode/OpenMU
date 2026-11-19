@@ -576,6 +576,7 @@ only talks about what it could actually do:
 | A player stands near two bots (every 5 minutes per player) | normal chat: one bot says something, the other answers | two bots close together, both in a town or both out hunting |
 | A player asked the bot for a trade or challenged it to a duel | whisper, 70 % chance, `{player}` — the bot turns it down in any case (no trade window, no duels) | the bot |
 | A player whispered to the bot | whisper back, after a few seconds — answering the whisper's keywords (see below) | the bot |
+| A player whispered to a bot which is on its way to a meeting place or already waits there | whisper back with the concrete place: the map and the NPC or coordinates it waits at, or that it is still coming | the bot |
 
 A bot which posts about an event does not stay out hunting where nobody
 could find it. It goes to the meeting point and waits there until the entrance
@@ -587,6 +588,28 @@ invites it and enters the event takes it along like any party bot. If nobody
 invites it, it goes back to hunting when the entrance closes. A bot does not
 announce an event whose entrance closes in less than two minutes, and a bot
 already in a party with a player does not look for company.
+
+A bot only promises a place it can actually reach. The map of the chosen entry
+NPC has to be the bot's own map or one its warp list reaches with a walkable
+landing, and the NPC needs a walkable tile next to it to wait on; on a map whose
+floors aren't connected by ground, like the Lost Tower, it plans the warp of the
+NPC's floor instead of the spawn floor. A bot which can't get to any entry NPC
+stays quiet. Should the spot turn out to be unreachable after all — a custom
+map, a floor cut off from the rest of it — the bot doesn't give the meeting up:
+it waits in the safezone of the same map, where players can still find it and
+invite it. Two warps per meeting are the limit, so a broken gate can't make it
+jump back and forth; after that, or when the entrance closes, it gives up. It
+says where it is when a player whispers to it, so nobody has to follow a bot
+blindly, and its meeting ends in the log with the reason (`Bot '…' ends its
+event meeting in Devias: Expired`, `… Abandoned`, `… Joined`). An operator
+doesn't need that log to see a meeting in progress: the bot table of the admin
+panel and the `bots_list` tool report the state — announced, traveling or
+waiting — with the place and how long the bot still waits, and `/botstate`
+includes it in the long form. The table keeps the countdown moving and picks up
+an ended meeting without a reload. Once the meeting is over, the same line says
+`Last meeting: expired at Devias 215, 40` (or `joined` or `abandoned`); the
+reason an abandoned meeting was given up is in the tooltip, the `lastMeeting`
+node of `bots_list` and the long form of `/botstate`.
 
 A player can also search party members among the bots with a post:
 `/post party 300-350 bk dw`. A post with one of the party words (`party`, `pt`,
@@ -613,7 +636,11 @@ not go to (its level is too low for any warp leading there) it declines, and
 the player may name another one while the offer lasts; a whisper without a
 place gets asked again.
 Map and warp names are recognized in every translation. The words, the number
-of bots and the times are part of the configuration.
+of bots and the times are part of the configuration — so are the whispers: the
+*on the way* lines answer a bot which still travels to the meeting, the
+*waiting there* lines one which already stands there, both naming the place.
+The same answer comes during an announced event, which is when a player most
+needs to know whether the bot is worth following.
 
 The conversations make a town feel lived in, like the townsfolk of a
 role-playing game: "my potions are running low" — "the shop here sells them

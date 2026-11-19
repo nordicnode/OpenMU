@@ -227,12 +227,14 @@ public class BotMeetingPlaceTest
         Assert.That(mapChanges.MapChangeCount, Is.EqualTo(1));
         Assert.That(bot.SelectedCharacter.PositionX, Is.InRange(200, 201));
         Assert.That(bot.SelectedCharacter.PositionY, Is.InRange(200, 201));
+        Assert.That(bot.EventMeeting!.State, Is.EqualTo(BotMeetingState.Traveling));
 
         bot.SetCurrentMapSilently(map);
         var waits = await navigator.TryEventMeetingAsync(map, false, CancellationToken.None).ConfigureAwait(false);
 
         Assert.That(waits, Is.True);
         Assert.That(mapChanges.MapChangeCount, Is.EqualTo(1), "standing at the meeting point, the bot doesn't warp again");
+        Assert.That(bot.EventMeeting!.State, Is.EqualTo(BotMeetingState.Waiting));
     }
 
     /// <summary>

@@ -60,6 +60,22 @@ internal sealed class BotChatConversationResponder
     }
 
     /// <summary>
+    /// Chooses the line which answers a whisper to a bot with an active meeting: a bot which already
+    /// waits names where it stands, one which is still on its way says so. Terminal states don't answer
+    /// here - the meeting doesn't exist anymore from the player's point of view.
+    /// </summary>
+    /// <param name="configuration">The chat configuration.</param>
+    /// <param name="state">The state of the meeting.</param>
+    /// <returns>The line, or <c>null</c> when the configured list has no usable line.</returns>
+    internal static BotChatLine? GetMeetingStatusLine(BotChatConfiguration configuration, BotMeetingState state)
+        => state switch
+        {
+            BotMeetingState.Waiting => BotChatComposer.PickCurrentLine(configuration.PartyWaitingLines ?? []),
+            BotMeetingState.Announced or BotMeetingState.Traveling => BotChatComposer.PickCurrentLine(configuration.PartyOnTheWayLines ?? []),
+            _ => null,
+        };
+
+    /// <summary>
     /// Answers the player's suggestion where to meet: it names the place back, and either walks to its
     /// entry NPC and waits there (the meeting, see <see cref="BotEventMeeting"/>) or explains that it can't
     /// go there - in which case the player may name another place until the offer expires.
@@ -124,6 +140,41 @@ internal sealed class BotChatConversationResponder
         {
             WhisperLater(bot, requester, onTheWayLine, values, language);
         }
+    }
+
+    /// <summary>
+    /// Answers a player who whispers to a bot which is on its way to a meeting place or already waits
+    /// there: it names the concrete place and says whether it is still coming or already is there. A
+    /// player who read an announced event needs no guessing whether the bot is worth following.
+    /// </summary>
+    /// <param name="bot">The bot which answers.</param>
+    /// <param name="requester">The player who whispered.</param>
+    /// <param name="message">The message of the player, which decides the language of the answer.</param>
+    /// <param name="meeting">The active meeting.</param>
+    /// <param name="configuration">The chat configuration.</param>
+    /// <returns><c>true</c>, if the bot answered; otherwise the caller may answer as usual.</returns>
+    internal bool AnswerMeetingStatus(OfflinePlayer bot, Player requester, string message, BotEventMeeting meeting, BotChatConfiguration configuration)
+    {
+        if (!BotChatAudience.IsAvailable(bot) || !meeting.IsActive)
+        {
+            return false;
+        }
+
+        var line = GetMeetingStatusLine(configuration, meeting.State);
+        if (line is null
+            || !this._getThrottle(bot.GameContext).TryReserveWhisperReply(bot, DateTime.UtcNow, configuration.WhisperReplyCooldown))
+        {
+            return false;
+        }
+
+        var values = BotChatValues.Create(bot);
+        values["player"] = _ => requester.SelectedCharacter?.Name ?? string.Empty;
+        values["event"] = culture => meeting.Event?.Name.GetTranslation(culture) ?? string.Empty;
+        values["map"] = culture => meeting.Map.Name.GetTranslation(culture) ?? string.Empty;
+        values["location"] = culture => BotChatComposer.FormatLocation(meeting.Map.Name.GetTranslation(culture), meeting.NpcPosition);
+        var language = BotChatComposer.GetLanguage(message, configuration);
+        WhisperLater(bot, requester, line, values, language);
+        return true;
     }
 
     /// <summary>

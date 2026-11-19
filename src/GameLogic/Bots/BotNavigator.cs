@@ -130,6 +130,13 @@ internal sealed class BotNavigator : AsyncDisposable
     /// </summary>
     private const int FollowerLeashDistance = 2 * HuntingRange;
 
+    /// <summary>
+    /// How often a bot warps for the same event meeting before it gives up. One warp takes it to the
+    /// meeting, a second one may recover a landing which ended somewhere else - more would just shuffle
+    /// it between the same gates while the players wait for it.
+    /// </summary>
+    private const int MaxMeetingWarps = 2;
+
     /// <summary>The game's own warp action, so a bot travels on exactly a player's terms - fare included.</summary>
     private static readonly WarpAction WarpAction = new();
 
@@ -404,12 +411,12 @@ internal sealed class BotNavigator : AsyncDisposable
     private bool _isHopInProgress;
 
     /// <summary>
-    /// The meeting for which the bot warped through the meeting's gate (see <see cref="BotEventMeeting.Gate"/>),
-    /// and how often - so a bot which can't get any closer gives up instead of warping on and on.
+    /// The meeting for which the bot warped, and how often - so a bot which can't get any closer gives
+    /// up instead of warping on and on.
     /// </summary>
-    private BotEventMeeting? _gateWarpMeeting;
+    private BotEventMeeting? _meetingWarpMeeting;
 
-    private int _gateWarpCount;
+    private int _meetingWarpCount;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="BotNavigator"/> class.
@@ -835,6 +842,12 @@ internal sealed class BotNavigator : AsyncDisposable
     /// <param name="inSafezone">Indicates whether the bot currently is in the safezone of the map.</param>
     /// <param name="cancellationToken">The token which aborts the travel wait on shutdown.</param>
     /// <returns>True, if the meeting consumed this tick.</returns>
+    /// <remarks>
+    /// The meeting's <see cref="BotEventMeeting.State"/> is advanced as the bot goes: a player who asks
+    /// the bot where it is gets a truthful answer, and the operator's log shows why a meeting ended.
+    /// A place the bot can't reach does not end the meeting at once - it falls back to waiting in the
+    /// safezone of the same map, where players can still find it.
+    /// </remarks>
     internal async ValueTask<bool> TryEventMeetingAsync(GameMap map, bool inSafezone, CancellationToken cancellationToken)
     {
         if (this._player.EventMeeting is not { } meeting)
@@ -842,11 +855,24 @@ internal sealed class BotNavigator : AsyncDisposable
             return false;
         }
 
-        if (DateTime.UtcNow >= meeting.UntilUtc
-            || this._player.CurrentMiniGame is not null
+        if (!meeting.IsActive)
+        {
+            // Ended elsewhere, e.g. by a newer meeting which was replaced again; just forget it.
+            this.EndEventMeeting(meeting, meeting.State);
+            return false;
+        }
+
+        if (meeting.IsTimedOut(DateTime.UtcNow))
+        {
+            this.EndEventMeeting(meeting, BotMeetingState.Expired);
+            return false;
+        }
+
+        if (this._player.CurrentMiniGame is not null
             || BotPartyHandler.HasHumanCompanion(this._player))
         {
-            this.EndEventMeeting(meeting);
+            // A player took the bot into a party, or the event started: the meeting served its purpose.
+            this.EndEventMeeting(meeting, BotMeetingState.Joined);
             return false;
         }
 
@@ -857,16 +883,24 @@ internal sealed class BotNavigator : AsyncDisposable
         {
             if ((meeting.Gate ?? meeting.Map.ExitGates.Where(g => g.IsSpawnGate).SelectRandom()) is not { } gate)
             {
-                this.EndEventMeeting(meeting);
+                this.EndEventMeeting(meeting, BotMeetingState.Abandoned, "the meeting map has no gate to enter it");
                 return false;
             }
 
+            if (this.GetMeetingWarpCount(meeting) >= MaxMeetingWarps)
+            {
+                this.EndEventMeeting(meeting, BotMeetingState.Abandoned, "it couldn't get to the meeting map");
+                return false;
+            }
+
+            this.AdvanceMeetingState(meeting, BotMeetingState.Traveling);
             await this.WarpToMeetingAsync(meeting, gate).ConfigureAwait(false);
             return true;
         }
 
         if (meeting.NpcPosition is { } npcPosition && this._player.GetDistanceTo(npcPosition) > BotTownTripPlanner.NpcInteractionRange)
         {
+            this.AdvanceMeetingState(meeting, BotMeetingState.Traveling);
             var standingPoint = BotEventMeetingPlanner.FindStandingPoint(map.Terrain, npcPosition, BotTownTripPlanner.NpcInteractionRange);
 
             // Already on the map, but the meeting's gate lands closer - another floor of the Lost Tower,
@@ -874,7 +908,7 @@ internal sealed class BotNavigator : AsyncDisposable
             // at all. The second try is for a landing on a blocked tile, which ends at the spawn gate.
             if (standingPoint is { } point
                 && meeting.Gate is { } meetingGate
-                && this.GetGateWarpCount(meeting) < 2
+                && this.GetMeetingWarpCount(meeting) < MaxMeetingWarps
                 && !BotWarpPlanner.IsInside(meetingGate, this._player.Position)
                 && BotWarpPlanner.GateDistance(meetingGate, point) < this._player.GetDistanceTo(point))
             {
@@ -885,15 +919,23 @@ internal sealed class BotNavigator : AsyncDisposable
             if (standingPoint is null
                 || !await this.TravelTowardAsync(map, standingPoint.Value, cancellationToken).ConfigureAwait(false))
             {
-                this._player.Logger.LogDebug("Bot '{Name}' gives up waiting for the event: no route to the entry NPC at {Target}.", this._player.Name, npcPosition);
-                this.EndEventMeeting(meeting);
-                return false;
+                // The usual point is unreachable (a custom map, or a floor which isn't connected by
+                // walkable ground): wait in the safezone of the same map instead of leaving the players
+                // without a meeting at all.
+                if (!this.TryFallbackToSafezone(meeting, map, inSafezone))
+                {
+                    this.EndEventMeeting(meeting, BotMeetingState.Abandoned, "no route to the entry NPC and no safezone to wait in");
+                    return false;
+                }
+
+                return true;
             }
 
             return true;
         }
 
         // Waiting at the meeting point is not "stuck".
+        this.AdvanceMeetingState(meeting, BotMeetingState.Waiting);
         this._lastMoveUtc = DateTime.UtcNow;
         return true;
     }
@@ -2256,15 +2298,13 @@ internal sealed class BotNavigator : AsyncDisposable
     }
 
     /// <summary>
-    /// Warps the bot through a gate to its meeting, counting the warps through the meeting's own gate.
+    /// Warps the bot through a gate to its meeting, counting the warps it takes for the meeting.
     /// </summary>
     private async ValueTask WarpToMeetingAsync(BotEventMeeting meeting, ExitGate gate)
     {
-        if (ReferenceEquals(gate, meeting.Gate))
-        {
-            this._gateWarpCount = this.GetGateWarpCount(meeting) + 1;
-            this._gateWarpMeeting = meeting;
-        }
+        var warpCount = this.GetMeetingWarpCount(meeting) + 1;
+        this._meetingWarpMeeting = meeting;
+        this._meetingWarpCount = warpCount;
 
         this._travelPath = null;
         this._hasDestination = false;
@@ -2273,8 +2313,57 @@ internal sealed class BotNavigator : AsyncDisposable
         await this._player.WarpToAsync(gate).ConfigureAwait(false);
     }
 
-    private int GetGateWarpCount(BotEventMeeting meeting)
-        => ReferenceEquals(this._gateWarpMeeting, meeting) ? this._gateWarpCount : 0;
+    private int GetMeetingWarpCount(BotEventMeeting meeting)
+        => ReferenceEquals(this._meetingWarpMeeting, meeting) ? this._meetingWarpCount : 0;
+
+    /// <summary>
+    /// Lets the bot wait in the safezone of the meeting's map instead of next to its entry NPC, when
+    /// that point turned out to be unreachable. The map - and with it where the players have to look -
+    /// stays the same; a bot which isn't in the safezone yet warps there on its next tick.
+    /// </summary>
+    /// <param name="meeting">The meeting which can't be reached at its entry NPC.</param>
+    /// <param name="map">The meeting's map, which the bot stands on.</param>
+    /// <param name="inSafezone">Indicates whether the bot currently stands in the safezone already.</param>
+    /// <returns><c>false</c>, if the bot couldn't even wait in the safezone - the meeting is over then.</returns>
+    private bool TryFallbackToSafezone(BotEventMeeting meeting, GameMap map, bool inSafezone)
+    {
+        if (!inSafezone && !map.Definition.ExitGates.Any(gate => gate.IsSpawnGate))
+        {
+            return false;
+        }
+
+        var fallback = meeting.ToSafezoneFallback();
+        this._player.EventMeeting = fallback;
+        this._player.Logger.LogDebug(
+            "Bot '{Name}' can't reach the entry NPC of its event meeting in {Map}; it waits in the safezone instead.",
+            this._player.Name,
+            map.Definition.Name);
+        if (inSafezone)
+        {
+            fallback.AdvanceTo(BotMeetingState.Waiting);
+            this._lastMoveUtc = DateTime.UtcNow;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Records how far the bot got with its event meeting.
+    /// </summary>
+    /// <param name="meeting">The meeting.</param>
+    /// <param name="state">The state it reached.</param>
+    private void AdvanceMeetingState(BotEventMeeting meeting, BotMeetingState state)
+    {
+        if (meeting.AdvanceTo(state))
+        {
+            this._player.Logger.LogDebug(
+                "Bot '{Name}' event meeting is {State}: {Map} until {Until:u}.",
+                this._player.Name,
+                state,
+                meeting.Map.Name,
+                meeting.UntilUtc);
+        }
+    }
 
     /// <summary>
     /// Drives a market shift (see <see cref="OfflinePlayer.MarketShift"/>): the bot warps to the market
@@ -2429,14 +2518,41 @@ internal sealed class BotNavigator : AsyncDisposable
     }
 
     /// <summary>
-    /// Ends the event meeting, unless a newer one replaced it in the meantime.
+    /// Ends the event meeting, unless a newer one replaced it in the meantime - then the given meeting
+    /// records why it is over, once.
     /// </summary>
     /// <param name="meeting">The meeting which is over.</param>
-    private void EndEventMeeting(BotEventMeeting meeting)
+    /// <param name="state">The terminal state it ended in.</param>
+    /// <param name="reason">Why it ended, when the state alone doesn't say it.</param>
+    private void EndEventMeeting(BotEventMeeting meeting, BotMeetingState state, string? reason = null)
     {
-        if (ReferenceEquals(this._player.EventMeeting, meeting))
+        if (!ReferenceEquals(this._player.EventMeeting, meeting))
         {
-            this._player.EventMeeting = null;
+            return;
+        }
+
+        if (meeting.AdvanceTo(state))
+        {
+            this._player.Logger.LogDebug(
+                "Bot '{Name}' ends its event meeting in {Map}: {State}{Reason}.",
+                this._player.Name,
+                meeting.Map.Name,
+                state,
+                reason is null ? string.Empty : $" - {reason}");
+        }
+
+        // The meeting is forgotten, but how it ended is not: the bot table and bots_list report it until the
+        // next meeting ends, so an operator can tell a bot which joined a party from one which never arrived.
+        if (BotMeetingActivity.From(meeting) is { } ended)
+        {
+            this._player.LastEventMeeting = new BotMeetingOutcome(ended.State, ended.Place, ended.Event, reason);
+        }
+
+        this._player.EventMeeting = null;
+        if (ReferenceEquals(this._meetingWarpMeeting, meeting))
+        {
+            this._meetingWarpMeeting = null;
+            this._meetingWarpCount = 0;
         }
     }
 
