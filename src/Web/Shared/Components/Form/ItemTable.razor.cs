@@ -10,6 +10,7 @@ using System.Globalization;
 using System.Linq.Expressions;
 using System.Reflection;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Forms;
 using MUnique.OpenMU.DataModel;
 using MUnique.OpenMU.DataModel.Composition;
 using MUnique.OpenMU.Persistence;
@@ -36,6 +37,8 @@ public partial class ItemTable<TItem>
         .ToArray();
 
     private readonly int _searchThreshold = 10;
+
+    private readonly Dictionary<TItem, EditContext> _editContexts = new();
 
     private bool _isEditable;
 
@@ -122,6 +125,17 @@ public partial class ItemTable<TItem>
         };
     }
 
+    private EditContext GetEditContext(TItem item)
+    {
+        if (!this._editContexts.TryGetValue(item, out var editContext))
+        {
+            editContext = new EditContext(item);
+            this._editContexts.Add(item, editContext);
+        }
+
+        return editContext;
+    }
+
     private void OnToggleCollapseClick()
     {
         this._isCollapsed = !this._isCollapsed;
@@ -193,6 +207,7 @@ public partial class ItemTable<TItem>
     private async Task OnRemoveClickAsync(TItem item)
     {
         this.Value?.Remove(item);
+        this._editContexts.Remove(item);
 
         if (this.ValueExpression?.Body is MemberExpression { Member: PropertyInfo propertyInfo }
             && propertyInfo.GetCustomAttribute<MemberOfAggregateAttribute>() is not null

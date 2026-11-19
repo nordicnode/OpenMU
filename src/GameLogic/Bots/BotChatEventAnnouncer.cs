@@ -152,10 +152,11 @@ internal sealed class BotChatEventAnnouncer
             if (human.CurrentMap is not { } map
                 || BotChatAudience.FindGreeter(players.Where(p => p is OfflinePlayer candidate && BotMiniGameHandler.IsEligible(candidate, definition, out _)), human, map) is not { } bot
                 || !this._mayTalkUnasked(bot, configuration)
+                || !throttle.IsCategoryDue(bot, BotChatCategory.EventReminder, now, configuration.GetCategoryCooldown(BotChatCategory.EventReminder))
                 || !throttle.TryReserveOccasion($"event reminder {definition.Type} {map.MapId}", now, miniGame.EnterEndsAtUtc - now)
                 || !Rand.NextRandomBool(configuration.EventReminderChancePercent)
-                || BotChatComposer.PickCurrentLine(configuration.EventReminderLines) is not { } line
-                || !throttle.TryReserveChat(bot, now, configuration.BotChatCooldown))
+                || BotChatReplySelector.PickLineFor(throttle, bot, configuration.EventReminderLines) is not { } line
+                || !throttle.TryReserveChat(bot, now, configuration.BotChatCooldown, category: BotChatCategory.EventReminder, categoryCooldown: configuration.GetCategoryCooldown(BotChatCategory.EventReminder)))
             {
                 continue;
             }
@@ -192,16 +193,20 @@ internal sealed class BotChatEventAnnouncer
             .Where(candidate => candidate.Meeting is not null)
             .ToList();
         var throttle = this._getThrottle(miniGame.GameContext);
-        if (candidates.Count == 0
-            || !throttle.TryReserveOccasion($"mini game {definition.Type}", now, miniGame.EnterEndsAtUtc - now)
-            || !Rand.NextRandomBool(configuration.EventPostChancePercent)
-            || BotChatComposer.PickCurrentLine(configuration.EventLines) is not { } line
-            || !throttle.TryReservePost(now, configuration.MinTimeBetweenPosts))
+        if (candidates.Count == 0)
         {
             return;
         }
 
         var (chosen, meeting) = candidates[Rand.NextInt(0, candidates.Count)];
+        if (!throttle.TryReserveOccasion($"mini game {definition.Type}", now, miniGame.EnterEndsAtUtc - now)
+            || !Rand.NextRandomBool(configuration.EventPostChancePercent)
+            || BotChatReplySelector.PickLineFor(throttle, chosen, configuration.EventLines) is not { } line
+            || !throttle.TryReservePost(now, configuration.MinTimeBetweenPosts))
+        {
+            return;
+        }
+
         chosen.EventMeeting = meeting! with { Event = definition };
 
         // The other bots which wait at the same place become its event party: one invitation then takes
@@ -231,16 +236,19 @@ internal sealed class BotChatEventAnnouncer
             .SelectMany(p => maps.Where(map => BotEventMeetingPlanner.MayWarpTo(p, map)).Select(map => (Bot: p, Map: map)))
             .ToList();
         var throttle = this._getThrottle(gameContext);
-        if (candidates.Count == 0
-            || !throttle.TryReserveOccasion($"invasion {invasion.GetType().Name}", now, InvasionAnnouncementWindow)
-            || !Rand.NextRandomBool(configuration.InvasionPostChancePercent)
-            || BotChatComposer.PickCurrentLine(configuration.InvasionLines) is not { } line
-            || !throttle.TryReservePost(now, configuration.MinTimeBetweenPosts))
+        if (candidates.Count == 0)
         {
             return;
         }
 
         var (bot, map) = candidates[Rand.NextInt(0, candidates.Count)];
+        if (!throttle.TryReserveOccasion($"invasion {invasion.GetType().Name}", now, InvasionAnnouncementWindow)
+            || !Rand.NextRandomBool(configuration.InvasionPostChancePercent)
+            || BotChatReplySelector.PickLineFor(throttle, bot, configuration.InvasionLines) is not { } line
+            || !throttle.TryReservePost(now, configuration.MinTimeBetweenPosts))
+        {
+            return;
+        }
 
         // A few bots which may reach the invaded map make it their goal and group up for the attempt.
         // The rest keep hunting; an invasion is an opportunity, not a draft.

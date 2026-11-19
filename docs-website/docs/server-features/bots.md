@@ -734,6 +734,32 @@ post chances are 30 % by default, so not every opened event or invasion gets a
 post. Bots post only while the `/post` command is enabled on the server, and
 their messages look exactly like a player's post.
 
+Bots also remember which lines of a list they said recently (`Recent-line
+memory`, 4 lines by default), so they don't repeat a greeting or a wing comment
+while the list still has unseen lines - also when a different player hears it.
+Set the memory to 0 to switch it off. On top of that, the `Cooldowns per topic`
+table sets a separate cooldown for each topic (5 minutes by default): after a
+greeting a bot won't greet again for five minutes, after a wing comment it won't
+comment on wings again, even for another player or on another map. Answers to a
+player, party chat and event posts are not limited by topic cooldowns. A topic
+with a cooldown of 0, or one removed from the table, is not limited.
+
+Two message budgets cap the whole server on top of the per-bot limits:
+`Server-wide messages per minute` (240 by default) counts all channels together,
+while `Messages per channel and minute` (120) limits normal, party, whisper and
+post chat separately — so a burst of normal chat can't use up the whispers'
+budget, or vice versa. A message denied by a budget doesn't consume the bot's
+cooldown: it can be said once the budget frees up again. Set a budget to 0 to
+switch it off.
+
+A game master sees what the chat did with `/botchat`: the messages granted,
+throttled or muted per channel since the server started, the suppressed
+occasions (event reminders, greetings, congratulations), and the active budgets.
+`/botchat mute <minutes>` silences every channel at once during an incident, and
+`/botchat unmute` ends the window early. The mute is server-wide and independent
+of the plugin configuration, so it also works while somebody edits the
+configuration.
+
 ### Keeping itself alive
 
 The engine's attribute system is not thread-safe, and a lost race can corrupt a

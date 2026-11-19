@@ -13,6 +13,7 @@ using MUnique.OpenMU.GameLogic.Bots;
 using MUnique.OpenMU.GameLogic.Views;
 using MUnique.OpenMU.Interfaces;
 using MUnique.OpenMU.Pathfinding;
+using MUnique.OpenMU.PlugIns;
 
 /// <summary>
 /// Tests the bot chat (<see cref="BotChatPlugIn"/>): the limits which keep a large bot population
@@ -37,6 +38,135 @@ public class BotChatTest
         Assert.That(throttle.TryReservePost(Start, gap), Is.True);
         Assert.That(throttle.TryReservePost(Start.AddMinutes(1), gap), Is.False);
         Assert.That(throttle.TryReservePost(Start.AddMinutes(3), gap), Is.True);
+    }
+
+    /// <summary>
+    /// The server-wide budget is the sum over all channels: once it is used up, even a message of a
+    /// channel with free budget stays unsaid.
+    /// </summary>
+    /// <returns>The task.</returns>
+    [Test]
+    public async ValueTask TheGlobalBudgetLimitsAllChannelsAsync()
+    {
+        var gameContext = GameContextTestHelper.CreateGameContext();
+        var bot = await PlayerTestHelper.CreatePlayerAsync(gameContext).ConfigureAwait(false);
+        var throttle = new BotChatThrottle();
+        throttle.Configure(globalMessagesPerMinute: 2, channelMessagesPerMinute: 0);
+
+        Assert.That(throttle.TryReserveChat(bot, Start, TimeSpan.Zero), Is.True);
+        Assert.That(throttle.TryReservePost(Start, TimeSpan.Zero), Is.True);
+        Assert.That(throttle.TryReserveWhisperReply(bot, Start, TimeSpan.Zero), Is.False);
+
+        var statistics = throttle.GetStatistics(Start);
+        Assert.That(statistics.Granted, Is.EqualTo(2));
+        Assert.That(statistics.Throttled, Is.EqualTo(1));
+        Assert.That(statistics.Channels[BotChatChannel.Whisper].Throttled, Is.EqualTo(1));
+    }
+
+    /// <summary>
+    /// Each channel has its own budget, so a busy normal chat doesn't keep the party chat or the
+    /// posts from being said.
+    /// </summary>
+    /// <returns>The task.</returns>
+    [Test]
+    public async ValueTask EachChannelHasItsOwnBudgetAsync()
+    {
+        var gameContext = GameContextTestHelper.CreateGameContext();
+        var bot = await PlayerTestHelper.CreatePlayerAsync(gameContext).ConfigureAwait(false);
+        var throttle = new BotChatThrottle();
+        throttle.Configure(globalMessagesPerMinute: 0, channelMessagesPerMinute: 1);
+
+        Assert.That(throttle.TryReserveChat(bot, Start, TimeSpan.Zero), Is.True);
+        Assert.That(throttle.TryReserveChat(bot, Start, TimeSpan.Zero), Is.False);
+        Assert.That(throttle.TryReserveChat(bot, Start, TimeSpan.Zero, BotChatChannel.Party), Is.True);
+        Assert.That(throttle.TryReserveChat(bot, Start, TimeSpan.Zero, BotChatChannel.Party), Is.False);
+        Assert.That(throttle.TryReservePost(Start, TimeSpan.Zero), Is.True);
+        Assert.That(throttle.TryReservePost(Start, TimeSpan.Zero), Is.False);
+    }
+
+    /// <summary>
+    /// A used-up budget frees up again a minute later; a message denied by it doesn't consume the
+    /// bot's cooldown.
+    /// </summary>
+    /// <returns>The task.</returns>
+    [Test]
+    public async ValueTask TheBudgetFreesUpAfterAMinuteAsync()
+    {
+        var gameContext = GameContextTestHelper.CreateGameContext();
+        var bot = await PlayerTestHelper.CreatePlayerAsync(gameContext).ConfigureAwait(false);
+        var throttle = new BotChatThrottle();
+        throttle.Configure(globalMessagesPerMinute: 1, channelMessagesPerMinute: 0);
+
+        Assert.That(throttle.TryReserveChat(bot, Start, TimeSpan.Zero), Is.True);
+        Assert.That(throttle.TryReserveChat(bot, Start.AddSeconds(30), TimeSpan.Zero), Is.False);
+        Assert.That(throttle.TryReserveChat(bot, Start.AddMinutes(1), TimeSpan.Zero), Is.True);
+    }
+
+    /// <summary>
+    /// A mute window silences every channel at once and is counted separately from the throttled
+    /// messages; occasions are counted as suppressed. Unmuting or the end of the window lets the
+    /// chat through again.
+    /// </summary>
+    /// <returns>The task.</returns>
+    [Test]
+    public async ValueTask AMuteWindowSilencesEveryChannelAsync()
+    {
+        var gameContext = GameContextTestHelper.CreateGameContext();
+        var bot = await PlayerTestHelper.CreatePlayerAsync(gameContext).ConfigureAwait(false);
+        var throttle = new BotChatThrottle();
+        var until = throttle.Mute(Start, TimeSpan.FromMinutes(5));
+
+        Assert.That(throttle.TryReservePost(Start.AddMinutes(1), TimeSpan.Zero), Is.False);
+        Assert.That(throttle.TryReserveChat(bot, Start.AddMinutes(1), TimeSpan.Zero), Is.False);
+        Assert.That(throttle.TryReserveWhisperReply(bot, Start.AddMinutes(1), TimeSpan.Zero), Is.False);
+        Assert.That(throttle.TryReserveOccasion("greeting Hero", Start.AddMinutes(1), TimeSpan.FromMinutes(1)), Is.False);
+
+        var statistics = throttle.GetStatistics(Start.AddMinutes(1));
+        Assert.That(statistics.Granted, Is.Zero);
+        Assert.That(statistics.Muted, Is.EqualTo(3));
+        Assert.That(statistics.SuppressedOccasions, Is.EqualTo(1));
+        Assert.That(statistics.MutedUntilUtc, Is.EqualTo(until));
+        Assert.That(statistics.Channels[BotChatChannel.Post].Muted, Is.EqualTo(1));
+
+        Assert.That(throttle.TryReserveChat(bot, Start.AddMinutes(6), TimeSpan.Zero), Is.True);
+
+        throttle.Mute(Start.AddMinutes(10), TimeSpan.FromMinutes(5));
+        throttle.Unmute();
+        Assert.That(throttle.TryReservePost(Start.AddMinutes(10), TimeSpan.Zero), Is.True);
+    }
+
+    /// <summary>
+    /// A game master mutes the bot chat for a number of minutes and ends it early; the command
+    /// reports both.
+    /// </summary>
+    /// <returns>The task.</returns>
+    [Test]
+    public async ValueTask TheGameMasterMutesTheBotChatAsync()
+    {
+        var gameContext = GameContextTestHelper.CreateGameContext(
+        [
+            new PlugInConfiguration
+            {
+                TypeId = new Guid("B3234CC4-1365-463A-B0DE-603F9D7D86A2"), // BotChatPlugIn
+                IsActive = true,
+            },
+        ]);
+        var gameMaster = await PlayerTestHelper.CreatePlayerAsync(gameContext).ConfigureAwait(false);
+        var botChat = gameContext.FeaturePlugIns.GetPlugIn<BotChatPlugIn>();
+        Assert.That(botChat, Is.Not.Null);
+
+        var command = new BotChatChatCommandPlugIn();
+        await command.HandleCommandAsync(gameMaster, "/botchat mute 5").ConfigureAwait(false);
+        Assert.That(botChat!.GetThrottle(gameContext).MutedUntilUtc, Is.GreaterThan(DateTime.UtcNow));
+
+        await command.HandleCommandAsync(gameMaster, "/botchat unmute").ConfigureAwait(false);
+        Assert.That(botChat.GetThrottle(gameContext).MutedUntilUtc, Is.LessThanOrEqualTo(DateTime.UtcNow));
+
+        var messages = Mock.Get(gameMaster.ViewPlugIns.GetPlugIn<IShowMessagePlugIn>()!);
+        messages.Verify(view => view.ShowMessageAsync(It.Is<string>(message => message.Contains("muted")), MessageType.BlueNormal), Times.Exactly(2));
+
+        await command.HandleCommandAsync(gameMaster, "/botchat").ConfigureAwait(false);
+        messages.Verify(view => view.ShowMessageAsync(It.Is<string>(message => message.Contains("total:")), MessageType.BlueNormal), Times.Once);
     }
 
     /// <summary>
@@ -315,6 +445,146 @@ public class BotChatTest
         Assert.That(throttle.TryReserveChat(second, Start.AddMinutes(1), cooldown), Is.True);
         Assert.That(throttle.TryReserveWhisperReply(first, Start.AddMinutes(1), cooldown), Is.True);
         Assert.That(throttle.TryReserveChat(first, Start.AddMinutes(2), cooldown), Is.True);
+    }
+
+    /// <summary>
+    /// A bot doesn't repeat a line while its list has unseen ones, also when different players hear it.
+    /// </summary>
+    /// <returns>The task.</returns>
+    [Test]
+    public async ValueTask BotsDontRepeatTheirRecentLinesAsync()
+    {
+        var gameContext = GameContextTestHelper.CreateGameContext();
+        var bot = await PlayerTestHelper.CreateOfflineLevelingPlayerAsync(gameContext).ConfigureAwait(false);
+        var throttle = new BotChatThrottle();
+        var lines = new List<BotChatLine>
+        {
+            new() { Text = "first" },
+            new() { Text = "second" },
+            new() { Text = "third" },
+        };
+
+        var picked = Enumerable.Range(0, 3)
+            .Select(_ => BotChatReplySelector.PickLineFor(throttle, bot, lines))
+            .ToList();
+
+        Assert.That(picked, Has.None.Null);
+        Assert.That(picked.Distinct().Count(), Is.EqualTo(3));
+        Assert.That(BotChatReplySelector.PickLineFor(throttle, bot, lines), Is.Not.Null);
+    }
+
+    /// <summary>
+    /// A bot doesn't repeat a whisper reply while it has unseen ones, also when different players ask.
+    /// </summary>
+    /// <returns>The task.</returns>
+    [Test]
+    public async ValueTask BotsDontRepeatTheirRecentRepliesAsync()
+    {
+        var gameContext = GameContextTestHelper.CreateGameContext();
+        var bot = await PlayerTestHelper.CreateOfflineLevelingPlayerAsync(gameContext).ConfigureAwait(false);
+        var listener = await PlayerTestHelper.CreatePlayerAsync(gameContext).ConfigureAwait(false);
+        var throttle = new BotChatThrottle();
+        var replies = new List<BotChatReply>
+        {
+            new() { Text = "first" },
+            new() { Text = "second" },
+            new() { Text = "third" },
+        };
+
+        var picked = Enumerable.Range(0, 3)
+            .Select(_ => BotChatReplySelector.PickReplyFor(throttle, bot, listener, replies, "hello"))
+            .ToList();
+
+        Assert.That(picked, Has.None.Null);
+        Assert.That(picked.Distinct().Count(), Is.EqualTo(3));
+    }
+
+    /// <summary>
+    /// The default configuration has one cooldown entry per topic, so an admin can tune each of them
+    /// separately in the plugin settings.
+    /// </summary>
+    [Test]
+    public void DefaultTopicCooldownsCoverEveryTopic()
+    {
+        var configuration = BotChatConfiguration.CreateDefault();
+
+        Assert.That(configuration.TopicCooldowns.Select(entry => entry.Category), Is.EquivalentTo(Enum.GetValues<BotChatCategory>()));
+        Assert.That(configuration.TopicCooldowns.All(entry => entry.Cooldown == TimeSpan.FromMinutes(5)), Is.True);
+    }
+
+    /// <summary>
+    /// A topic cooldown can be changed on its own; a removed entry means no cooldown for that topic.
+    /// </summary>
+    [Test]
+    public void TopicCooldownsAreConfiguredSeparately()
+    {
+        var configuration = new BotChatConfiguration();
+        configuration.TopicCooldowns.First(entry => entry.Category == BotChatCategory.Greeting).Cooldown = TimeSpan.FromMinutes(1);
+        configuration.TopicCooldowns.First(entry => entry.Category == BotChatCategory.Wings).Cooldown = TimeSpan.Zero;
+        configuration.TopicCooldowns.Remove(configuration.TopicCooldowns.First(entry => entry.Category == BotChatCategory.Merchant));
+
+        Assert.That(configuration.GetCategoryCooldown(BotChatCategory.Greeting), Is.EqualTo(TimeSpan.FromMinutes(1)));
+        Assert.That(configuration.GetCategoryCooldown(BotChatCategory.Wings), Is.EqualTo(TimeSpan.Zero));
+        Assert.That(configuration.GetCategoryCooldown(BotChatCategory.Merchant), Is.EqualTo(TimeSpan.Zero));
+        Assert.That(configuration.GetCategoryCooldown(BotChatCategory.Conversation), Is.EqualTo(TimeSpan.FromMinutes(5)));
+    }
+
+    /// <summary>
+    /// The recent-line memory depth comes from the configuration; lowering it also lowers the memory
+    /// of a bot which already remembered more lines.
+    /// </summary>
+    /// <returns>The task.</returns>
+    [Test]
+    public async ValueTask RecentLineMemorySettingLimitsTheMemoryAsync()
+    {
+        var gameContext = GameContextTestHelper.CreateGameContext();
+        var bot = await PlayerTestHelper.CreateOfflineLevelingPlayerAsync(gameContext).ConfigureAwait(false);
+        var throttle = new BotChatThrottle();
+        var lines = new List<BotChatLine>
+        {
+            new() { Text = "first" },
+            new() { Text = "second" },
+            new() { Text = "third" },
+            new() { Text = "fourth" },
+        };
+
+        throttle.Configure(globalMessagesPerMinute: 0, channelMessagesPerMinute: 0, recentLineMemory: 4);
+        for (var i = 0; i < 4; i++)
+        {
+            BotChatReplySelector.PickLineFor(throttle, bot, lines);
+        }
+
+        Assert.That(throttle.GetRecentLines(bot, lines), Has.Count.EqualTo(4));
+
+        throttle.Configure(globalMessagesPerMinute: 0, channelMessagesPerMinute: 0, recentLineMemory: 2);
+        Assert.That(throttle.GetRecentLines(bot, lines), Has.Count.EqualTo(2));
+
+        throttle.Configure(globalMessagesPerMinute: 0, channelMessagesPerMinute: 0, recentLineMemory: 0);
+        Assert.That(throttle.GetRecentLines(bot, lines), Is.Empty);
+        Assert.That(BotChatReplySelector.PickLineFor(throttle, bot, lines), Is.Not.Null);
+        Assert.That(throttle.GetRecentLines(bot, lines), Is.Empty);
+    }
+
+    /// <summary>
+    /// The topic cooldown belongs to one bot and one topic: another bot may greet, and the same bot may
+    /// still comment on something else.
+    /// </summary>
+    /// <returns>The task.</returns>
+    [Test]
+    public async ValueTask TopicCooldownsArePerBotAndTopicAsync()
+    {
+        var gameContext = GameContextTestHelper.CreateGameContext();
+        var first = await PlayerTestHelper.CreateOfflineLevelingPlayerAsync(gameContext).ConfigureAwait(false);
+        var second = await PlayerTestHelper.CreateOfflineLevelingPlayerAsync(gameContext).ConfigureAwait(false);
+        var throttle = new BotChatThrottle();
+        var cooldown = TimeSpan.FromMinutes(5);
+
+        Assert.That(throttle.TryReserveChat(first, Start, TimeSpan.Zero, category: BotChatCategory.Greeting, categoryCooldown: cooldown), Is.True);
+        Assert.That(throttle.TryReserveChat(first, Start.AddMinutes(1), TimeSpan.Zero, category: BotChatCategory.Greeting, categoryCooldown: cooldown), Is.False);
+        Assert.That(throttle.TryReserveChat(second, Start.AddMinutes(1), TimeSpan.Zero, category: BotChatCategory.Greeting, categoryCooldown: cooldown), Is.True);
+        Assert.That(throttle.TryReserveChat(first, Start.AddMinutes(1), TimeSpan.Zero, category: BotChatCategory.Wings, categoryCooldown: cooldown), Is.True);
+        Assert.That(throttle.TryReserveChat(first, Start.AddMinutes(5), TimeSpan.Zero, category: BotChatCategory.Greeting, categoryCooldown: cooldown), Is.True);
+        Assert.That(throttle.GetStatistics(Start.AddMinutes(1)).Throttled, Is.EqualTo(1));
     }
 
     /// <summary>

@@ -66,14 +66,23 @@ internal sealed class BotChatConversationResponder
     /// </summary>
     /// <param name="configuration">The chat configuration.</param>
     /// <param name="state">The state of the meeting.</param>
+    /// <param name="throttle">The chat throttle which remembers the recent lines; <c>null</c> to pick without memory.</param>
+    /// <param name="bot">The bot which answers; required together with the throttle.</param>
     /// <returns>The line, or <c>null</c> when the configured list has no usable line.</returns>
-    internal static BotChatLine? GetMeetingStatusLine(BotChatConfiguration configuration, BotMeetingState state)
-        => state switch
+    internal static BotChatLine? GetMeetingStatusLine(BotChatConfiguration configuration, BotMeetingState state, BotChatThrottle? throttle = null, Player? bot = null)
+    {
+        var lines = state switch
         {
-            BotMeetingState.Waiting => BotChatComposer.PickCurrentLine(configuration.PartyWaitingLines ?? []),
-            BotMeetingState.Announced or BotMeetingState.Traveling => BotChatComposer.PickCurrentLine(configuration.PartyOnTheWayLines ?? []),
+            BotMeetingState.Waiting => configuration.PartyWaitingLines ?? [],
+            BotMeetingState.Announced or BotMeetingState.Traveling => configuration.PartyOnTheWayLines ?? [],
             _ => null,
         };
+        return lines is null
+            ? null
+            : throttle is not null && bot is not null
+                ? BotChatReplySelector.PickLineFor(throttle, bot, lines)
+                : BotChatComposer.PickCurrentLine(lines);
+    }
 
     /// <summary>
     /// Answers the player's suggestion where to meet: it names the place back, and either walks to its
@@ -102,7 +111,7 @@ internal sealed class BotChatConversationResponder
         if (place is not { } found)
         {
             if (throttle.TryReserveWhisperReply(bot, DateTime.UtcNow, configuration.WhisperReplyCooldown)
-                && BotChatReplySelector.PickLineFor(throttle, requester, configuration.PartyAskWhereLines) is { } askLine)
+                && BotChatReplySelector.PickLineFor(throttle, bot, configuration.PartyAskWhereLines, requester) is { } askLine)
             {
                 WhisperLater(bot, requester, askLine, values, language);
             }
@@ -126,7 +135,7 @@ internal sealed class BotChatConversationResponder
         if (BotEventMeetingPlanner.FindMeetingEntry(bot, map, warp, position) is not { } entry)
         {
             // The offer stays open: the player may name another place until it expires.
-            if (BotChatComposer.PickCurrentLine(configuration.PartyCantGoLines) is { } cantGoLine)
+            if (BotChatReplySelector.PickLineFor(throttle, bot, configuration.PartyCantGoLines, requester) is { } cantGoLine)
             {
                 WhisperLater(bot, requester, cantGoLine, values, language);
             }
@@ -136,7 +145,7 @@ internal sealed class BotChatConversationResponder
 
         throttle.RemovePartyOffer(bot);
         bot.EventMeeting = new BotEventMeeting(map, entry.Position, DateTime.UtcNow + configuration.PartyMeetingWaitTime, entry.Gate);
-        if (BotChatComposer.PickCurrentLine(configuration.PartyOnTheWayLines) is { } onTheWayLine)
+        if (BotChatReplySelector.PickLineFor(throttle, bot, configuration.PartyOnTheWayLines, requester) is { } onTheWayLine)
         {
             WhisperLater(bot, requester, onTheWayLine, values, language);
         }
@@ -160,9 +169,10 @@ internal sealed class BotChatConversationResponder
             return false;
         }
 
-        var line = GetMeetingStatusLine(configuration, meeting.State);
+        var throttle = this._getThrottle(bot.GameContext);
+        var line = GetMeetingStatusLine(configuration, meeting.State, throttle, bot);
         if (line is null
-            || !this._getThrottle(bot.GameContext).TryReserveWhisperReply(bot, DateTime.UtcNow, configuration.WhisperReplyCooldown))
+            || !throttle.TryReserveWhisperReply(bot, DateTime.UtcNow, configuration.WhisperReplyCooldown))
         {
             return false;
         }

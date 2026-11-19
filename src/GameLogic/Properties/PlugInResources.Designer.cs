@@ -439,6 +439,132 @@ namespace MUnique.OpenMU.GameLogic.Properties {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Congratulation.
+        /// </summary>
+        public static string BotChatCategory_Congratulation_Name {
+            get {
+                return ResourceManager.GetString("BotChatCategory_Congratulation_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Conversation.
+        /// </summary>
+        public static string BotChatCategory_Conversation_Name {
+            get {
+                return ResourceManager.GetString("BotChatCategory_Conversation_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Event reminder.
+        /// </summary>
+        public static string BotChatCategory_EventReminder_Name {
+            get {
+                return ResourceManager.GetString("BotChatCategory_EventReminder_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Greeting.
+        /// </summary>
+        public static string BotChatCategory_Greeting_Name {
+            get {
+                return ResourceManager.GetString("BotChatCategory_Greeting_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Killed by a player.
+        /// </summary>
+        public static string BotChatCategory_Killed_Name {
+            get {
+                return ResourceManager.GetString("BotChatCategory_Killed_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Level milestone.
+        /// </summary>
+        public static string BotChatCategory_LevelMilestone_Name {
+            get {
+                return ResourceManager.GetString("BotChatCategory_LevelMilestone_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Merchant advert.
+        /// </summary>
+        public static string BotChatCategory_Merchant_Name {
+            get {
+                return ResourceManager.GetString("BotChatCategory_Merchant_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Notable monster.
+        /// </summary>
+        public static string BotChatCategory_NotableMonster_Name {
+            get {
+                return ResourceManager.GetString("BotChatCategory_NotableMonster_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Rare drop.
+        /// </summary>
+        public static string BotChatCategory_RareDrop_Name {
+            get {
+                return ResourceManager.GetString("BotChatCategory_RareDrop_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Wings.
+        /// </summary>
+        public static string BotChatCategory_Wings_Name {
+            get {
+                return ResourceManager.GetString("BotChatCategory_Wings_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to The kind of line the cooldown applies to..
+        /// </summary>
+        public static string BotChatTopicCooldown_Category_Description {
+            get {
+                return ResourceManager.GetString("BotChatTopicCooldown_Category_Description", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Topic.
+        /// </summary>
+        public static string BotChatTopicCooldown_Category_Name {
+            get {
+                return ResourceManager.GetString("BotChatTopicCooldown_Category_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Minimum time between two unasked lines of this topic by the same bot. 0 switches it off..
+        /// </summary>
+        public static string BotChatTopicCooldown_Cooldown_Description {
+            get {
+                return ResourceManager.GetString("BotChatTopicCooldown_Cooldown_Description", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Cooldown.
+        /// </summary>
+        public static string BotChatTopicCooldown_Cooldown_Name {
+            get {
+                return ResourceManager.GetString("BotChatTopicCooldown_Cooldown_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Minimum time between two normal chat lines of the same bot..
         /// </summary>
         public static string BotChatConfiguration_BotChatCooldown_Description {
@@ -453,6 +579,78 @@ namespace MUnique.OpenMU.GameLogic.Properties {
         public static string BotChatConfiguration_BotChatCooldown_Name {
             get {
                 return ResourceManager.GetString("BotChatConfiguration_BotChatCooldown_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to How many recent lines of a list a bot remembers and avoids repeating while the list still has other lines. 0 switches the memory off..
+        /// </summary>
+        public static string BotChatConfiguration_RecentLineMemory_Description {
+            get {
+                return ResourceManager.GetString("BotChatConfiguration_RecentLineMemory_Description", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Recent-line memory.
+        /// </summary>
+        public static string BotChatConfiguration_RecentLineMemory_Name {
+            get {
+                return ResourceManager.GetString("BotChatConfiguration_RecentLineMemory_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Minimum time between two unasked lines of each topic by the same bot, e.g. two greetings or two wing comments - even when the players or places differ. Answers to a player, party chat and event posts are not limited by it. A cooldown of 0 switches the topic off..
+        /// </summary>
+        public static string BotChatConfiguration_TopicCooldowns_Description {
+            get {
+                return ResourceManager.GetString("BotChatConfiguration_TopicCooldowns_Description", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Cooldowns per topic.
+        /// </summary>
+        public static string BotChatConfiguration_TopicCooldowns_Name {
+            get {
+                return ResourceManager.GetString("BotChatConfiguration_TopicCooldowns_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to How many messages of each channel may be granted per minute. Normal chat, party chat, whispers and posts are counted separately, so one busy channel can't starve the others. 0 switches the budget off..
+        /// </summary>
+        public static string BotChatConfiguration_ChannelMessagesPerMinute_Description {
+            get {
+                return ResourceManager.GetString("BotChatConfiguration_ChannelMessagesPerMinute_Description", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Messages per channel and minute.
+        /// </summary>
+        public static string BotChatConfiguration_ChannelMessagesPerMinute_Name {
+            get {
+                return ResourceManager.GetString("BotChatConfiguration_ChannelMessagesPerMinute_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to How many bot messages may be granted per minute on the whole game server, over all channels together. It's the last line of defense for a large bot population; the per-bot cooldowns and chances still apply first. 0 switches the budget off..
+        /// </summary>
+        public static string BotChatConfiguration_GlobalMessagesPerMinute_Description {
+            get {
+                return ResourceManager.GetString("BotChatConfiguration_GlobalMessagesPerMinute_Description", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Server-wide messages per minute.
+        /// </summary>
+        public static string BotChatConfiguration_GlobalMessagesPerMinute_Name {
+            get {
+                return ResourceManager.GetString("BotChatConfiguration_GlobalMessagesPerMinute_Name", resourceCulture);
             }
         }
         
@@ -3117,6 +3315,24 @@ namespace MUnique.OpenMU.GameLogic.Properties {
         public static string BotSayChatCommandPlugIn_Name {
             get {
                 return ResourceManager.GetString("BotSayChatCommandPlugIn_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Handles the chat command &apos;/botchat&apos;. A game master sees how many bot chat messages were allowed, throttled or muted on this game server since it started, and suppresses all bot chat for a number of minutes during an incident..
+        /// </summary>
+        public static string BotChatChatCommandPlugIn_Description {
+            get {
+                return ResourceManager.GetString("BotChatChatCommandPlugIn_Description", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Chat command: /botchat.
+        /// </summary>
+        public static string BotChatChatCommandPlugIn_Name {
+            get {
+                return ResourceManager.GetString("BotChatChatCommandPlugIn_Name", resourceCulture);
             }
         }
         

@@ -1927,6 +1927,28 @@
   <data name="BotChatConfiguration_LevelMilestoneChancePercent_Description" xml:space="preserve"><value>Chance that a bot comments on reaching a level milestone, in the normal chat.</value></data>
   <data name="BotChatConfiguration_BotChatCooldown_Name" xml:space="preserve"><value>Chat cooldown per bot</value></data>
   <data name="BotChatConfiguration_BotChatCooldown_Description" xml:space="preserve"><value>Minimum time between two normal chat lines of the same bot.</value></data>
+  <data name="BotChatConfiguration_RecentLineMemory_Name" xml:space="preserve"><value>Recent-line memory</value></data>
+  <data name="BotChatConfiguration_RecentLineMemory_Description" xml:space="preserve"><value>How many recent lines of a list a bot remembers and avoids repeating while the list still has other lines. 0 switches the memory off.</value></data>
+  <data name="BotChatConfiguration_TopicCooldowns_Name" xml:space="preserve"><value>Cooldowns per topic</value></data>
+  <data name="BotChatConfiguration_TopicCooldowns_Description" xml:space="preserve"><value>Minimum time between two unasked lines of each topic by the same bot, e.g. two greetings or two wing comments - even when the players or places differ. Answers to a player, party chat and event posts are not limited by it. A cooldown of 0 switches the topic off.</value></data>
+  <data name="BotChatTopicCooldown_Category_Name" xml:space="preserve"><value>Topic</value></data>
+  <data name="BotChatTopicCooldown_Category_Description" xml:space="preserve"><value>The kind of line the cooldown applies to.</value></data>
+  <data name="BotChatTopicCooldown_Cooldown_Name" xml:space="preserve"><value>Cooldown</value></data>
+  <data name="BotChatTopicCooldown_Cooldown_Description" xml:space="preserve"><value>Minimum time between two unasked lines of this topic by the same bot. 0 switches it off.</value></data>
+  <data name="BotChatCategory_Conversation_Name" xml:space="preserve"><value>Conversation</value></data>
+  <data name="BotChatCategory_Greeting_Name" xml:space="preserve"><value>Greeting</value></data>
+  <data name="BotChatCategory_Congratulation_Name" xml:space="preserve"><value>Congratulation</value></data>
+  <data name="BotChatCategory_LevelMilestone_Name" xml:space="preserve"><value>Level milestone</value></data>
+  <data name="BotChatCategory_Wings_Name" xml:space="preserve"><value>Wings</value></data>
+  <data name="BotChatCategory_EventReminder_Name" xml:space="preserve"><value>Event reminder</value></data>
+  <data name="BotChatCategory_NotableMonster_Name" xml:space="preserve"><value>Notable monster</value></data>
+  <data name="BotChatCategory_Merchant_Name" xml:space="preserve"><value>Merchant advert</value></data>
+  <data name="BotChatCategory_RareDrop_Name" xml:space="preserve"><value>Rare drop</value></data>
+  <data name="BotChatCategory_Killed_Name" xml:space="preserve"><value>Killed by a player</value></data>
+  <data name="BotChatConfiguration_GlobalMessagesPerMinute_Name" xml:space="preserve"><value>Server-wide messages per minute</value></data>
+  <data name="BotChatConfiguration_GlobalMessagesPerMinute_Description" xml:space="preserve"><value>How many bot messages may be granted per minute on the whole game server, over all channels together. It's the last line of defense for a large bot population; the per-bot cooldowns and chances still apply first. 0 switches the budget off.</value></data>
+  <data name="BotChatConfiguration_ChannelMessagesPerMinute_Name" xml:space="preserve"><value>Messages per channel and minute</value></data>
+  <data name="BotChatConfiguration_ChannelMessagesPerMinute_Description" xml:space="preserve"><value>How many messages of each channel may be granted per minute. Normal chat, party chat, whispers and posts are counted separately, so one busy channel can't starve the others. 0 switches the budget off.</value></data>
   <data name="BotChatConfiguration_WhisperReplyChancePercent_Name" xml:space="preserve"><value>Whisper reply chance (%)</value></data>
   <data name="BotChatConfiguration_WhisperReplyChancePercent_Description" xml:space="preserve"><value>Chance that a bot answers a whisper of a player. 0 = never.</value></data>
   <data name="BotChatConfiguration_WhisperReplyCooldown_Name" xml:space="preserve"><value>Whisper reply cooldown</value></data>
@@ -2063,6 +2085,8 @@
   <data name="BotChatConfiguration_FriendLines_Description" xml:space="preserve"><value>Said to a player the bot was in a party with before - instead of a greeting when the player enters the game, and instead of the party lines when the player invites it again. Remembered until the server restarts. Placeholders: {player}, {level}, {map}.</value></data>
   <data name="BotSayChatCommandPlugIn_Name" xml:space="preserve"><value>Chat command: /botsay</value></data>
   <data name="BotSayChatCommandPlugIn_Description" xml:space="preserve"><value>Handles the chat command '/botsay &lt;bot&gt; &lt;text&gt;'. A game master makes a server-side bot say the text in the normal chat, to the players who see it - e.g. for staged scenes of an event. Only bots, never a player's character.</value></data>
+  <data name="BotChatChatCommandPlugIn_Name" xml:space="preserve"><value>Chat command: /botchat</value></data>
+  <data name="BotChatChatCommandPlugIn_Description" xml:space="preserve"><value>Handles the chat command '/botchat'. A game master sees how many bot chat messages were allowed, throttled or muted on this game server since it started, and suppresses all bot chat for a number of minutes during an incident.</value></data>
   <data name="BotStateChatCommandPlugIn_Name" xml:space="preserve"><value>Chat command: /botstate</value></data>
   <data name="BotStateChatCommandPlugIn_Description" xml:space="preserve"><value>Handles the chat command '/botstate &lt;bot&gt;'. A game master asks what a server-side bot is doing: its current state (hunting, traveling, following, an errand, an event, ...), since when, why, how its time was spent and the transitions it took before. For finding out why a bot looks wedged, idle or never joins an event.</value></data>
   <data name="BotChatConfiguration_WingsChancePercent_Name" xml:space="preserve"><value>Wings comment chance (%)</value></data>

@@ -45,6 +45,11 @@ internal sealed class BotChatThrottle
     /// </summary>
     private static readonly TimeSpan OccasionCleanupInterval = TimeSpan.FromMinutes(10);
 
+    /// <summary>
+    /// The time window of the message budgets: how many messages were granted in the last minute.
+    /// </summary>
+    private static readonly TimeSpan BudgetWindow = TimeSpan.FromMinutes(1);
+
     private readonly ConcurrentDictionary<string, DateTime> _occasions = new();
 
     private readonly ConditionalWeakTable<Player, BotCooldowns> _bots = new();
@@ -69,11 +74,35 @@ internal sealed class BotChatThrottle
 
     private readonly ConditionalWeakTable<Player, Dictionary<object, object>> _lastLines = new();
 
+    private readonly ConditionalWeakTable<Player, Dictionary<object, Queue<object>>> _recentBotLines = new();
+
+    private readonly ConditionalWeakTable<Player, Dictionary<BotChatCategory, DateTime>> _botCategories = new();
+
     private readonly List<(GameMap Map, Point Position, DateTime Time)> _humanChat = [];
 
     private readonly List<(Player First, Player Second, DateTime Until)> _recentConversations = [];
 
     private readonly ConditionalWeakTable<Player, HashSet<string>> _friends = new();
+
+    private readonly Lock _chatStatisticsLock = new();
+
+    private readonly List<(DateTime Time, BotChatChannel Channel)> _recentGrantedChat = [];
+
+    private readonly long[] _granted = new long[Enum.GetValues<BotChatChannel>().Length];
+
+    private readonly long[] _throttled = new long[Enum.GetValues<BotChatChannel>().Length];
+
+    private readonly long[] _muted = new long[Enum.GetValues<BotChatChannel>().Length];
+
+    private long _suppressedOccasions;
+
+    private long _mutedUntilTicks;
+
+    private int _globalBudgetPerMinute;
+
+    private int _channelBudgetPerMinute;
+
+    private int _recentLineMemory = 4;
 
     private long _nextPlayerScanTicks;
 
@@ -105,6 +134,73 @@ internal sealed class BotChatThrottle
     internal int OccasionCount => this._occasions.Count;
 
     /// <summary>
+    /// Gets the time until which the bot chat of this server is muted, or <see cref="DateTime.MinValue"/>
+    /// while it is not.
+    /// </summary>
+    internal DateTime MutedUntilUtc => new(Interlocked.Read(ref this._mutedUntilTicks), DateTimeKind.Utc);
+
+    /// <summary>
+    /// Applies the message budgets of the configuration. A budget of zero switches it off.
+    /// </summary>
+    /// <param name="globalMessagesPerMinute">How many messages all channels together may use per minute.</param>
+    /// <param name="channelMessagesPerMinute">How many messages each channel may use per minute.</param>
+    /// <param name="recentLineMemory">How many recent lines of a list a bot remembers; 0 switches it off.</param>
+    public void Configure(int globalMessagesPerMinute, int channelMessagesPerMinute, int recentLineMemory = 4)
+    {
+        lock (this._chatStatisticsLock)
+        {
+            this._globalBudgetPerMinute = globalMessagesPerMinute;
+            this._channelBudgetPerMinute = channelMessagesPerMinute;
+            this._recentLineMemory = recentLineMemory;
+        }
+    }
+
+    /// <summary>
+    /// Mutes the bot chat of this server for the given duration. While muted, every channel stays
+    /// silent and every suppressed message is counted.
+    /// </summary>
+    /// <param name="now">The current time.</param>
+    /// <param name="duration">How long the chat stays muted.</param>
+    /// <returns>The time until which the chat is muted.</returns>
+    public DateTime Mute(DateTime now, TimeSpan duration)
+    {
+        var until = duration > TimeSpan.Zero ? now + duration : now;
+        Interlocked.Exchange(ref this._mutedUntilTicks, until.Ticks);
+        return until;
+    }
+
+    /// <summary>
+    /// Ends a mute window at once.
+    /// </summary>
+    public void Unmute() => Interlocked.Exchange(ref this._mutedUntilTicks, 0);
+
+    /// <summary>
+    /// Gets what the bot chat did since the server started, with the current mute window.
+    /// </summary>
+    /// <param name="now">The current time.</param>
+    /// <returns>The statistics.</returns>
+    public BotChatStatistics GetStatistics(DateTime now)
+    {
+        lock (this._chatStatisticsLock)
+        {
+            var channels = Enum.GetValues<BotChatChannel>()
+                .ToDictionary(channel => channel, channel =>
+                {
+                    var index = (int)channel;
+                    return new BotChatChannelStatistics(this._granted[index], this._throttled[index], this._muted[index]);
+                });
+
+            return new BotChatStatistics(
+                this._granted.Sum(),
+                this._throttled.Sum(),
+                this._muted.Sum(),
+                Interlocked.Read(ref this._suppressedOccasions),
+                channels,
+                this.MutedUntilUtc > now ? this.MutedUntilUtc : null);
+        }
+    }
+
+    /// <summary>
     /// Reserves the right to announce an occasion (e.g. "Blood Castle opened") for the given time
     /// window. Only the first caller within the window gets it.
     /// </summary>
@@ -114,6 +210,12 @@ internal sealed class BotChatThrottle
     /// <returns><c>true</c>, if the caller may announce the occasion.</returns>
     public bool TryReserveOccasion(string occasionKey, DateTime now, TimeSpan window)
     {
+        if (this.IsMuted(now))
+        {
+            Interlocked.Increment(ref this._suppressedOccasions);
+            return false;
+        }
+
         if (TryReserve(ref this._nextOccasionCleanupTicks, now, OccasionCleanupInterval))
         {
             foreach (var occasion in this._occasions)
@@ -153,17 +255,20 @@ internal sealed class BotChatThrottle
     /// <param name="gap">The minimum time until the next post.</param>
     /// <returns><c>true</c>, if the caller may post now.</returns>
     public bool TryReservePost(DateTime now, TimeSpan gap)
-        => TryReserve(ref this._nextPostTicks, now, gap);
+        => this.ReserveChatLine(bot: null, now, BotChatChannel.Post, ref this._nextPostTicks, gap, category: null, categoryCooldown: default);
 
     /// <summary>
-    /// Reserves the next normal chat line of the bot.
+    /// Reserves the next chat line of the bot.
     /// </summary>
     /// <param name="bot">The bot.</param>
     /// <param name="now">The current time.</param>
     /// <param name="cooldown">The minimum time until the bot's next line.</param>
+    /// <param name="channel">The channel the line is said in.</param>
+    /// <param name="category">The topic of the line; <c>null</c> for an answer or a post without a topic cooldown.</param>
+    /// <param name="categoryCooldown">The minimum time until the bot may say another unasked line of the topic.</param>
     /// <returns><c>true</c>, if the bot may say something now.</returns>
-    public bool TryReserveChat(Player bot, DateTime now, TimeSpan cooldown)
-        => TryReserve(ref this._bots.GetOrCreateValue(bot).NextChatTicks, now, cooldown);
+    public bool TryReserveChat(Player bot, DateTime now, TimeSpan cooldown, BotChatChannel channel = BotChatChannel.Normal, BotChatCategory? category = null, TimeSpan categoryCooldown = default)
+        => this.ReserveChatLine(bot, now, channel, ref this._bots.GetOrCreateValue(bot).NextChatTicks, cooldown, category, categoryCooldown);
 
     /// <summary>
     /// Reserves the next whisper reply of the bot.
@@ -171,9 +276,34 @@ internal sealed class BotChatThrottle
     /// <param name="bot">The bot.</param>
     /// <param name="now">The current time.</param>
     /// <param name="cooldown">The minimum time until the bot's next reply.</param>
+    /// <param name="channel">The channel the reply is said in.</param>
     /// <returns><c>true</c>, if the bot may reply now.</returns>
-    public bool TryReserveWhisperReply(Player bot, DateTime now, TimeSpan cooldown)
-        => TryReserve(ref this._bots.GetOrCreateValue(bot).NextWhisperReplyTicks, now, cooldown);
+    public bool TryReserveWhisperReply(Player bot, DateTime now, TimeSpan cooldown, BotChatChannel channel = BotChatChannel.Whisper)
+        => this.ReserveChatLine(bot, now, channel, ref this._bots.GetOrCreateValue(bot).NextWhisperReplyTicks, cooldown, category: null, categoryCooldown: default);
+
+    /// <summary>
+    /// Determines whether the bot may say another unasked line of the topic. The check lets a caller
+    /// skip an occasion for a topic the bot just talked about; the actual reservation happens in
+    /// <see cref="TryReserveChat"/>.
+    /// </summary>
+    /// <param name="bot">The bot.</param>
+    /// <param name="category">The topic of the line.</param>
+    /// <param name="now">The current time.</param>
+    /// <param name="cooldown">The minimum time between two unasked lines of the topic; 0 switches it off.</param>
+    /// <returns><c>true</c>, if the bot may say a line of the topic.</returns>
+    public bool IsCategoryDue(Player bot, BotChatCategory category, DateTime now, TimeSpan cooldown)
+    {
+        if (cooldown <= TimeSpan.Zero)
+        {
+            return true;
+        }
+
+        var categories = this._botCategories.GetOrCreateValue(bot);
+        lock (categories)
+        {
+            return !categories.TryGetValue(category, out var next) || now >= next;
+        }
+    }
 
     /// <summary>
     /// Determines whether the next merchant advert of this server is due, and if so, schedules the one
@@ -407,6 +537,59 @@ internal sealed class BotChatThrottle
     }
 
     /// <summary>
+    /// Gets the lines of the list the bot said most recently, so the next one differs.
+    /// </summary>
+    /// <param name="bot">The bot which speaks.</param>
+    /// <param name="list">The list of the lines, e.g. the greetings.</param>
+    /// <returns>The recently said lines, oldest first; empty when the bot didn't say any of the list yet.</returns>
+    public IReadOnlyCollection<object> GetRecentLines(Player bot, object list)
+    {
+        var lists = this._recentBotLines.GetOrCreateValue(bot);
+        lock (lists)
+        {
+            if (this._recentLineMemory <= 0 || !lists.TryGetValue(list, out var recent))
+            {
+                return [];
+            }
+
+            var remembered = recent.ToArray();
+            return remembered.Length <= this._recentLineMemory
+                ? remembered
+                : remembered[^this._recentLineMemory..];
+        }
+    }
+
+    /// <summary>
+    /// Remembers a line the bot said, so it doesn't repeat it while the list has other lines.
+    /// </summary>
+    /// <param name="bot">The bot which spoke.</param>
+    /// <param name="list">The list of the line, e.g. the greetings.</param>
+    /// <param name="line">The said line.</param>
+    public void RememberLine(Player bot, object list, object line)
+    {
+        if (this._recentLineMemory <= 0)
+        {
+            return;
+        }
+
+        var lists = this._recentBotLines.GetOrCreateValue(bot);
+        lock (lists)
+        {
+            if (!lists.TryGetValue(list, out var recent))
+            {
+                recent = new Queue<object>();
+                lists.Add(list, recent);
+            }
+
+            recent.Enqueue(line);
+            while (recent.Count > this._recentLineMemory)
+            {
+                recent.Dequeue();
+            }
+        }
+    }
+
+    /// <summary>
     /// Remembers that a human player said something in the normal chat.
     /// </summary>
     /// <param name="map">The map of the player.</param>
@@ -540,6 +723,80 @@ internal sealed class BotChatThrottle
             }
         }
     }
+
+    /// <summary>
+    /// Checks the mute window, the message budgets, the topic cooldown and the bot's cooldown, and
+    /// records the result. A denied message doesn't consume the bot's cooldown, and the topic cooldown
+    /// is only consumed when the line is actually granted.
+    /// </summary>
+    private bool ReserveChatLine(Player? bot, DateTime now, BotChatChannel channel, ref long nextTicks, TimeSpan cooldown, BotChatCategory? category, TimeSpan categoryCooldown)
+    {
+        lock (this._chatStatisticsLock)
+        {
+            var index = (int)channel;
+            if (this.IsMuted(now))
+            {
+                this._muted[index]++;
+                return false;
+            }
+
+            var windowStart = now - BudgetWindow;
+            if (this._recentGrantedChat.Count > 0 && this._recentGrantedChat[0].Time <= windowStart)
+            {
+                this._recentGrantedChat.RemoveAll(entry => entry.Time <= windowStart);
+            }
+
+            if ((this._globalBudgetPerMinute > 0 && this._recentGrantedChat.Count >= this._globalBudgetPerMinute)
+                || (this._channelBudgetPerMinute > 0 && this._recentGrantedChat.Count(entry => entry.Channel == channel) >= this._channelBudgetPerMinute))
+            {
+                this._throttled[index]++;
+                return false;
+            }
+
+            if (bot is not null && category is { } topic && !this.IsCategoryDue(bot, topic, now, categoryCooldown))
+            {
+                this._throttled[index]++;
+                return false;
+            }
+
+            if (!TryReserve(ref nextTicks, now, cooldown))
+            {
+                this._throttled[index]++;
+                return false;
+            }
+
+            if (bot is not null && category is { } grantedTopic)
+            {
+                this.RememberCategory(bot, grantedTopic, now, categoryCooldown);
+            }
+
+            this._granted[index]++;
+            this._recentGrantedChat.Add((now, channel));
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Remembers that the bot said an unasked line of the topic.
+    /// </summary>
+    private void RememberCategory(Player bot, BotChatCategory category, DateTime now, TimeSpan cooldown)
+    {
+        if (cooldown <= TimeSpan.Zero)
+        {
+            return;
+        }
+
+        var categories = this._botCategories.GetOrCreateValue(bot);
+        lock (categories)
+        {
+            categories[category] = now + cooldown;
+        }
+    }
+
+    /// <summary>
+    /// Determines whether the bot chat is muted at the given time.
+    /// </summary>
+    private bool IsMuted(DateTime now) => now < this.MutedUntilUtc;
 
     /// <summary>
     /// The bots which answered the party searches of one player.

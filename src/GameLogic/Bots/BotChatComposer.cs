@@ -22,12 +22,14 @@ internal static class BotChatComposer
     /// <param name="timeOfDay">The current time of day; lines of another time of day are left out.</param>
     /// <param name="pickIndex">Returns a random index below the given count.</param>
     /// <param name="previous">The line said last time to the same player, which is left out when there are others.</param>
+    /// <param name="recent">The lines the bot said recently, which are left out while the list has others.</param>
     /// <returns>The picked line, or <c>null</c> when the list has no usable line.</returns>
-    internal static BotChatLine? PickLine(IEnumerable<BotChatLine> lines, BotChatTimeOfDay timeOfDay, Func<int, int> pickIndex, object? previous = null)
+    internal static BotChatLine? PickLine(IEnumerable<BotChatLine> lines, BotChatTimeOfDay timeOfDay, Func<int, int> pickIndex, object? previous = null, IReadOnlyCollection<object>? recent = null)
     {
-        var candidates = WithoutPrevious(
+        var candidates = WithoutSeen(
             lines.Where(line => !string.IsNullOrWhiteSpace(line.Text.ValueInNeutralLanguage) && FitsTimeOfDay(line.When, timeOfDay)).ToList(),
-            previous);
+            previous,
+            recent);
         return candidates.Count == 0 ? null : candidates[pickIndex(candidates.Count)];
     }
 
@@ -36,9 +38,10 @@ internal static class BotChatComposer
     /// </summary>
     /// <param name="lines">The lines of one list, e.g. the greetings.</param>
     /// <param name="previous">The line said last time to the same player, which is left out when there are others.</param>
+    /// <param name="recent">The lines the bot said recently, which are left out while the list has others.</param>
     /// <returns>The picked line, or <c>null</c> when the list has no usable line.</returns>
-    internal static BotChatLine? PickCurrentLine(IEnumerable<BotChatLine> lines, object? previous = null)
-        => PickLine(lines, BotChatTiming.GetTimeOfDay(DateTime.Now.Hour), count => Rand.NextInt(0, count), previous);
+    internal static BotChatLine? PickCurrentLine(IEnumerable<BotChatLine> lines, object? previous = null, IReadOnlyCollection<object>? recent = null)
+        => PickLine(lines, BotChatTiming.GetTimeOfDay(DateTime.Now.Hour), count => Rand.NextInt(0, count), previous, recent);
 
     /// <summary>
     /// Determines whether a line or conversation of the given time of day may be said now.
@@ -58,12 +61,13 @@ internal static class BotChatComposer
     /// <param name="pickIndex">Returns a random index below the given count.</param>
     /// <param name="previous">The reply given last time to the same player, which is left out when there are others.</param>
     /// <param name="requireKeyword">If set, a message without a matching keyword gets no reply, not even a fallback.</param>
+    /// <param name="recent">The replies the bot gave recently, which are left out while others fit.</param>
     /// <returns>The picked reply, or <c>null</c> when there is no usable reply.</returns>
     /// <remarks>
     /// The best match is the longest matching keyword, so "hi, how are you?" is answered by the
     /// "how are you" replies rather than by the greetings matching "hi".
     /// </remarks>
-    internal static BotChatReply? PickWhisperReply(IEnumerable<BotChatReply> replies, string message, Func<int, int> pickIndex, object? previous = null, bool requireKeyword = false)
+    internal static BotChatReply? PickWhisperReply(IEnumerable<BotChatReply> replies, string message, Func<int, int> pickIndex, object? previous = null, bool requireKeyword = false, IReadOnlyCollection<object>? recent = null)
     {
         var usable = replies
             .Where(reply => !string.IsNullOrWhiteSpace(reply.Text.ValueInNeutralLanguage))
@@ -78,11 +82,12 @@ internal static class BotChatComposer
             return null;
         }
 
-        var candidates = WithoutPrevious(
+        var candidates = WithoutSeen(
             bestScore > 0
                 ? scored.Where(s => s.Score == bestScore).Select(s => s.Reply).ToList()
                 : usable.Where(reply => !GetKeywords(reply.Keywords).Any()).ToList(),
-            previous);
+            previous,
+            recent);
         return candidates.Count == 0 ? null : candidates[pickIndex(candidates.Count)];
     }
 
@@ -267,12 +272,21 @@ internal static class BotChatComposer
     }
 
     /// <summary>
-    /// Leaves out the previous pick, unless it's the only candidate - a player who asks twice must
-    /// not get the very same answer twice, but an answer is better than none.
+    /// Leaves out the lines the bot said recently and the previous pick, unless nothing else is left -
+    /// a player who asks twice must not get the very same answer twice, but an answer is better than none.
     /// </summary>
-    private static List<T> WithoutPrevious<T>(List<T> candidates, object? previous)
+    private static List<T> WithoutSeen<T>(List<T> candidates, object? previous, IReadOnlyCollection<object>? recent)
         where T : class
     {
+        if (recent is { Count: > 0 } && candidates.Count > 1)
+        {
+            var unseen = candidates.Where(candidate => !recent.Contains(candidate)).ToList();
+            if (unseen.Count > 0)
+            {
+                candidates = unseen;
+            }
+        }
+
         if (previous is null || candidates.Count < 2)
         {
             return candidates;

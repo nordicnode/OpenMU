@@ -80,6 +80,46 @@ public class BotChatConfiguration
     public TimeSpan BotChatCooldown { get; set; } = TimeSpan.FromMinutes(2);
 
     /// <summary>
+    /// Gets or sets how many recent lines of a list a bot remembers and avoids repeating while the
+    /// list still has other lines.
+    /// </summary>
+    [Range(0, 50)]
+    [Display(ResourceType = typeof(PlugInResources), Name = nameof(PlugInResources.BotChatConfiguration_RecentLineMemory_Name), Description = nameof(PlugInResources.BotChatConfiguration_RecentLineMemory_Description))]
+    public int RecentLineMemory { get; set; } = 4;
+
+    /// <summary>
+    /// Gets or sets the minimum time between two unasked lines of each topic by the same bot, so it
+    /// doesn't greet, congratulate or comment on wings again and again. Answers to a player, party
+    /// chat and event posts are not limited by it.
+    /// </summary>
+    [MemberOfAggregate]
+    [ScaffoldColumn(true)]
+    [Display(ResourceType = typeof(PlugInResources), Name = nameof(PlugInResources.BotChatConfiguration_TopicCooldowns_Name), Description = nameof(PlugInResources.BotChatConfiguration_TopicCooldowns_Description))]
+    public ICollection<BotChatTopicCooldown> TopicCooldowns { get; set; } = CreateDefaultTopicCooldowns();
+
+    /// <summary>
+    /// Gets or sets how many bot messages may be granted per minute on the whole game server, over
+    /// all channels together; 0 switches the budget off.
+    /// </summary>
+    /// <remarks>
+    /// The budget is the last line of defense for a large bot population: the per-bot cooldowns and
+    /// chances still apply first. It counts normal, party and whisper messages as well as posts, and
+    /// a message it denies does not consume the bot's cooldown.
+    /// </remarks>
+    [Range(0, 10000)]
+    [Display(ResourceType = typeof(PlugInResources), Name = nameof(PlugInResources.BotChatConfiguration_GlobalMessagesPerMinute_Name), Description = nameof(PlugInResources.BotChatConfiguration_GlobalMessagesPerMinute_Description))]
+    public int GlobalMessagesPerMinute { get; set; } = 240;
+
+    /// <summary>
+    /// Gets or sets how many messages of each channel may be granted per minute; 0 switches the
+    /// budget off. Normal chat, party chat, whispers and posts are counted separately, so one busy
+    /// channel can't starve the others.
+    /// </summary>
+    [Range(0, 10000)]
+    [Display(ResourceType = typeof(PlugInResources), Name = nameof(PlugInResources.BotChatConfiguration_ChannelMessagesPerMinute_Name), Description = nameof(PlugInResources.BotChatConfiguration_ChannelMessagesPerMinute_Description))]
+    public int ChannelMessagesPerMinute { get; set; } = 120;
+
+    /// <summary>
     /// Gets or sets the chance, in percent, that a bot answers a whisper of a player.
     /// </summary>
     [Range(0, 100)]
@@ -628,6 +668,15 @@ public class BotChatConfiguration
     public ICollection<BotChatLine> ConversationJoinLines { get; set; } = new List<BotChatLine>();
 
     /// <summary>
+    /// Creates the default cooldown entry for every topic.
+    /// </summary>
+    /// <returns>One entry per <see cref="BotChatCategory"/>.</returns>
+    public static ICollection<BotChatTopicCooldown> CreateDefaultTopicCooldowns()
+        => Enum.GetValues<BotChatCategory>()
+            .Select(category => new BotChatTopicCooldown { Category = category, Cooldown = TimeSpan.FromMinutes(5) })
+            .ToList();
+
+    /// <summary>
     /// Creates the configuration a server starts with: a set of English lines, each with a Polish
     /// translation.
     /// </summary>
@@ -1022,4 +1071,13 @@ public class BotChatConfiguration
         static LocalizedString Translated((string English, string Polish) text)
             => new LocalizedString(text.English).WithTranslation(CultureInfo.GetCultureInfo("pl"), text.Polish);
     }
+
+    /// <summary>
+    /// Gets the configured cooldown of one topic; <see cref="TimeSpan.Zero"/> when the admin removed
+    /// the topic from the list.
+    /// </summary>
+    /// <param name="category">The topic of the chat line.</param>
+    /// <returns>The cooldown between two unasked lines of the topic.</returns>
+    public TimeSpan GetCategoryCooldown(BotChatCategory category)
+        => this.TopicCooldowns.FirstOrDefault(entry => entry.Category == category)?.Cooldown ?? TimeSpan.Zero;
 }

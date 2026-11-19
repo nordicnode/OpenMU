@@ -63,7 +63,9 @@
                         @if (this._isInlineEditable)
                         {
                           <td colspan="@(2 + AdditionalColumns.Length)">
-                            <EditForm Model="@item.Item"><AutoFields></AutoFields></EditForm>
+                            <CascadingValue Value="@this.GetEditContext(item.Item)" IsFixed="true">
+                              <AutoFields></AutoFields>
+                            </CascadingValue>
                           </td>
                         }
                         else
