@@ -91,6 +91,7 @@ public sealed class BotReadOperations(IServerProvider servers, AdminOperationExe
                 ["startedAtUtc"] = row.StartedAtUtc,
                 ["meeting"] = MeetingJson(row.Meeting),
                 ["lastMeeting"] = OutcomeJson(row.LastMeeting),
+                ["lootDecisions"] = LootDecisionsJson(row.LootDecisions),
             });
         }
 
@@ -167,6 +168,33 @@ public sealed class BotReadOperations(IServerProvider servers, AdminOperationExe
                 ["reason"] = outcome.Reason,
                 ["summary"] = outcome.Summary,
             };
+
+    /// <summary>
+    /// Shapes the recent loot decisions of a bot for the bot list: why it kept, equipped, sold or stored an item,
+    /// newest first - so an agent can follow the bot's judgment without debug logging being enabled. An empty
+    /// array means the bot has not decided about an item yet.
+    /// </summary>
+    /// <param name="decisions">The recent decisions of the bot, or <c>null</c> while it has none.</param>
+    /// <returns>The decisions as JSON, newest first.</returns>
+    internal static JsonArray LootDecisionsJson(IReadOnlyList<BotLootDecisionInfo>? decisions)
+    {
+        var json = new JsonArray();
+        foreach (var decision in decisions ?? [])
+        {
+            json.Add(new JsonObject
+            {
+                ["item"] = decision.Item,
+                ["action"] = decision.Action,
+                ["reason"] = decision.Reason,
+                ["detail"] = decision.Detail,
+                ["code"] = decision.Code,
+                ["atUtc"] = decision.AtUtc,
+                ["summary"] = decision.Summary,
+            });
+        }
+
+        return json;
+    }
 
     /// <summary>
     /// Shapes the alarm for the answer which carries nothing else, and for the alarm node of the bot list, so
@@ -251,6 +279,8 @@ public sealed class BotReadOperations(IServerProvider servers, AdminOperationExe
     /// <param name="Meeting">The event meeting the bot is on, or <c>null</c> while it has none.</param>
     /// <param name="LastMeeting">How the bot's last event meeting ended, or <c>null</c> while it never had
     /// one.</param>
+    /// <param name="LootDecisions">The most recent loot decisions of the bot, newest first - why it kept,
+    /// equipped, sold or stored an item - or <c>null</c> while it has none.</param>
     internal readonly record struct BotRow(
         byte ServerId,
         string? LoginName,
@@ -267,7 +297,8 @@ public sealed class BotReadOperations(IServerProvider servers, AdminOperationExe
         int Restarts = 0,
         double QuarantinedSeconds = 0,
         BotMeetingActivity? Meeting = null,
-        BotMeetingOutcome? LastMeeting = null)
+        BotMeetingOutcome? LastMeeting = null,
+        IReadOnlyList<BotLootDecisionInfo>? LootDecisions = null)
     {
         /// <summary>Reads the facts of one bot off the live player.</summary>
         /// <param name="serverId">The server which animates the bot.</param>
@@ -295,7 +326,8 @@ public sealed class BotReadOperations(IServerProvider servers, AdminOperationExe
                 activity?.Restarts ?? 0,
                 quarantinedSeconds,
                 activity?.Meeting,
-                activity?.LastMeeting);
+                activity?.LastMeeting,
+                bot.RecentLootDecisions);
         }
     }
 

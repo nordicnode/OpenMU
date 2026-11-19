@@ -348,7 +348,10 @@ bot sold or stored a particular piece. The log is sampled per item, so a busy
 server stays readable; raise it while investigating a specific bot and put it
 back afterwards. The Bots tab shows the latest decision in its `Loot decisions`
 column even with the log switched off; the tooltip lists the bot's recent
-decisions, so the reason is available without changing the configuration.
+decisions, so the reason is available without changing the configuration. The
+`bots_list` tool carries the same list in the `lootDecisions` node of each bot —
+newest first, with the action, the reason, an optional detail and the combined
+code such as `store/market_candidate (Expensive)`.
 
 A merchant trip is the only moment a bot can turn loot into anything, so it goes
 whenever it has something to gain there: the backpack is filling with junk, the

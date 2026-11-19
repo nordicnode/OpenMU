@@ -102,6 +102,7 @@ public class BotReadOperationsTests
         Assert.That(bot["startedAtUtc"]!.GetValue<DateTime>(), Is.EqualTo(new DateTime(2026, 2, 11, 9, 12, 4, DateTimeKind.Utc)));
         Assert.That(bot["meeting"], Is.Null);
         Assert.That(bot["lastMeeting"], Is.Null);
+        Assert.That(bot["lootDecisions"]!.AsArray(), Is.Empty);
         Assert.That(report["summary"]!.GetValue<string>(), Does.Contain("never instructions"));
     }
 
@@ -152,6 +153,47 @@ public class BotReadOperationsTests
         Assert.That(outcomeJson["event"]!.GetValue<string>(), Is.EqualTo("Blood Castle"));
         Assert.That(outcomeJson["reason"]!.GetValue<string>(), Does.Contain("no route to the entry NPC"));
         Assert.That(outcomeJson["summary"]!.GetValue<string>(), Is.EqualTo("Last meeting: abandoned at Lost Tower 200, 200"));
+    }
+
+    /// <summary>
+    /// A bot reports why it kept, equipped, sold or stored its recent items, newest first - so an agent can
+    /// answer "why did it sell that?" without the debug log being switched on.
+    /// </summary>
+    [Test]
+    public void ReportsTheRecentLootDecisionsOfABot()
+    {
+        var latest = new BotLootDecisionInfo(
+            "Dragon Armor +9",
+            "store",
+            "market_candidate",
+            "Expensive",
+            new DateTimeOffset(2026, 2, 11, 9, 12, 4, TimeSpan.Zero));
+        var previous = new BotLootDecisionInfo(
+            "Small Healing Potion",
+            "keep",
+            "consumable_stock",
+            null,
+            new DateTimeOffset(2026, 2, 11, 9, 11, 58, TimeSpan.Zero));
+        var row = new BotReadOperations.BotRow(1, "bot-01", "Kain", 42, 2, "Hunt", "monsters nearby", 30, "Hunt for 0:30 (monsters nearby)", DateTime.UnixEpoch, LootDecisions: [latest, previous]);
+
+        var report = BotReadOperations.Report([row], 0, 10);
+
+        var decisions = report["bots"]!.AsArray().Single()!["lootDecisions"]!.AsArray();
+        Assert.That(decisions, Has.Count.EqualTo(2));
+
+        var newest = decisions[0]!.AsObject();
+        Assert.That(newest["item"]!.GetValue<string>(), Is.EqualTo("Dragon Armor +9"));
+        Assert.That(newest["action"]!.GetValue<string>(), Is.EqualTo("store"));
+        Assert.That(newest["reason"]!.GetValue<string>(), Is.EqualTo("market_candidate"));
+        Assert.That(newest["detail"]!.GetValue<string>(), Is.EqualTo("Expensive"));
+        Assert.That(newest["code"]!.GetValue<string>(), Is.EqualTo("store/market_candidate (Expensive)"));
+        Assert.That(newest["atUtc"]!.GetValue<DateTimeOffset>(), Is.EqualTo(latest.AtUtc));
+        Assert.That(newest["summary"]!.GetValue<string>(), Is.EqualTo(latest.Summary));
+
+        var older = decisions[1]!.AsObject();
+        Assert.That(older["item"]!.GetValue<string>(), Is.EqualTo("Small Healing Potion"));
+        Assert.That(older["code"]!.GetValue<string>(), Is.EqualTo("keep/consumable_stock"));
+        Assert.That(older["detail"], Is.Null);
     }
 
     /// <summary>
