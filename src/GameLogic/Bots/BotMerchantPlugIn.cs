@@ -8,6 +8,7 @@ using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Threading;
 using MUnique.OpenMU.GameLogic.Offline;
+using MUnique.OpenMU.GameLogic.PlayerShopCurrencies;
 using MUnique.OpenMU.GameLogic.PlugIns;
 using MUnique.OpenMU.Pathfinding;
 using MUnique.OpenMU.Persistence;
@@ -56,6 +57,8 @@ public class BotMerchantPlugIn
 
     private readonly ConcurrentDictionary<IGameContext, DateTime> _nextCheckUtc = new();
 
+    private readonly ConcurrentDictionary<IGameContext, BotMarketMetrics> _metrics = new();
+
     /// <summary>
     /// The number of market shifts each good spent in a store without a buyer, and when it was counted
     /// the last time, by the id of the item. In memory only: a restart of the server gives every good a
@@ -101,11 +104,64 @@ public class BotMerchantPlugIn
         {
             shift.LastSaleUtc = DateTime.UtcNow;
             this._unsoldShifts.TryRemove(item.GetId(), out _);
+            bot.GameContext.FeaturePlugIns.GetPlugIn<BotMerchantPlugIn>()?.RecordSold(bot.GameContext, DateTime.UtcNow);
 
             // The bot buys nothing, so its income is removed - in its own tick, which is the only
             // place allowed to change its inventory (see OfflinePlayer.PendingBotActions).
             bot.PendingBotActions.Enqueue(() => BotMerchandise.RemoveIncomeAsync(bot, shift));
         }
+    }
+
+    /// <summary>
+    /// Gets the market of one game server in the shape the administration surfaces show it.
+    /// </summary>
+    /// <param name="gameContext">The game server.</param>
+    /// <param name="now">The current time.</param>
+    /// <returns>The snapshot, or <c>null</c> when the plugin has no configuration.</returns>
+    public async ValueTask<BotMarketStatus?> GetMarketStatusAsync(IGameContext gameContext, DateTime now)
+    {
+        if (this.Configuration is not { } configuration)
+        {
+            return null;
+        }
+
+        var players = await gameContext.GetPlayersAsync().ConfigureAwait(false);
+        var merchants = players
+            .OfType<OfflinePlayer>()
+            .Where(p => p.Account?.IsBot == true && (p.ShopStorage?.StoreOpen ?? false))
+            .ToList();
+        var listedGoods = merchants.Sum(b => BotMarketPlanner.CountPricedGoods(b));
+        var statistics = this.GetStatistics(gameContext, now);
+        var priceClasses = statistics.PriceBands
+            .Where(entry => entry.Key != BotMerchandise.PriceClass.None && entry.Value.Listed > 0)
+            .OrderBy(entry => entry.Key)
+            .Select(entry => new BotMarketClassStatus(
+                entry.Key.ToString(),
+                entry.Value.Listed,
+                entry.Value.ZenListed,
+                entry.Value.MinimumZen,
+                entry.Value.MaximumZen,
+                entry.Value.AverageZen))
+            .ToList();
+
+        return new BotMarketStatus(
+            merchants.Count,
+            listedGoods,
+            statistics.LastHour.ItemsListed,
+            statistics.LastHour.ItemsSold,
+            statistics.LastHour.ItemsRetired,
+            statistics.LastHour.ZenInflow,
+            statistics.ItemsListed,
+            statistics.ItemsSold,
+            statistics.ItemsRetired,
+            statistics.ZenInflow,
+            statistics.PaymentItems,
+            priceClasses,
+            configuration.EffectiveMinimumZenPrice,
+            configuration.EffectiveMaximumZenPrice,
+            configuration.MaximumGoodsPerStore,
+            configuration.MaximumListedGoods,
+            configuration.MaximumMerchants);
     }
 
     /// <summary>
@@ -141,6 +197,52 @@ public class BotMerchantPlugIn
 
         return bot.Party is null;
     }
+
+    /// <summary>
+    /// Gets the statistics of the market of this game server, for the <c>/botmarket</c> chat command.
+    /// </summary>
+    /// <param name="gameContext">The game server.</param>
+    /// <param name="now">The current time.</param>
+    /// <returns>The statistics since the plugin started and of the last hour.</returns>
+    internal BotMarketStatistics GetStatistics(IGameContext gameContext, DateTime now)
+        => this._metrics.GetOrAdd(gameContext, _ => new BotMarketMetrics()).GetStatistics(now);
+
+    /// <summary>
+    /// Counts a good which was put into a store with a price.
+    /// </summary>
+    /// <param name="gameContext">The game server.</param>
+    /// <param name="priceClass">The price class of the good.</param>
+    /// <param name="price">The price of the good.</param>
+    /// <param name="now">The current time.</param>
+    internal void RecordListed(IGameContext gameContext, BotMerchandise.PriceClass priceClass, ShopPrice? price, DateTime now)
+        => this._metrics.GetOrAdd(gameContext, _ => new BotMarketMetrics()).RecordListed(priceClass, price, now);
+
+    /// <summary>
+    /// Counts a good which a player bought from a bot.
+    /// </summary>
+    /// <param name="gameContext">The game server.</param>
+    /// <param name="now">The current time.</param>
+    internal void RecordSold(IGameContext gameContext, DateTime now)
+        => this._metrics.GetOrAdd(gameContext, _ => new BotMarketMetrics()).RecordSold(now);
+
+    /// <summary>
+    /// Counts the currency which a bot took in and which is removed from it right after.
+    /// </summary>
+    /// <param name="gameContext">The game server.</param>
+    /// <param name="zen">The zen which the player paid.</param>
+    /// <param name="items">The number of jewels and other items which the player paid.</param>
+    /// <param name="now">The current time.</param>
+    internal void RecordIncome(IGameContext gameContext, int zen, int items, DateTime now)
+        => this._metrics.GetOrAdd(gameContext, _ => new BotMarketMetrics()).RecordIncome(zen, items, now);
+
+    /// <summary>
+    /// Counts goods which left the stores without a buyer.
+    /// </summary>
+    /// <param name="gameContext">The game server.</param>
+    /// <param name="count">The number of goods.</param>
+    /// <param name="now">The current time.</param>
+    internal void RecordRetired(IGameContext gameContext, int count, DateTime now)
+        => this._metrics.GetOrAdd(gameContext, _ => new BotMarketMetrics()).RecordRetired(count, now);
 
     /// <summary>
     /// Counts one more market shift without a buyer for the good.
@@ -207,6 +309,10 @@ public class BotMerchantPlugIn
             return;
         }
 
+        // The goods of the current shifts count against the market's quota, so the market doesn't grow
+        // beyond what the configuration allows even when every merchant brings a full store.
+        var listedGoods = bots.Where(b => b.MarketShift is not null).Sum(b => BotMarketPlanner.CountPricedGoods(b));
+
         var candidates = bots.Where(b => BotMarketPlanner.MayStartShift(b, configuration, now)).ToList();
         if (candidates.Count == 0)
         {
@@ -258,6 +364,12 @@ public class BotMerchantPlugIn
             .Take(Math.Min(freePlaces, configuration.NewMerchantsPerCheck));
         foreach (var bot in starting)
         {
+            var goods = BotMarketPlanner.CountPricedGoods(bot);
+            if (!BotMarketPlanner.HasRoomForListing(listedGoods, goods, configuration.MaximumListedGoods))
+            {
+                continue;
+            }
+
             var mapNumber = BotMarketPlanner.DrawShiftMap(configuration, cities, Rand.NextInt);
 
             // A city which can't take the bot (unusable or full) leaves it to the market.
@@ -281,6 +393,7 @@ public class BotMerchantPlugIn
             }
 
             place.Stalls.Add(freeStall);
+            listedGoods += goods;
             var storeName = BotMarketPlanner.DrawStoreName(storeNames, takenNames, bot.Name, Rand.NextInt);
             takenNames.Add(storeName);
             var duration = BotMarketPlanner.DrawShiftDuration(configuration, Rand.NextInt);

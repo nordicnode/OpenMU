@@ -8366,5 +8366,122 @@ namespace MUnique.OpenMU.Web.AdminPanel.Properties {
                 return ResourceManager.GetString("BotResetHealthHint", resourceCulture);
             }
         }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Bot market.
+        /// </summary>
+        public static string BotMarketTitle {
+            get {
+                return ResourceManager.GetString("BotMarketTitle", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to The stores, sales and prices of the bot merchants on the in-process game servers..
+        /// </summary>
+        public static string BotMarketDescription {
+            get {
+                return ResourceManager.GetString("BotMarketDescription", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to {0} store(s) open with {1} priced good(s) on offer..
+        /// </summary>
+        public static string BotMarketOpenStores {
+            get {
+                return ResourceManager.GetString("BotMarketOpenStores", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Last hour.
+        /// </summary>
+        public static string BotMarketLastHour {
+            get {
+                return ResourceManager.GetString("BotMarketLastHour", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Since start.
+        /// </summary>
+        public static string BotMarketSinceStart {
+            get {
+                return ResourceManager.GetString("BotMarketSinceStart", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to {0} listed, {1} sold, {2} retired, {3} zen taken in..
+        /// </summary>
+        public static string BotMarketPeriod {
+            get {
+                return ResourceManager.GetString("BotMarketPeriod", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to {0} paid item(s).
+        /// </summary>
+        public static string BotMarketPaidItems {
+            get {
+                return ResourceManager.GetString("BotMarketPaidItems", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Price bands.
+        /// </summary>
+        public static string BotMarketPriceBands {
+            get {
+                return ResourceManager.GetString("BotMarketPriceBands", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to {0}: {1} listed, average {2} zen ({3} - {4})..
+        /// </summary>
+        public static string BotMarketPriceClass {
+            get {
+                return ResourceManager.GetString("BotMarketPriceClass", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to {0}: {1} listed, prices in jewels..
+        /// </summary>
+        public static string BotMarketPriceClassInJewels {
+            get {
+                return ResourceManager.GetString("BotMarketPriceClassInJewels", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to No priced goods listed yet..
+        /// </summary>
+        public static string BotMarketNoPrices {
+            get {
+                return ResourceManager.GetString("BotMarketNoPrices", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Guardrails: zen {0} - {1}, {2} good(s) per store, {3} on the market, {4} store(s)..
+        /// </summary>
+        public static string BotMarketGuardrails {
+            get {
+                return ResourceManager.GetString("BotMarketGuardrails", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to The bot market could not be read. The next refresh tries again..
+        /// </summary>
+        public static string BotMarketLoadFailed {
+            get {
+                return ResourceManager.GetString("BotMarketLoadFailed", resourceCulture);
+            }
+        }
     }
 }

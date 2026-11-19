@@ -428,6 +428,17 @@ millions above. A Jewel of Chaos costs 750,000 at one merchant and 850,000 at
 another. The price stays until the good is sold or leaves the store; prices in
 jewels stay exact. `Zen price spread` 0 keeps all prices exact.
 
+Two guardrails keep a bad setting from reaching the players. A zen price never
+leaves the band between `Minimum zen price` and `Maximum zen price` (100,000 to
+100,000,000 by default), so a price spread or a price class set too low or too
+high is corrected when the good goes into the store. A store also takes at most
+`Maximum goods per store` priced goods (20 by default), and the open stores of
+all bots list at most `Maximum goods on the market` priced goods together (400
+by default); while the market holds that many, no new shift starts. The price
+classes, their base prices and the surcharges per level and option are the
+value curve above the bands - a rare item of a higher set still costs more than
+a common one, but never outside the configured range.
+
 With enough goods (4 by default, `Minimum goods to start`), a bot goes to the
 market for a shift of 30 to 90 minutes: through the map's spawn gate, regardless
 of the warp list, to a stall apart from the other merchants - anywhere in the
@@ -455,6 +466,17 @@ them. A good which found no buyer for three shifts leaves the store and is sold
 to the NPC, making room for fresh goods. The server counts these shifts in
 memory only: a restart, or a day in which the good wasn't on the market, starts
 the count over.
+
+A game master sees the state of the market with `/botmarket`: how many stores
+are open and how many priced goods they offer, how many goods were listed, sold
+and retired in the last hour and since the plugin started, how much zen and how
+many paid items the bots took in, the lowest, average and highest zen price of
+each class, and the configured guardrails. The Bots tab of the admin panel's
+online accounts page shows the same numbers per in-process game server above
+the bot table and refreshes them every few seconds. The counters are in memory
+only and start over with the game server. The bots keep none of the income -
+the zen and jewels are removed right after each sale - so the reported inflow is
+currency which leaves the economy through the bots.
 
 ### Mini game events
 

@@ -2254,4 +2254,14 @@
   <data name="BotMerchantConfiguration_CityMapNumbers_Description" xml:space="preserve"><value>The numbers of the city maps, separated by commas (0 = Lorencia, 2 = Devias, 3 = Noria, 51 = Elvenland). The bots open their store in the safezone near the spawn gate.</value></data>
   <data name="BotMerchantConfiguration_NewMerchantsPerCheck_Name" xml:space="preserve"><value>New merchants per 30 seconds</value></data>
   <data name="BotMerchantConfiguration_NewMerchantsPerCheck_Description" xml:space="preserve"><value>How many bots at most start a shift every 30 seconds. After a server start, the market fills up within minutes instead of all at once, and the parties of the bots don't fall apart together.</value></data>
+  <data name="BotMerchantConfiguration_MinimumZenPrice_Name" xml:space="preserve"><value>Minimum zen price</value></data>
+  <data name="BotMerchantConfiguration_MinimumZenPrice_Description" xml:space="preserve"><value>The lowest zen price of a good. Prices below it are raised, e.g. after a price spread which went too far down.</value></data>
+  <data name="BotMerchantConfiguration_MaximumZenPrice_Name" xml:space="preserve"><value>Maximum zen price</value></data>
+  <data name="BotMerchantConfiguration_MaximumZenPrice_Description" xml:space="preserve"><value>The highest zen price of a good. Prices above it are lowered, so a bad configuration of a price class doesn't put a good out of reach.</value></data>
+  <data name="BotMerchantConfiguration_MaximumGoodsPerStore_Name" xml:space="preserve"><value>Maximum goods per store</value></data>
+  <data name="BotMerchantConfiguration_MaximumGoodsPerStore_Description" xml:space="preserve"><value>How many goods a store of a bot holds at most. The bot stops stocking when the store is full, so a stall doesn't become a warehouse.</value></data>
+  <data name="BotMerchantConfiguration_MaximumListedGoods_Name" xml:space="preserve"><value>Maximum goods on the market</value></data>
+  <data name="BotMerchantConfiguration_MaximumListedGoods_Description" xml:space="preserve"><value>The number of priced goods which the open stores of all bots offer together, per game server. No new shift starts while the market holds that many goods; 0 keeps every bot from selling.</value></data>
+  <data name="BotMarketChatCommandPlugIn_Name" xml:space="preserve"><value>Chat command: /botmarket</value></data>
+  <data name="BotMarketChatCommandPlugIn_Description" xml:space="preserve"><value>Handles the chat command '/botmarket'. A game master sees the open bot stores, the goods listed, sold and retired in the last hour and since the plugin started, the zen and items taken in, the average prices of each class and the configured guardrails.</value></data>
 </root>

@@ -2774,4 +2774,43 @@
   <data name="BotResetHealthHint" xml:space="preserve">
     <value>Forget the failures, the restarts and the quarantine of this bot, so it is allowed to run and to be restarted again. Do it after fixing the cause of a bot which keeps failing.</value>
   </data>
+  <data name="BotMarketTitle" xml:space="preserve">
+    <value>Bot market</value>
+  </data>
+  <data name="BotMarketDescription" xml:space="preserve">
+    <value>The stores, sales and prices of the bot merchants on the in-process game servers.</value>
+  </data>
+  <data name="BotMarketOpenStores" xml:space="preserve">
+    <value>{0} store(s) open with {1} priced good(s) on offer.</value>
+  </data>
+  <data name="BotMarketLastHour" xml:space="preserve">
+    <value>Last hour</value>
+  </data>
+  <data name="BotMarketSinceStart" xml:space="preserve">
+    <value>Since start</value>
+  </data>
+  <data name="BotMarketPeriod" xml:space="preserve">
+    <value>{0} listed, {1} sold, {2} retired, {3} zen taken in.</value>
+  </data>
+  <data name="BotMarketPaidItems" xml:space="preserve">
+    <value>{0} paid item(s)</value>
+  </data>
+  <data name="BotMarketPriceBands" xml:space="preserve">
+    <value>Price bands</value>
+  </data>
+  <data name="BotMarketPriceClass" xml:space="preserve">
+    <value>{0}: {1} listed, average {2} zen ({3} - {4}).</value>
+  </data>
+  <data name="BotMarketPriceClassInJewels" xml:space="preserve">
+    <value>{0}: {1} listed, prices in jewels.</value>
+  </data>
+  <data name="BotMarketNoPrices" xml:space="preserve">
+    <value>No priced goods listed yet.</value>
+  </data>
+  <data name="BotMarketGuardrails" xml:space="preserve">
+    <value>Guardrails: zen {0} - {1}, {2} good(s) per store, {3} on the market, {4} store(s).</value>
+  </data>
+  <data name="BotMarketLoadFailed" xml:space="preserve">
+    <value>The bot market could not be read. The next refresh tries again.</value>
+  </data>
 </root>

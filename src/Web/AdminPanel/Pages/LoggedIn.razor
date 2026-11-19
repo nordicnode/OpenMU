@@ -122,6 +122,7 @@
   else if (this._activeTab == Tab.Bots)
   {
     <div class="w-100" role="tabpanel" id="panel-bots" aria-labelledby="tab-bots">
+      <BotMarketPanel />
       <BotListPanel @key="this._botListRevision" AlarmLine="@this.BotService.StuckAlarm" OnResetHealth="this.ResetBotHealthAsync" />
     </div>
   }

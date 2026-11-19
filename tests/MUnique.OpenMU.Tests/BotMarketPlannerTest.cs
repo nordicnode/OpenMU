@@ -236,6 +236,24 @@ public class BotMarketPlannerTest
     }
 
     /// <summary>
+    /// The market's total supply quota: a merchant may start a shift while its goods fit, but not when they
+    /// would take the market above the configured number of listed goods.
+    /// </summary>
+    /// <param name="listed">The goods which are already listed.</param>
+    /// <param name="goods">The goods of the merchant.</param>
+    /// <param name="maximum">The configured maximum.</param>
+    /// <param name="expected">Whether the goods fit.</param>
+    [TestCase(0, 4, 4, true)]
+    [TestCase(0, 5, 4, false)]
+    [TestCase(396, 4, 400, true)]
+    [TestCase(397, 4, 400, false)]
+    [TestCase(0, 1, 0, false)]
+    public void ListingQuotaIsNotExceeded(int listed, int goods, int maximum, bool expected)
+    {
+        Assert.That(BotMarketPlanner.HasRoomForListing(listed, goods, maximum), Is.EqualTo(expected));
+    }
+
+    /// <summary>
     /// After a server start, the bots go to the market a few at a time.
     /// </summary>
     [Test]

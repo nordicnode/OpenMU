@@ -2923,6 +2923,24 @@ namespace MUnique.OpenMU.GameLogic.Properties {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to How many goods a store of a bot holds at most. The bot stops stocking when the store is full, so a stall doesn't become a warehouse..
+        /// </summary>
+        public static string BotMerchantConfiguration_MaximumGoodsPerStore_Description {
+            get {
+                return ResourceManager.GetString("BotMerchantConfiguration_MaximumGoodsPerStore_Description", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Maximum goods per store.
+        /// </summary>
+        public static string BotMerchantConfiguration_MaximumGoodsPerStore_Name {
+            get {
+                return ResourceManager.GetString("BotMerchantConfiguration_MaximumGoodsPerStore_Name", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to How many jewels of one kind a bot puts into its store at most. 0 keeps the jewels out of the stores..
         /// </summary>
         public static string BotMerchantConfiguration_MaximumJewelsPerKind_Description {
@@ -2940,6 +2958,24 @@ namespace MUnique.OpenMU.GameLogic.Properties {
             }
         }
         
+        /// <summary>
+        ///   Looks up a localized string similar to The number of priced goods which the open stores of all bots offer together, per game server. No new shift starts while the market holds that many goods; 0 keeps every bot from selling..
+        /// </summary>
+        public static string BotMerchantConfiguration_MaximumListedGoods_Description {
+            get {
+                return ResourceManager.GetString("BotMerchantConfiguration_MaximumListedGoods_Description", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Maximum goods on the market.
+        /// </summary>
+        public static string BotMerchantConfiguration_MaximumListedGoods_Name {
+            get {
+                return ResourceManager.GetString("BotMerchantConfiguration_MaximumListedGoods_Name", resourceCulture);
+            }
+        }
+
         /// <summary>
         ///   Looks up a localized string similar to The maximum number of bots with an open store at the same time, on the market and in the cities together, per game server. Only bots with enough goods go, so it&apos;s a ceiling - and they go back hunting after their shift..
         /// </summary>
@@ -2976,6 +3012,24 @@ namespace MUnique.OpenMU.GameLogic.Properties {
             }
         }
         
+        /// <summary>
+        ///   Looks up a localized string similar to The highest zen price of a good. Prices above it are lowered, so a bad configuration of a price class doesn't put a good out of reach..
+        /// </summary>
+        public static string BotMerchantConfiguration_MaximumZenPrice_Description {
+            get {
+                return ResourceManager.GetString("BotMerchantConfiguration_MaximumZenPrice_Description", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Maximum zen price.
+        /// </summary>
+        public static string BotMerchantConfiguration_MaximumZenPrice_Name {
+            get {
+                return ResourceManager.GetString("BotMerchantConfiguration_MaximumZenPrice_Name", resourceCulture);
+            }
+        }
+
         /// <summary>
         ///   Looks up a localized string similar to The currency of the medium goods (excellent items with one wanted option, without luck): zen, bless, soul, chaos, life or creation..
         /// </summary>
@@ -3084,6 +3138,24 @@ namespace MUnique.OpenMU.GameLogic.Properties {
             }
         }
         
+        /// <summary>
+        ///   Looks up a localized string similar to The lowest zen price of a good. Prices below it are raised, e.g. after a price spread which went too far down..
+        /// </summary>
+        public static string BotMerchantConfiguration_MinimumZenPrice_Description {
+            get {
+                return ResourceManager.GetString("BotMerchantConfiguration_MinimumZenPrice_Description", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Minimum zen price.
+        /// </summary>
+        public static string BotMerchantConfiguration_MinimumZenPrice_Name {
+            get {
+                return ResourceManager.GetString("BotMerchantConfiguration_MinimumZenPrice_Name", resourceCulture);
+            }
+        }
+
         /// <summary>
         ///   Looks up a localized string similar to The minimum level of a bot to go to the market. The game allows a personal store from level 6..
         /// </summary>
@@ -3336,6 +3408,24 @@ namespace MUnique.OpenMU.GameLogic.Properties {
             }
         }
         
+        /// <summary>
+        ///   Looks up a localized string similar to Handles the chat command &apos;/botmarket&apos;. A game master sees the open bot stores, the goods listed, sold and retired in the last hour and since the plugin started, the zen and items taken in, the average prices of each class and the configured guardrails..
+        /// </summary>
+        public static string BotMarketChatCommandPlugIn_Description {
+            get {
+                return ResourceManager.GetString("BotMarketChatCommandPlugIn_Description", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Chat command: /botmarket.
+        /// </summary>
+        public static string BotMarketChatCommandPlugIn_Name {
+            get {
+                return ResourceManager.GetString("BotMarketChatCommandPlugIn_Name", resourceCulture);
+            }
+        }
+
         /// <summary>
         ///   Looks up a localized string similar to Chat command: /botstate.
         /// </summary>

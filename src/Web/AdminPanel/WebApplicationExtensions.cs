@@ -123,6 +123,7 @@ public static class WebApplicationExtensions
         services.AddScoped<IDataService<OfflineAccount>>(serviceProvider => serviceProvider.GetService<OfflineAccountService>()!);
         services.AddScoped<BotAccountService>();
         services.AddScoped<IDataService<BotAccount>>(serviceProvider => serviceProvider.GetService<BotAccountService>()!);
+        services.AddScoped<IBotMarketService>(serviceProvider => serviceProvider.GetRequiredService<BotAccountService>());
 
         StaticWebAssetsLoader.UseStaticWebAssets(builder.Environment, builder.Configuration);
         return builder;

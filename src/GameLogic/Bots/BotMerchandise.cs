@@ -156,6 +156,21 @@ internal static class BotMerchandise
     }
 
     /// <summary>
+    /// Keeps a zen price within the configured floor and ceiling. A floor above the ceiling is no error in
+    /// the configuration which could break stocking - the range is normalized instead.
+    /// </summary>
+    /// <param name="amount">The calculated price.</param>
+    /// <param name="minimum">The configured floor.</param>
+    /// <param name="maximum">The configured ceiling.</param>
+    /// <returns>The price within the range.</returns>
+    internal static int ClampZenPrice(int amount, int minimum, int maximum)
+    {
+        var floor = Math.Max(1, Math.Min(minimum, maximum));
+        var ceiling = Math.Max(floor, Math.Max(minimum, maximum));
+        return Math.Clamp(amount, floor, ceiling);
+    }
+
+    /// <summary>
     /// Calculates the price of a good.
     /// </summary>
     /// <param name="item">The item.</param>
@@ -238,6 +253,11 @@ internal static class BotMerchandise
         var stocked = 0;
         foreach (var item in junk)
         {
+            if (shopStorage.Items.Count() >= configuration.MaximumGoodsPerStore)
+            {
+                break;
+            }
+
             var priceClass = Classify(item, configuration);
             if (plugIn.IsRetired(item, configuration)
                 || CalculatePrice(item, priceClass, configuration) is not { } offer
@@ -251,7 +271,8 @@ internal static class BotMerchandise
             if (price.Kind == ShopPriceKind.Zen)
             {
                 var spread = SpreadZenPrice(price.Amount, configuration.PriceSpreadPercent, Rand.NextDouble());
-                price = price with { Amount = Math.Min(spread, ShopPrices.GetMaximumAmount(player.GameContext, ShopPriceKind.Zen)) };
+                var guarded = ClampZenPrice(spread, configuration.EffectiveMinimumZenPrice, configuration.EffectiveMaximumZenPrice);
+                price = price with { Amount = Math.Min(guarded, ShopPrices.GetMaximumAmount(player.GameContext, ShopPriceKind.Zen)) };
             }
 
             var fromSlot = item.ItemSlot;
@@ -264,6 +285,7 @@ internal static class BotMerchandise
             if (shopStorage.GetItem(storeSlot) == item)
             {
                 stocked++;
+                plugIn.RecordListed(player.GameContext, priceClass, item.GetStorePrice(), DateTime.UtcNow);
             }
             else
             {
@@ -363,6 +385,7 @@ internal static class BotMerchandise
 
         if (money > 0 || income.Count > 0)
         {
+            bot.GameContext.FeaturePlugIns.GetPlugIn<BotMerchantPlugIn>()?.RecordIncome(bot.GameContext, money, income.Count, DateTime.UtcNow);
             bot.Logger.LogDebug("Bot '{Name}' removed its income of {Money} zen and {Count} item(s).", bot.Name, money, income.Count);
         }
     }
@@ -387,6 +410,7 @@ internal static class BotMerchandise
             .Where(item => plugIn.CountUnsoldShift(item, now) >= configuration.UnsoldShiftsUntilNpc)
             .ToList();
         await TakeOutOfStoreAsync(bot, retired).ConfigureAwait(false);
+        plugIn.RecordRetired(bot.GameContext, retired.Count, now);
     }
 
     /// <summary>

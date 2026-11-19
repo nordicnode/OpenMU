@@ -63,6 +63,16 @@ and reads the bots again every few seconds, so an ended meeting turns into its
 outcome without a reload; a countdown of `0:00 left` which stays like that means
 the bot's navigation stopped checking the meeting, so the bot is worth a look.
 
+### Bot market
+
+With the bot merchants plugin active, a market card above the bot table shows
+the market of every in-process game server: how many stores are open and how
+many priced goods they offer, the goods listed, sold and retired in the last
+hour and since the plugin started, the zen and paid items the bots took in, the
+lowest, average and highest zen price of each class, and the configured
+guardrails. The card refreshes every few seconds; a server without the plugin
+has no card. The same numbers are available in game with `/botmarket`.
+
 :::tip[Player counts]
 The total number of connections per server is shown on the
 [Servers page](servers.md), including a total over all game servers.

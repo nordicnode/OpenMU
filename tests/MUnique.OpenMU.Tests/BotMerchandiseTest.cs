@@ -81,6 +81,25 @@ public class BotMerchandiseTest
     }
 
     /// <summary>
+    /// A zen price is kept between the configured floor and ceiling; an inverted range is normalized instead
+    /// of failing, so a bad configuration can't stop the bots from stocking.
+    /// </summary>
+    /// <param name="amount">The calculated price.</param>
+    /// <param name="minimum">The configured floor.</param>
+    /// <param name="maximum">The configured ceiling.</param>
+    /// <param name="expected">The expected guarded price.</param>
+    [TestCase(50_000, 100_000, 100_000_000, 100_000)]
+    [TestCase(2_000_000, 100_000, 100_000_000, 2_000_000)]
+    [TestCase(150_000_000, 100_000, 100_000_000, 100_000_000)]
+    [TestCase(50_000, 10_000_000, 100_000, 100_000)]
+    [TestCase(15_000_000, 10_000_000, 100_000, 10_000_000)]
+    [TestCase(1, 1, 1, 1)]
+    public void ZenPriceIsKeptWithinTheGuardrails(int amount, int minimum, int maximum, int expected)
+    {
+        Assert.That(BotMerchandise.ClampZenPrice(amount, minimum, maximum), Is.EqualTo(expected));
+    }
+
+    /// <summary>
     /// The loot which isn't worth a stall goes to the NPC as before.
     /// </summary>
     /// <param name="description">What the item is.</param>

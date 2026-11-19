@@ -1,0 +1,215 @@
+@using System.Globalization
+@using System.Threading
+@using Microsoft.Extensions.Logging
+@using MUnique.OpenMU.GameLogic.Bots
+@using MUnique.OpenMU.Web.AdminPanel.Properties
+@using MUnique.OpenMU.Web.Shared.Services
+@implements IDisposable
+
+@* The market of the bot merchants, above the bot table. It refreshes on its own like the table, so the
+   counters follow the game server without a reload; servers without the merchant plugin are left out. *@
+@if (this._servers is null && !this._loadFailed)
+{
+    <section class="card mb-3">
+        <div class="card-body text-body-secondary">@Resources.Loading</div>
+    </section>
+}
+else if (this._loadFailed && this._servers is null)
+{
+    <div class="alert alert-warning py-2 mb-3">@Resources.BotMarketLoadFailed</div>
+}
+else if (this._servers is { Count: > 0 })
+{
+    <section class="card mb-3">
+        <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <h2 class="h6 mb-0">@Resources.BotMarketTitle</h2>
+            <span class="small text-body-secondary">@Resources.BotMarketDescription</span>
+        </div>
+        <div class="card-body d-flex flex-column gap-3">
+            @if (this._loadFailed)
+            {
+                <div class="alert alert-warning py-2 mb-0">@Resources.BotMarketLoadFailed</div>
+            }
+
+            @foreach (var server in this._servers)
+            {
+                <div class="border rounded p-3">
+                    <div class="d-flex flex-wrap justify-content-between align-items-baseline gap-2">
+                        <h3 class="h6 mb-0">@server.ServerDescription</h3>
+                        <span class="text-body-secondary">
+                            @string.Format(CultureInfo.CurrentCulture, Resources.BotMarketOpenStores, server.Market.OpenStores, server.Market.ListedGoods)
+                        </span>
+                    </div>
+                    <dl class="row mb-2 mt-2 small">
+                        <dt class="col-sm-2 fw-normal text-body-secondary">@Resources.BotMarketLastHour</dt>
+                        <dd class="col-sm-10 mb-1">
+                            @this.FormatPeriod(server.Market.ListedLastHour, server.Market.SoldLastHour, server.Market.RetiredLastHour, server.Market.ZenLastHour)
+                        </dd>
+                        <dt class="col-sm-2 fw-normal text-body-secondary">@Resources.BotMarketSinceStart</dt>
+                        <dd class="col-sm-10 mb-0">
+                            @this.FormatPeriod(server.Market.ListedTotal, server.Market.SoldTotal, server.Market.RetiredTotal, server.Market.ZenTotal)
+                            · @string.Format(CultureInfo.CurrentCulture, Resources.BotMarketPaidItems, this.FormatValue(server.Market.PaidItemsTotal))
+                        </dd>
+                    </dl>
+                    <div class="small fw-semibold mb-1">@Resources.BotMarketPriceBands</div>
+                    @if (server.Market.PriceClasses.Count == 0)
+                    {
+                        <div class="small text-body-secondary mb-2">@Resources.BotMarketNoPrices</div>
+                    }
+                    else
+                    {
+                        <ul class="list-inline small mb-2">
+                            @foreach (var priceClass in server.Market.PriceClasses)
+                            {
+                                <li class="list-inline-item me-3">@this.FormatPriceClass(priceClass)</li>
+                            }
+                        </ul>
+                    }
+                    <div class="small text-body-secondary">
+                        @string.Format(
+                            CultureInfo.CurrentCulture,
+                            Resources.BotMarketGuardrails,
+                            this.FormatValue(server.Market.MinimumZenPrice),
+                            this.FormatValue(server.Market.MaximumZenPrice),
+                            this.FormatValue(server.Market.MaximumGoodsPerStore),
+                            this.FormatValue(server.Market.MaximumListedGoods),
+                            this.FormatValue(server.Market.MaximumMerchants))
+                    </div>
+                </div>
+            }
+        </div>
+    </section>
+}
+
+@code {
+    /// <summary>
+    /// How often the counters are read again. They change with the sales and stocking of the merchants, not
+    /// with every frame, so five seconds are enough to let them move visibly.
+    /// </summary>
+    private const int RefreshSeconds = 5;
+
+    private Timer? _refreshTimer;
+    private volatile bool _disposed;
+    private int _isRefreshing;
+    private IReadOnlyList<BotMarketServerStatus>? _servers;
+    private bool _loadFailed;
+
+    /// <summary>
+    /// Gets or sets the service which reads the market of the in-process game servers.
+    /// </summary>
+    [Inject]
+    private IBotMarketService Service { get; set; } = null!;
+
+    /// <summary>
+    /// Gets or sets the logger which records a failed background refresh.
+    /// </summary>
+    [Inject]
+    private ILogger<BotMarketPanel> Logger { get; set; } = null!;
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        this._disposed = true;
+        this._refreshTimer?.Dispose();
+        this._refreshTimer = null;
+    }
+
+    /// <inheritdoc />
+    protected override async Task OnInitializedAsync()
+    {
+        await this.RefreshAsync().ConfigureAwait(true);
+        this._refreshTimer = new Timer(this.RefreshTick, null, TimeSpan.FromSeconds(RefreshSeconds), TimeSpan.FromSeconds(RefreshSeconds));
+    }
+
+    private string FormatValue(long value) => value.ToString("N0", CultureInfo.CurrentCulture);
+
+    private string FormatPeriod(long listed, long sold, long retired, long zen)
+        => string.Format(
+            CultureInfo.CurrentCulture,
+            Resources.BotMarketPeriod,
+            FormatValue(listed),
+            FormatValue(sold),
+            FormatValue(retired),
+            FormatValue(zen));
+
+    private string FormatPriceClass(BotMarketClassStatus priceClass)
+    {
+        var name = priceClass.Name.ToLowerInvariant();
+        return priceClass.ZenListed == 0
+            ? string.Format(CultureInfo.CurrentCulture, Resources.BotMarketPriceClassInJewels, name, FormatValue(priceClass.Listed))
+            : string.Format(
+                CultureInfo.CurrentCulture,
+                Resources.BotMarketPriceClass,
+                name,
+                FormatValue(priceClass.Listed),
+                FormatValue((int)Math.Round(priceClass.AverageZen, MidpointRounding.AwayFromZero)),
+                FormatValue(priceClass.MinimumZen),
+                FormatValue(priceClass.MaximumZen));
+    }
+
+    /// <summary>
+    /// Reads the market of all in-process game servers. A refresh which overlaps an earlier one is skipped,
+    /// so a slow game server can't pile up timer ticks.
+    /// </summary>
+    /// <returns>The task.</returns>
+    private async Task RefreshAsync()
+    {
+        if (Interlocked.CompareExchange(ref this._isRefreshing, 1, 0) != 0)
+        {
+            return;
+        }
+
+        try
+        {
+            this._servers = await this.Service.GetMarketStatusesAsync().ConfigureAwait(true);
+            this._loadFailed = false;
+        }
+        catch (Exception ex)
+        {
+            this.Logger.LogWarning(ex, "Unexpected error while reading the bot market.");
+            this._loadFailed = true;
+        }
+        finally
+        {
+            Interlocked.Exchange(ref this._isRefreshing, 0);
+        }
+    }
+
+    private void RefreshTick(object? state)
+    {
+        if (this._disposed)
+        {
+            return;
+        }
+
+        _ = this.RefreshOnRendererAsync();
+    }
+
+    private async Task RefreshOnRendererAsync()
+    {
+        try
+        {
+            await this.InvokeAsync(async () =>
+            {
+                if (this._disposed)
+                {
+                    return;
+                }
+
+                await this.RefreshAsync().ConfigureAwait(false);
+                if (!this._disposed)
+                {
+                    this.StateHasChanged();
+                }
+            }).ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException)
+        {
+            // The panel was closed between the timer tick and the renderer running it.
+        }
+        catch (Exception ex)
+        {
+            this.Logger.LogDebug(ex, "Unexpected error while refreshing the bot market panel.");
+        }
+    }
+}

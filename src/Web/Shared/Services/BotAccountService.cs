@@ -16,7 +16,7 @@ using MUnique.OpenMU.Web.AdminPanel.Operations;
 /// so they are only visible in the all-in-one deployment.
 /// The table is read-only: there is no supported way to stop a single bot from the admin panel.
 /// </summary>
-public class BotAccountService : IDataService<BotAccount>
+public class BotAccountService : IDataService<BotAccount>, IBotMarketService
 {
     private const string ListCacheKey = "BotAccountService.BotList";
 
@@ -63,6 +63,29 @@ public class BotAccountService : IDataService<BotAccount>
     {
         var all = await this.EnsureLoadedAsync().ConfigureAwait(false);
         return all.Skip(offset).Take(count).ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<BotMarketServerStatus>> GetMarketStatusesAsync()
+    {
+        var statuses = new List<BotMarketServerStatus>();
+        foreach (var server in this._serverProvider.Servers.OfType<IGameServerContextProvider>())
+        {
+            if (server.Context.FeaturePlugIns.GetPlugIn<BotMerchantPlugIn>() is not { } merchantPlugIn)
+            {
+                continue;
+            }
+
+            if (await merchantPlugIn.GetMarketStatusAsync(server.Context, DateTime.UtcNow).ConfigureAwait(false) is not { } market)
+            {
+                continue;
+            }
+
+            var manageableServer = (IManageableServer)server;
+            statuses.Add(new BotMarketServerStatus((byte)manageableServer.Id, manageableServer.Description, market));
+        }
+
+        return statuses;
     }
 
     /// <summary>

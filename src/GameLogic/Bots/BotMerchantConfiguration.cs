@@ -105,6 +105,22 @@ public class BotMerchantConfiguration
     public int MinimumGoodsToStay { get; set; } = 1;
 
     /// <summary>
+    /// Gets or sets the number of goods a store of a bot holds at most. The bot stops stocking when the
+    /// store is full, so a stall doesn't become a warehouse.
+    /// </summary>
+    [Range(1, 64)]
+    [Display(ResourceType = typeof(PlugInResources), Name = nameof(PlugInResources.BotMerchantConfiguration_MaximumGoodsPerStore_Name), Description = nameof(PlugInResources.BotMerchantConfiguration_MaximumGoodsPerStore_Description))]
+    public int MaximumGoodsPerStore { get; set; } = 20;
+
+    /// <summary>
+    /// Gets or sets the number of priced goods which the open stores of all bots offer together, per game
+    /// server. No new shift starts while the market holds that many goods; 0 keeps every bot from selling.
+    /// </summary>
+    [Range(0, 10_000)]
+    [Display(ResourceType = typeof(PlugInResources), Name = nameof(PlugInResources.BotMerchantConfiguration_MaximumListedGoods_Name), Description = nameof(PlugInResources.BotMerchantConfiguration_MaximumListedGoods_Description))]
+    public int MaximumListedGoods { get; set; } = 400;
+
+    /// <summary>
     /// Gets or sets the shortest shift on the market. The actual length is random between this and
     /// <see cref="MaximumShiftDuration"/>, so the merchants don't all leave at once.
     /// </summary>
@@ -176,6 +192,22 @@ public class BotMerchantConfiguration
     [Range(0, 50)]
     [Display(ResourceType = typeof(PlugInResources), Name = nameof(PlugInResources.BotMerchantConfiguration_PriceSpreadPercent_Name), Description = nameof(PlugInResources.BotMerchantConfiguration_PriceSpreadPercent_Description))]
     public int PriceSpreadPercent { get; set; } = 10;
+
+    /// <summary>
+    /// Gets or sets the lowest zen price of a good. Prices below it are raised, e.g. after a price spread
+    /// which went too far down, so no good is given away for a price a player would consider a mistake.
+    /// </summary>
+    [Range(1, int.MaxValue)]
+    [Display(ResourceType = typeof(PlugInResources), Name = nameof(PlugInResources.BotMerchantConfiguration_MinimumZenPrice_Name), Description = nameof(PlugInResources.BotMerchantConfiguration_MinimumZenPrice_Description))]
+    public int MinimumZenPrice { get; set; } = 100_000;
+
+    /// <summary>
+    /// Gets or sets the highest zen price of a good. Prices above it are lowered, so a bad configuration of
+    /// the price class doesn't put a good out of reach of the players.
+    /// </summary>
+    [Range(1, int.MaxValue)]
+    [Display(ResourceType = typeof(PlugInResources), Name = nameof(PlugInResources.BotMerchantConfiguration_MaximumZenPrice_Name), Description = nameof(PlugInResources.BotMerchantConfiguration_MaximumZenPrice_Description))]
+    public int MaximumZenPrice { get; set; } = 100_000_000;
 
     /// <summary>
     /// Gets or sets the currency of the cheap goods: normal items, and excellent items with only a cheap option. "zen" or the name of a jewel ("bless", "soul", "chaos", "life", "creation").
@@ -368,6 +400,17 @@ public class BotMerchantConfiguration
     [Range(1, int.MaxValue)]
     [Display(ResourceType = typeof(PlugInResources), Name = nameof(PlugInResources.BotMerchantConfiguration_CreationPrice_Name), Description = nameof(PlugInResources.BotMerchantConfiguration_CreationPrice_Description))]
     public int CreationPrice { get; set; } = 36_000_000;
+
+    /// <summary>
+    /// Gets the effective zen price floor: the configured minimum, but never above the ceiling, so a
+    /// configuration whose floor is above its ceiling still yields a usable range instead of a clamp error.
+    /// </summary>
+    internal int EffectiveMinimumZenPrice => Math.Max(1, Math.Min(this.MinimumZenPrice, this.MaximumZenPrice));
+
+    /// <summary>
+    /// Gets the effective zen price ceiling: the configured maximum, but never below the floor.
+    /// </summary>
+    internal int EffectiveMaximumZenPrice => Math.Max(this.EffectiveMinimumZenPrice, this.MaximumZenPrice);
 
     /// <summary>
     /// Gets the store names of <see cref="StoreNames"/>, without the empty ones.

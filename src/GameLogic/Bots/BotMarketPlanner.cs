@@ -142,6 +142,17 @@ internal static class BotMarketPlanner
         => bot.ShopStorage?.Items.Count(item => item.GetStorePrice() is not null) ?? 0;
 
     /// <summary>
+    /// Determines whether the goods of one more merchant fit into the market's quota. The market is the
+    /// total supply guardrail: it doesn't matter how many stores are open when every store is full.
+    /// </summary>
+    /// <param name="listedGoods">The priced goods which the open stores already offer.</param>
+    /// <param name="goods">The priced goods of the merchant which wants to start a shift.</param>
+    /// <param name="maximumGoods">The configured maximum of priced goods on the market.</param>
+    /// <returns><c>true</c>, if the goods fit; <c>false</c>, if the market is at its quota.</returns>
+    internal static bool HasRoomForListing(int listedGoods, int goods, int maximumGoods)
+        => listedGoods + goods <= maximumGoods;
+
+    /// <summary>
     /// Determines whether the bot may start a market shift now: it has enough priced goods, is free of
     /// errands and company, and its last shift is long enough ago.
     /// </summary>
