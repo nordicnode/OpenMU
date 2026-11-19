@@ -25,9 +25,11 @@ public sealed class BotManager
     private readonly ConcurrentDictionary<string, BotPlayer> _bots = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// The health supervisor per account, keyed by login name. It has to outlive the <see cref="BotPlayer"/>
-    /// instance: a restart throws the bot away and spawns a new one for the same account, and only a supervisor
-    /// which survived that can tell a bot which heals from one which breaks itself again within minutes.
+    /// The health supervisor per character, keyed like <see cref="_bots"/>. It has to outlive the
+    /// <see cref="BotPlayer"/> instance: a restart throws the bot away and spawns a new one for the same character,
+    /// and only a supervisor which survived that can tell a bot which heals from one which breaks itself again
+    /// within minutes. It is not keyed by the account alone, because several characters of one account may run at
+    /// the same time - a quarantine of one must not block the restart of another.
     /// </summary>
     private readonly ConcurrentDictionary<string, BotHealthSupervisor> _health = new(StringComparer.OrdinalIgnoreCase);
 
@@ -88,9 +90,9 @@ public sealed class BotManager
             // Provide AI settings so the bot actually hunts (a missing config means a single-tile range).
             bot.MuHelperSettings = new BotMuHelperSettings();
 
-            // The account's health record, not a fresh one: a bot which was restarted a minute ago must be known
+            // The character's health record, not a fresh one: a bot which was restarted a minute ago must be known
             // as such, so the next restart escalation continues instead of starting over.
-            bot.Health = this.HealthFor(loginName);
+            bot.Health = this.HealthFor(loginName, character.CharacterSlot);
 
             // The behavior persona and the session seed are derived from the identity, so a bot keeps its
             // style across restarts and a report can be replayed exactly from the logged seed.
@@ -287,16 +289,17 @@ public sealed class BotManager
     }
 
     /// <summary>
-    /// Gets the health supervisor of the given account, creating it on first use and dropping the ones which have
+    /// Gets the health supervisor of the given character, creating it on first use and dropping the ones which have
     /// been quiet for <see cref="BotHealthPolicy.ForgetAfter"/>. Without the pruning the map would grow with every
-    /// account which ever ran a bot - with the presence rotation that is every bot, all the time.
+    /// character which ever ran a bot - with the presence rotation that is every bot, all the time.
     /// </summary>
     /// <param name="loginName">The account login name.</param>
-    /// <returns>The account's health supervisor.</returns>
-    internal BotHealthSupervisor HealthFor(string loginName)
+    /// <param name="characterSlot">The character slot which identifies the character within the account.</param>
+    /// <returns>The character's health supervisor.</returns>
+    internal BotHealthSupervisor HealthFor(string loginName, byte characterSlot)
     {
         this.PruneHealth();
-        return this._health.GetOrAdd(loginName, _ => new BotHealthSupervisor());
+        return this._health.GetOrAdd(GetKey(loginName, characterSlot), _ => new BotHealthSupervisor());
     }
 
     private static string GetKey(string loginName, byte slot) => $"{loginName}/{slot}";
@@ -355,11 +358,11 @@ public sealed class BotManager
         }
 
         this._nextHealthPruneUtc = now + TimeSpan.FromMinutes(5);
-        foreach (var (loginName, supervisor) in this._health)
+        foreach (var (key, supervisor) in this._health)
         {
             if (supervisor.CanForget())
             {
-                this._health.TryRemove(loginName, out _);
+                this._health.TryRemove(key, out _);
             }
         }
     }

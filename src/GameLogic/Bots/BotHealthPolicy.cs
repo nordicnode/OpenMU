@@ -97,8 +97,8 @@ internal static class BotHealthPolicy
     internal static readonly TimeSpan StreakForgiveness = TimeSpan.FromMinutes(30);
 
     /// <summary>
-    /// How long a supervisor without any fault or restart is worth keeping in memory. The map is keyed by account
-    /// and would otherwise grow with every account which ever logged in - with the presence rotation that is
+    /// How long a supervisor without any fault or restart is worth keeping in memory. The map is keyed by character
+    /// and would otherwise grow with every character which ever logged in - with the presence rotation that is
     /// every bot, all the time.
     /// </summary>
     internal static readonly TimeSpan ForgetAfter = TimeSpan.FromMinutes(120);

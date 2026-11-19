@@ -83,20 +83,23 @@ public class BotSelfHealingTest
 
     /// <summary>
     /// A bot which keeps failing stops writing an error line per tick - the flood would bury the one line that
-    /// matters, and the account's health record keeps the count either way.
+    /// matters, and the character's health record keeps the count either way.
     /// </summary>
     [Test]
     public void ARepeatingFailureIsNotLoggedPerTick()
     {
         var bot = new BotPlayer(GameContextTestHelper.CreateGameContext());
 
-        Assert.That(bot.ShouldLogAiTickFailure(), Is.True);
-        for (var i = 0; i < 10; i++)
+        Assert.That(bot.OnAiTickFailed(new NullReferenceException()), Is.True);
+        for (var i = 1; i < BotHealthPolicy.FaultsLoggedAtError; i++)
         {
-            bot.OnAiTickFailed(new NullReferenceException());
+            Assert.That(bot.OnAiTickFailed(new NullReferenceException()), Is.True, $"failure #{i + 1}");
         }
 
-        Assert.That(bot.ShouldLogAiTickFailure(), Is.False);
-        Assert.That(bot.Health.Faults, Is.EqualTo(10));
+        Assert.That(bot.OnAiTickFailed(new NullReferenceException()), Is.False);
+
+        bot.OnAiTickSucceeded();
+        Assert.That(bot.OnAiTickFailed(new NullReferenceException()), Is.True);
+        Assert.That(bot.Health.Faults, Is.EqualTo(BotHealthPolicy.FaultsLoggedAtError + 2));
     }
 }

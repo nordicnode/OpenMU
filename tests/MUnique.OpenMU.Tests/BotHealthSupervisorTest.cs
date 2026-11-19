@@ -158,16 +158,19 @@ public class BotHealthSupervisorTest
 
         for (var i = 0; i < BotHealthPolicy.FaultsLoggedAtError; i++)
         {
-            Assert.That(supervisor.ShouldLogFault(), Is.True, $"failure #{i + 1}");
-            supervisor.RecordFault(new NullReferenceException());
+            supervisor.RecordFault(new NullReferenceException(), out var shouldLog);
+            Assert.That(shouldLog, Is.True, $"failure #{i + 1}");
         }
 
-        Assert.That(supervisor.ShouldLogFault(), Is.False);
-        supervisor.RecordFault(new NullReferenceException());
-        Assert.That(supervisor.ShouldLogFault(), Is.False);
+        supervisor.RecordFault(new NullReferenceException(), out var afterTheStart);
+        Assert.That(afterTheStart, Is.False);
+
+        supervisor.RecordFault(new NullReferenceException(), out var stillQuiet);
+        Assert.That(stillQuiet, Is.False);
 
         supervisor.RecordTickSucceeded();
-        Assert.That(supervisor.ShouldLogFault(), Is.True);
+        supervisor.RecordFault(new NullReferenceException(), out var afterTheHeal);
+        Assert.That(afterTheHeal, Is.True);
     }
 
     /// <summary>

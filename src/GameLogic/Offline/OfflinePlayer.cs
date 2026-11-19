@@ -477,25 +477,15 @@ public class OfflinePlayer : Player
     }
 
     /// <summary>
-    /// Called when an AI tick of this player threw. Does nothing here, so the human offline mode keeps
-    /// behaving exactly as before; a bot classifies the fault and asks for a restart when the failures don't
-    /// stop (see <see cref="Bots.BotPlayer"/> and <see cref="Bots.BotHealthPolicy"/>).
+    /// Called when an AI tick of this player threw, and tells whether the failure belongs in the log at error
+    /// level. Always true here, so the human offline mode keeps behaving exactly as before; a bot classifies the
+    /// fault, asks for a restart when the failures don't stop (see <see cref="Bots.BotPlayer"/> and
+    /// <see cref="Bots.BotHealthPolicy"/>) and quiets the log down once its ticks keep failing.
     /// </summary>
     /// <param name="exception">The exception the tick threw, if the caller has it - it tells a stopped bot from
     /// a broken one.</param>
-    internal virtual void OnAiTickFailed(Exception? exception = null)
-    {
-        // Nothing to do for a plain offline player.
-    }
-
-    /// <summary>
-    /// Determines whether a failed AI tick is worth an error log entry, or just a debug one. Always true here, so a
-    /// human's offline session logs every failure it has; a bot tunes it down once its ticks keep failing, because
-    /// a broken bot fails every two seconds at best and a 250 ms timer at worst (see
-    /// <see cref="Bots.BotHealthSupervisor"/>).
-    /// </summary>
-    /// <returns><c>true</c> if the failure belongs in the log at error level.</returns>
-    internal virtual bool ShouldLogAiTickFailure() => true;
+    /// <returns><c>true</c> if the failure belongs in the log at error level, <c>false</c> to only debug it.</returns>
+    internal virtual bool OnAiTickFailed(Exception? exception = null) => true;
 
     /// <inheritdoc />
     protected override async ValueTask InternalDisconnectAsync()

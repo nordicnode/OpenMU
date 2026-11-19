@@ -1566,19 +1566,21 @@ internal sealed class BotNavigator : AsyncDisposable
         }
         catch (Exception ex)
         {
-            if (this._player.ShouldLogAiTickFailure())
+            // The decision comes back with the fault itself, so a fault of the MU Helper timer can't change the
+            // count between recording it and deciding whether to log it.
+            var logAtError = this._player.OnAiTickFailed(ex);
+            if (logAtError)
             {
                 this._player.Logger.LogError(ex, "Bot navigator error for {Account}.", this._player.AccountLoginName);
             }
             else
             {
                 // A bot which keeps failing fails every two seconds; the first failures are in the log already,
-                // and the health record of the account carries the count (see BotHealthSupervisor).
+                // and the health record of the character carries the count (see BotHealthSupervisor).
                 this._player.Logger.LogDebug(ex, "Bot navigator error for {Account} (repeated).", this._player.AccountLoginName);
             }
 
             this._states.RecordFailure(ex);
-            this._player.OnAiTickFailed(ex);
         }
         finally
         {

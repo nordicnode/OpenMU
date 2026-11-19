@@ -114,16 +114,17 @@ public sealed class BotPlayer : OfflinePlayer
     }
 
     /// <summary>
-    /// Gets or sets the health supervisor of the account this bot drives. It counts the failing ticks, decides
+    /// Gets or sets the health supervisor of the character this bot drives. It counts the failing ticks, decides
     /// whether a restart is the right answer and quarantines the bot when restarts do not stick - see
     /// <see cref="BotHealthSupervisor"/>. A directly constructed bot gets its own; a bot spawned by the
-    /// <see cref="BotManager"/> shares the one of its account, so a bot which breaks itself again right after a
-    /// restart is recognized as flapping instead of being restarted in a loop.
+    /// <see cref="BotManager"/> shares the one of its character, so a bot which breaks itself again right after a
+    /// restart is recognized as flapping instead of being restarted in a loop - and another character of the same
+    /// account doesn't inherit its quarantine.
     /// </summary>
     internal BotHealthSupervisor Health { get; set; } = new();
 
     /// <summary>
-    /// Forgets the failures, the restarts and the quarantine of this bot's account, so it is allowed to run and to be
+    /// Forgets the failures, the restarts and the quarantine of this bot's character, so it is allowed to run and to be
     /// restarted again. This is the operator's answer to "I fixed the cause" - the policy itself is unchanged, and a
     /// bot which still fails every tick simply keeps asking for a restart.
     /// </summary>
@@ -164,15 +165,12 @@ public sealed class BotPlayer : OfflinePlayer
     }
 
     /// <inheritdoc />
-    internal override bool ShouldLogAiTickFailure() => this.Health.ShouldLogFault();
-
-    /// <inheritdoc />
     internal override void OnAiTickSucceeded() => this.Health.RecordTickSucceeded();
 
     /// <inheritdoc />
-    internal override void OnAiTickFailed(Exception? exception = null)
+    internal override bool OnAiTickFailed(Exception? exception = null)
     {
-        if (this.Health.RecordFault(exception))
+        if (this.Health.RecordFault(exception, out var shouldLog))
         {
             // The supervisor raises the request exactly once, at the tick which crosses the threshold; the
             // maintenance pass consumes AwaitsFaultRestart and the restart resets the counter.
@@ -183,6 +181,8 @@ public sealed class BotPlayer : OfflinePlayer
                 this.Health.LastFault);
             this.AwaitsFaultRestart = true;
         }
+
+        return shouldLog;
     }
 
     /// <inheritdoc />

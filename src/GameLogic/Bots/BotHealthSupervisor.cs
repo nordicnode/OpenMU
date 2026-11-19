@@ -7,9 +7,10 @@ namespace MUnique.OpenMU.GameLogic.Bots;
 /// <summary>
 /// Watches one bot account's health: it counts the AI ticks which fail, classifies why they fail, decides when
 /// the bot is broken enough to ask for a restart, and backs off when restarts do not help. It outlives the bot
-/// instance - a restart creates a new <see cref="BotPlayer"/> for the same account - so a bot which breaks
+/// instance - a restart creates a new <see cref="BotPlayer"/> for the same character - so a bot which breaks
 /// itself again right after a restart is remembered as one which flaps, and quarantined instead of restarted in
-/// a loop. One supervisor belongs to one account; <see cref="BotPlayer.Health"/> uses the account's.
+/// a loop. One supervisor belongs to one character; <see cref="BotPlayer.Health"/> uses the character's, so two
+/// bots of the same account don't share a quarantine or a restart history.
 /// </summary>
 /// <remarks>
 /// The counters are what turns "a bot is broken" into something an operator can act on: the number of faults,
@@ -156,7 +157,17 @@ internal sealed class BotHealthSupervisor
     /// </summary>
     /// <param name="exception">The exception the tick threw, if the caller has one.</param>
     /// <returns><c>true</c> exactly at the tick which makes the bot ask for a restart.</returns>
-    internal bool RecordFault(Exception? exception)
+    internal bool RecordFault(Exception? exception) => this.RecordFault(exception, out _);
+
+    /// <summary>
+    /// Records a failed AI tick and tells, under the same lock, whether it belongs in the log at error level.
+    /// Deciding that in a second call would let a fault of the other timer change the count in between - a bot
+    /// ticks on two timers, so the decision and the count have to go together.
+    /// </summary>
+    /// <param name="exception">The exception the tick threw, if the caller has one.</param>
+    /// <param name="shouldLog"><c>true</c> if this failure belongs in the log at error level.</param>
+    /// <returns><c>true</c> exactly at the tick which makes the bot ask for a restart.</returns>
+    internal bool RecordFault(Exception? exception, out bool shouldLog)
     {
         var kind = BotHealthPolicy.Classify(exception);
         lock (this._lock)
@@ -165,8 +176,13 @@ internal sealed class BotHealthSupervisor
             if (kind == BotFaultKind.Stopped)
             {
                 this._ignoredTicks++;
+                shouldLog = BotHealthPolicy.ShouldLogFaultAtError(this._consecutiveFaults);
                 return false;
             }
+
+            // Computed before the count grows: the first FaultsLoggedAtError failures of a streak are the ones
+            // logged at error level, and a fault which is only debugged must not move that boundary.
+            shouldLog = BotHealthPolicy.ShouldLogFaultAtError(this._consecutiveFaults);
 
             this._faults++;
             if (kind == BotFaultKind.Transient)
@@ -181,20 +197,6 @@ internal sealed class BotHealthSupervisor
             // threshold. Further faults keep counting but don't re-raise it; the maintenance pass consumes the
             // request and the restart resets the counter.
             return ++this._consecutiveFaults == BotHealthPolicy.ConsecutiveFaultsUntilRestart;
-        }
-    }
-
-    /// <summary>
-    /// Asks whether a failed tick belongs in the log at error level. A bot which keeps failing should leave one line
-    /// per streak - plus a trace every <see cref="BotHealthPolicy.FaultsPerQuietLog"/> failures - instead of one line
-    /// per tick: a broken bot fails on two timers at once, and the flood buries the diagnosis.
-    /// </summary>
-    /// <returns><c>true</c> if the failure should be logged at error level, <c>false</c> to only debug it.</returns>
-    internal bool ShouldLogFault()
-    {
-        lock (this._lock)
-        {
-            return BotHealthPolicy.ShouldLogFaultAtError(this._consecutiveFaults);
         }
     }
 

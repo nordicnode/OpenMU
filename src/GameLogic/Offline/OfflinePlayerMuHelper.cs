@@ -154,7 +154,9 @@ public sealed class OfflinePlayerMuHelper : AsyncDisposable
         }
         catch (Exception ex)
         {
-            if (this._player.ShouldLogAiTickFailure())
+            // Recording the fault and deciding whether it is worth an error line happen in one step, so the
+            // navigator timer's faults can't change the count in between.
+            if (this._player.OnAiTickFailed(ex))
             {
                 this._player.Logger.LogError(ex, "Error in offline player helper tick for {AccountLoginName}.", this._player.AccountLoginName);
             }
@@ -163,8 +165,6 @@ public sealed class OfflinePlayerMuHelper : AsyncDisposable
                 // Repeating failure of a bot which is already being handled - see BotHealthSupervisor.
                 this._player.Logger.LogDebug(ex, "Error in offline player helper tick for {AccountLoginName} (repeated).", this._player.AccountLoginName);
             }
-
-            this._player.OnAiTickFailed(ex);
         }
     }
 
