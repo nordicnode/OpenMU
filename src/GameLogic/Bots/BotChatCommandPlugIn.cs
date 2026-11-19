@@ -1,4 +1,4 @@
-// <copyright file="BotChatChatCommandPlugIn.cs" company="MUnique">
+// <copyright file="BotChatCommandPlugIn.cs" company="MUnique">
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 // </copyright>
 
@@ -23,10 +23,10 @@ using MUnique.OpenMU.PlugIns;
 /// while somebody edits the configuration.
 /// </remarks>
 [PlugIn]
-[Display(Name = nameof(PlugInResources.BotChatChatCommandPlugIn_Name), Description = nameof(PlugInResources.BotChatChatCommandPlugIn_Description), ResourceType = typeof(PlugInResources))]
+[Display(Name = nameof(PlugInResources.BotChatCommandPlugIn_Name), Description = nameof(PlugInResources.BotChatCommandPlugIn_Description), ResourceType = typeof(PlugInResources))]
 [Guid("8B472352-5D27-4C58-A2E4-AD0083C9DEBE")]
 [ChatCommandHelp(CommandKey, CharacterStatus.GameMaster)]
-public class BotChatChatCommandPlugIn : IChatCommandPlugIn
+public class BotChatCommandPlugIn : IChatCommandPlugIn
 {
     private const string CommandKey = "/botchat";
 

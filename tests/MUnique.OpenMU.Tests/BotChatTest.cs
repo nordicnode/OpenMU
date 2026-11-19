@@ -155,7 +155,7 @@ public class BotChatTest
         var botChat = gameContext.FeaturePlugIns.GetPlugIn<BotChatPlugIn>();
         Assert.That(botChat, Is.Not.Null);
 
-        var command = new BotChatChatCommandPlugIn();
+        var command = new BotChatCommandPlugIn();
         await command.HandleCommandAsync(gameMaster, "/botchat mute 5").ConfigureAwait(false);
         Assert.That(botChat!.GetThrottle(gameContext).MutedUntilUtc, Is.GreaterThan(DateTime.UtcNow));
 

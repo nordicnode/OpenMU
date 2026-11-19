@@ -3411,18 +3411,18 @@ namespace MUnique.OpenMU.GameLogic.Properties {
         /// <summary>
         ///   Looks up a localized string similar to Handles the chat command &apos;/botchat&apos;. A game master sees how many bot chat messages were allowed, throttled or muted on this game server since it started, and suppresses all bot chat for a number of minutes during an incident..
         /// </summary>
-        public static string BotChatChatCommandPlugIn_Description {
+        public static string BotChatCommandPlugIn_Description {
             get {
-                return ResourceManager.GetString("BotChatChatCommandPlugIn_Description", resourceCulture);
+                return ResourceManager.GetString("BotChatCommandPlugIn_Description", resourceCulture);
             }
         }
         
         /// <summary>
         ///   Looks up a localized string similar to Chat command: /botchat.
         /// </summary>
-        public static string BotChatChatCommandPlugIn_Name {
+        public static string BotChatCommandPlugIn_Name {
             get {
-                return ResourceManager.GetString("BotChatChatCommandPlugIn_Name", resourceCulture);
+                return ResourceManager.GetString("BotChatCommandPlugIn_Name", resourceCulture);
             }
         }
         
