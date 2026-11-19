@@ -1,4 +1,5 @@
 @using System.Threading
+@using Microsoft.Extensions.Logging
 @using MUnique.OpenMU.DataModel
 @using MUnique.OpenMU.DataModel.Entities
 @using MUnique.OpenMU.Web.AdminPanel.Properties
@@ -91,6 +92,12 @@
     [Parameter]
     public EventCallback<BotAccount> OnResetHealth { get; set; }
 
+    /// <summary>
+    /// Gets or sets the logger which records a failed background refresh of the rows.
+    /// </summary>
+    [Inject]
+    private ILogger<BotListPanel> Logger { get; set; } = null!;
+
     /// <inheritdoc />
     public void Dispose()
     {
@@ -121,22 +128,44 @@
         }
 
         var tick = Interlocked.Increment(ref this._ticks);
-        _ = this.InvokeAsync(async () =>
+        _ = this.RefreshTickAsync(tick);
+    }
+
+    /// <summary>
+    /// Applies one timer tick on the renderer, where the rows and the countdown can be updated.
+    /// </summary>
+    /// <param name="tick">The number of the tick, which decides whether the rows are read again.</param>
+    /// <returns>The task.</returns>
+    private async Task RefreshTickAsync(int tick)
+    {
+        try
         {
-            if (this._disposed)
+            await this.InvokeAsync(async () =>
             {
-                return;
-            }
+                if (this._disposed)
+                {
+                    return;
+                }
 
-            if (this._table is { } table && tick % DataRefreshTicks == 0)
-            {
-                await table.RefreshAsync();
-            }
+                if (this._table is { } table && tick % DataRefreshTicks == 0)
+                {
+                    await table.RefreshAsync();
+                }
 
-            if (!this._disposed)
-            {
-                this.StateHasChanged();
-            }
-        });
+                if (!this._disposed)
+                {
+                    this.StateHasChanged();
+                }
+            }).ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException)
+        {
+            // The panel was closed between the timer tick and the renderer running it.
+        }
+        catch (Exception ex)
+        {
+            // A failing background refresh must not vanish: the next tick tries again, and the log says why.
+            this.Logger.LogDebug(ex, "Unexpected error while refreshing the bot table.");
+        }
     }
 }

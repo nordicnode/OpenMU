@@ -33,8 +33,7 @@ using MUnique.OpenMU.Pathfinding;
 /// <remarks>
 /// <see cref="State"/> is the meeting's intent, maintained by <see cref="BotNavigator"/>: it tells
 /// whether the bot is still on its way, already waits at the place, or why it gave up. The state is
-/// runtime only and deliberately not part of the record's equality, so a meeting doesn't become a
-/// different meeting just because the bot set off.
+/// runtime only; a copy of the meeting, such as the safezone fallback, carries the current state over.
 /// </remarks>
 internal sealed record BotEventMeeting(GameMapDefinition Map, Point? NpcPosition, DateTime UntilUtc, ExitGate? Gate = null, MiniGameDefinition? Event = null)
 {
@@ -79,5 +78,5 @@ internal sealed record BotEventMeeting(GameMapDefinition Map, Point? NpcPosition
     /// </summary>
     /// <returns>The meeting without the unreachable NPC point and its gate, in the same state.</returns>
     internal BotEventMeeting ToSafezoneFallback()
-        => this with { NpcPosition = null, Gate = null, State = this.State };
+        => this with { NpcPosition = null, Gate = null };
 }

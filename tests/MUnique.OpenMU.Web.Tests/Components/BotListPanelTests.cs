@@ -6,6 +6,8 @@ namespace MUnique.OpenMU.Web.Tests.Components;
 
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Moq;
 using MUnique.OpenMU.GameLogic.Bots;
 using MUnique.OpenMU.Web.AdminPanel.Components.Bots;
 using MUnique.OpenMU.Web.Shared.Services;
@@ -109,6 +111,42 @@ public class BotListPanelTests
     }
 
     /// <summary>
+    /// A meeting which ends while the panel is open turns into its outcome in the row: the panel reads the
+    /// rows again by itself, so an operator doesn't have to reload the page to learn that the bot gave up.
+    /// </summary>
+    /// <returns>The task.</returns>
+    [Test]
+    public async Task TurnsAnEndedMeetingIntoItsOutcomeWithoutAReloadAsync()
+    {
+        var meeting = new BotMeetingActivity("Waiting", "Devias 215, 40", null, DateTime.UtcNow.AddMinutes(5));
+        var service = new MutableBotService(Bot("bot-meet", "Kai", meeting: meeting));
+        using var context = new BunitContext();
+        context.Services.AddSingleton<IDataService<BotAccount>>(service);
+        context.Services.AddSingleton(Mock.Of<ILogger<BotListPanel>>());
+        var panel = context.Render<BotListPanel>(parameters => parameters.Add(p => p.AlarmLine, (string?)null));
+
+        Assert.That(RowOf(panel, "bot-meet").TextContent, Does.Match("Waiting at Devias 215, 40, [0-9]+:[0-9]{2} left"));
+
+        service.SetBots(Bot(
+            "bot-meet",
+            "Kai",
+            lastMeeting: new BotMeetingOutcome("Expired", "Devias 215, 40", null, null)));
+
+        // Nothing reloads the page or renders the panel here: the periodic row refresh has to bring the
+        // outcome in. It runs every five seconds, so the timeout leaves room for a slow test machine.
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!RowOf(panel, "bot-meet").TextContent.Contains("Last meeting: expired at Devias 215, 40", StringComparison.Ordinal)
+               && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(100).ConfigureAwait(false);
+        }
+
+        var row = RowOf(panel, "bot-meet");
+        Assert.That(row.TextContent, Does.Contain("Last meeting: expired at Devias 215, 40"));
+        Assert.That(row.TextContent, Does.Not.Contain("left"));
+    }
+
+    /// <summary>
     /// A meeting which is over still explains itself in the row: what became of it and where, with the reason
     /// in the tooltip - and a new, active meeting takes the line over.
     /// </summary>
@@ -204,6 +242,7 @@ public class BotListPanelTests
     {
         var context = new BunitContext();
         context.Services.AddSingleton<IDataService<BotAccount>>(new FixedBotService(bots));
+        context.Services.AddSingleton(Mock.Of<ILogger<BotListPanel>>());
         return context;
     }
 
@@ -216,5 +255,27 @@ public class BotListPanelTests
     private sealed class FixedBotService(params BotAccount[] bots) : IDataService<BotAccount>
     {
         public Task<List<BotAccount>> GetAsync(int offset, int count) => Task.FromResult(bots.Skip(offset).Take(count).ToList());
+    }
+
+    private sealed class MutableBotService(params BotAccount[] bots) : IDataService<BotAccount>
+    {
+        private readonly object _sync = new();
+        private BotAccount[] _bots = bots;
+
+        public Task<List<BotAccount>> GetAsync(int offset, int count)
+        {
+            lock (this._sync)
+            {
+                return Task.FromResult(this._bots.Skip(offset).Take(count).ToList());
+            }
+        }
+
+        public void SetBots(params BotAccount[] bots)
+        {
+            lock (this._sync)
+            {
+                this._bots = bots;
+            }
+        }
     }
 }
