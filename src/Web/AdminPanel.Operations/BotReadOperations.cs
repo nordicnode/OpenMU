@@ -280,7 +280,8 @@ public sealed class BotReadOperations(IServerProvider servers, AdminOperationExe
     /// <param name="LastMeeting">How the bot's last event meeting ended, or <c>null</c> while it never had
     /// one.</param>
     /// <param name="LootDecisions">The most recent loot decisions of the bot, newest first - why it kept,
-    /// equipped, sold or stored an item - or <c>null</c> while it has none.</param>
+    /// equipped, sold or stored an item. <c>null</c> while it has none; the report renders that as an
+    /// empty array, so JSON consumers always see <c>lootDecisions: []</c>.</param>
     internal readonly record struct BotRow(
         byte ServerId,
         string? LoginName,

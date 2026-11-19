@@ -23,9 +23,10 @@ public sealed record BotLootDecisionInfo(string Item, string Action, string Reas
         : $"{this.Action}/{this.Reason} ({this.Detail})";
 
     /// <summary>
-    /// Gets the one-line form shown in the bot table and its tooltip.
+    /// Gets the one-line form shown in the bot table and its tooltip. The time is always UTC, like the
+    /// machine-readable timestamps of the report, no matter which offset the timestamp was created with.
     /// </summary>
-    public string Summary => $"{this.AtUtc:HH:mm:ss} {this.Code}: {this.Item}";
+    public string Summary => $"{this.AtUtc.UtcDateTime:HH:mm:ss} {this.Code}: {this.Item}";
 
     /// <summary>
     /// Creates the administration record from a policy decision.

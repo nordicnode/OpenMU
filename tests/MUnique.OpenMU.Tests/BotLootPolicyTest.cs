@@ -59,6 +59,23 @@ public class BotLootPolicyTest
     }
 
     /// <summary>
+    /// The summary shows the time in UTC, also when the timestamp carries another offset - the same
+    /// contract the machine-readable timestamp of the report follows.
+    /// </summary>
+    [Test]
+    public void SummaryTimeIsUtc()
+    {
+        var info = new BotLootDecisionInfo(
+            "Dragon Armor +9",
+            "sell",
+            "vendor_trash",
+            null,
+            new DateTimeOffset(2026, 1, 2, 12, 0, 0, TimeSpan.FromHours(2)));
+
+        Assert.That(info.Summary, Is.EqualTo("10:00:00 sell/vendor_trash: Dragon Armor +9"));
+    }
+
+    /// <summary>
     /// A potion the offline AI drinks is kept as consumable stock, not sold as vendor trash.
     /// </summary>
     [Test]
@@ -147,6 +164,39 @@ public class BotLootPolicyTest
     }
 
     /// <summary>
+    /// A wanted orb in the backpack is kept instead of being listed on the market or sold to a
+    /// merchant - where the skill list may be read, which is the MU Helper tick.
+    /// </summary>
+    [Test]
+    public async ValueTask SkillOrbInBackpackIsKeptAsync()
+    {
+        var player = await PlayerTestHelper.CreatePlayerAsync().ConfigureAwait(false);
+        var characterClass = player.SelectedCharacter!.CharacterClass!;
+        var skill = new TestSkill
+        {
+            Number = 9,
+            Name = "Evil Spirit",
+            SkillType = SkillType.AreaSkillAutomaticHits,
+            AttackDamage = 45,
+        };
+        skill.QualifiedCharacters.Add(characterClass);
+        var definition = CreateDefinition(1, BotProgression.SkillOrbItemGroup, dropLevel: 0);
+        definition.Skill = skill;
+        definition.QualifiedCharacters.Add(characterClass);
+        var orb = CreateItem(definition, slot: InventoryConstants.EquippableSlotsCount);
+        await player.Inventory!.AddItemAsync(orb.ItemSlot, orb).ConfigureAwait(false);
+
+        Assert.That(BotSkillHandler.WantsSkillItem(player, orb), Is.True, "the orb must be one the bot wants to learn");
+
+        var decision = Classify(player, new BotMerchantConfiguration(), checkSkillItems: true)
+            .Single(entry => ReferenceEquals(entry.Item, orb))
+            .Decision;
+
+        Assert.That(decision, Is.EqualTo(new BotLootDecision(BotLootAction.Keep, BotLootReason.SkillItem)));
+        Assert.That(decision.IsJunk, Is.False);
+    }
+
+    /// <summary>
     /// Gear which beats what the bot wears is an equip decision, not junk.
     /// </summary>
     [Test]
@@ -195,8 +245,11 @@ public class BotLootPolicyTest
             new BotLootDecision(BotLootAction.Sell, BotLootReason.VendorTrash)));
     }
 
-    private static IReadOnlyList<(Item Item, BotLootDecision Decision)> Classify(Player player, BotMerchantConfiguration? marketConfiguration)
-        => BotLootPolicy.ClassifyBackpack(player, player.Inventory!, marketConfiguration);
+    private static IReadOnlyList<(Item Item, BotLootDecision Decision)> Classify(
+        Player player,
+        BotMerchantConfiguration? marketConfiguration,
+        bool checkSkillItems = false)
+        => BotLootPolicy.ClassifyBackpack(player, player.Inventory!, marketConfiguration, checkSkillItems);
 
     private static ItemDefinition CreateArmorDefinition(Player player)
     {
@@ -259,5 +312,14 @@ public class BotLootPolicyTest
         definition.Durability = 100;
         definition.IsSellableToNpc = true;
         return definition;
+    }
+
+    private sealed class TestSkill : Skill
+    {
+        public TestSkill()
+        {
+            this.QualifiedCharacters = new List<CharacterClass>();
+            this.Requirements = new List<AttributeRequirement>();
+        }
     }
 }

@@ -151,7 +151,7 @@ internal static class BotShoppingHandler
         // during an NPC dialog. Nothing happens while the plugin is off.
         await DiscardBackpackWingsAsync(player, inventory).ConfigureAwait(false);
         var marketConfiguration = player.GameContext.FeaturePlugIns.GetPlugIn<BotMerchantPlugIn>()?.Configuration;
-        var decisions = BotLootPolicy.ClassifyBackpack(player, inventory, marketConfiguration);
+        var decisions = BotLootPolicy.ClassifyBackpack(player, inventory, marketConfiguration, checkSkillItems: true);
         foreach (var (item, decision) in decisions)
         {
             if (!decision.IsJunk && decision.Action != BotLootAction.Ignore)
@@ -238,12 +238,15 @@ internal static class BotShoppingHandler
 
     /// <summary>
     /// Collects the backpack items the bot has no use for. Not its potions, not the jewels within its
-    /// working stock, and not a piece it would put on - but everything else goes, treasures included.
-    /// Unlike a player, a bot cannot trade an excellent piece away, so hoarding one only silts up the
-    /// backpack until the loot pickup stops entirely.
+    /// working stock, not a piece it would put on and not an orb or scroll it still wants to learn - but
+    /// everything else goes, treasures included. Unlike a player, a bot cannot trade an excellent piece
+    /// away, so hoarding one only silts up the backpack until the loot pickup stops entirely.
     /// </summary>
-    private static List<Item> GetSellableJunk(OfflinePlayer player, IStorage inventory)
-        => BotLootPolicy.GetJunk(player, inventory, null);
+    /// <param name="player">The bot.</param>
+    /// <param name="inventory">Its inventory.</param>
+    /// <param name="checkSkillItems">Whether the skill list may be read, which is only safe on the MU Helper tick.</param>
+    private static List<Item> GetSellableJunk(OfflinePlayer player, IStorage inventory, bool checkSkillItems = false)
+        => BotLootPolicy.GetJunk(player, inventory, null, checkSkillItems);
 
     /// <summary>
     /// Sells the junk, most valuable piece first, so that a bot which is close to the money limit still
@@ -252,15 +255,10 @@ internal static class BotShoppingHandler
     /// </summary>
     private static async ValueTask<(int Sold, List<Item> Unsold)> SellJunkAsync(OfflinePlayer player, IStorage inventory)
     {
-        var junk = GetSellableJunk(player, inventory);
-
-        // A looted orb or scroll waiting for the next learn pass is not an upgrade, so the classifier
-        // above files it as junk - pull it back out here, where reading the skill list is safe: this
-        // runs on the MU Helper tick, serialized with the learn pass that mutates it (never on the
-        // navigator's timer, where NeedsShopping only decides whether a trip is worthwhile). Keeping it
-        // out of this list also protects it from being destroyed as unsellable under slot pressure
-        // downstream, which only ever sees what is returned here.
-        junk.RemoveAll(item => BotSkillHandler.WantsSkillItem(player, item));
+        // Reading the skill list is safe here - this runs on the MU Helper tick, serialized with the
+        // learn pass that mutates it - so a looted orb or scroll waiting for that pass is kept out of
+        // the list and protected from being destroyed as unsellable under slot pressure downstream.
+        var junk = GetSellableJunk(player, inventory, checkSkillItems: true);
 
         var pricedJunk = junk
             .Select(i => (Item: i, Price: PriceCalculator.CalculateSellingPrice(i, i.Durability())))

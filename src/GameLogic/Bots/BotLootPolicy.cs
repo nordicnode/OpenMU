@@ -14,8 +14,8 @@ using MUnique.OpenMU.GameLogic.Offline;
 /// <remarks>
 /// The policy composes the existing specialized rules: <see cref="BotEquipmentHandler"/> evaluates
 /// gear, <see cref="BotJewelHandler"/> owns the jewel stock, and <see cref="BotMerchandise"/> prices
-/// market goods. It deliberately does not check skill orbs while classifying the backpack: reading
-/// the skill list is only safe on the MU Helper tick, not on the navigator's timer.
+/// market goods. Skill orbs are checked only when the caller asks for it: reading the skill list is
+/// only safe on the MU Helper tick, not on the navigator's timer, so callers there leave it off.
 /// </remarks>
 internal static class BotLootPolicy
 {
@@ -26,17 +26,21 @@ internal static class BotLootPolicy
     /// <param name="player">The bot.</param>
     /// <param name="inventory">Its inventory.</param>
     /// <param name="marketConfiguration">The merchant configuration, or <c>null</c> when the market is switched off.</param>
+    /// <param name="checkSkillItems">Whether to keep looted orbs and scrolls the bot still wants to learn. Only
+    /// pass <c>true</c> from the MU Helper tick, where reading the skill list cannot race the learn pass that
+    /// mutates it.</param>
     /// <returns>One decision per item of the inventory, in inventory order.</returns>
     internal static IReadOnlyList<(Item Item, BotLootDecision Decision)> ClassifyBackpack(
         Player player,
         IStorage inventory,
-        BotMerchantConfiguration? marketConfiguration)
+        BotMerchantConfiguration? marketConfiguration,
+        bool checkSkillItems = false)
     {
         var keptJewels = new Dictionary<ItemIdentifier, int>();
         var decisions = new List<(Item Item, BotLootDecision Decision)>();
         foreach (var item in inventory.Items)
         {
-            decisions.Add((item, ClassifyBackpackItem(player, item, keptJewels, marketConfiguration)));
+            decisions.Add((item, ClassifyBackpackItem(player, item, keptJewels, marketConfiguration, checkSkillItems)));
         }
 
         return decisions;
@@ -50,14 +54,21 @@ internal static class BotLootPolicy
     /// <param name="player">The bot.</param>
     /// <param name="inventory">Its inventory.</param>
     /// <param name="marketConfiguration">The merchant configuration, or <c>null</c> when the market is switched off.</param>
+    /// <param name="checkSkillItems">Whether to keep looted orbs and scrolls the bot still wants to learn. Only
+    /// pass <c>true</c> from the MU Helper tick, where reading the skill list cannot race the learn pass that
+    /// mutates it.</param>
     /// <returns>The junk items, in inventory order.</returns>
-    internal static List<Item> GetJunk(Player player, IStorage inventory, BotMerchantConfiguration? marketConfiguration)
+    internal static List<Item> GetJunk(
+        Player player,
+        IStorage inventory,
+        BotMerchantConfiguration? marketConfiguration,
+        bool checkSkillItems = false)
     {
         var keptJewels = new Dictionary<ItemIdentifier, int>();
         var junk = new List<Item>();
         foreach (var item in inventory.Items)
         {
-            if (ClassifyBackpackItem(player, item, keptJewels, marketConfiguration).IsJunk)
+            if (ClassifyBackpackItem(player, item, keptJewels, marketConfiguration, checkSkillItems).IsJunk)
             {
                 junk.Add(item);
             }
@@ -142,7 +153,8 @@ internal static class BotLootPolicy
         Player player,
         Item item,
         IDictionary<ItemIdentifier, int> keptJewels,
-        BotMerchantConfiguration? marketConfiguration)
+        BotMerchantConfiguration? marketConfiguration,
+        bool checkSkillItems)
     {
         if (item.ItemSlot < InventoryConstants.EquippableSlotsCount)
         {
@@ -152,6 +164,13 @@ internal static class BotLootPolicy
         if (item.Definition is not { } definition)
         {
             return new(BotLootAction.Ignore, BotLootReason.UnknownItem);
+        }
+
+        // An orb or scroll waiting for the learn pass must never be sold or listed on the market. Reading
+        // the skill list is only safe on the MU Helper tick, which is why the caller has to ask for it.
+        if (checkSkillItems && BotSkillHandler.WantsSkillItem(player, item))
+        {
+            return new(BotLootAction.Keep, BotLootReason.SkillItem);
         }
 
         if (definition.IsAmmunition)
