@@ -856,10 +856,19 @@ public class BotChatPlugIn
     private void DeclineLater(Player bot, Player requester, BotChatConfiguration configuration, ICollection<BotChatLine> lines, Func<ValueTask>? refuse)
     {
         var throttle = this.GetThrottle(bot.GameContext);
-        var whisper = configuration.DeclineReplyChancePercent > 0
-                      && Rand.NextRandomBool(configuration.DeclineReplyChancePercent)
-                      && throttle.TryReserveWhisperReply(bot, DateTime.UtcNow, configuration.WhisperReplyCooldown);
-        var line = whisper ? BotChatReplySelector.PickLineFor(throttle, bot, lines, requester) : null;
+
+        // The line is picked before the cooldown is reserved: an empty list must not cost the bot its
+        // next whisper reply, and picking doesn't touch the line memory.
+        var line = configuration.DeclineReplyChancePercent > 0
+                   && Rand.NextRandomBool(configuration.DeclineReplyChancePercent)
+            ? BotChatReplySelector.PickLineFor(throttle, bot, lines, requester)
+            : null;
+        if (line is not null
+            && !throttle.TryReserveWhisperReply(bot, DateTime.UtcNow, configuration.WhisperReplyCooldown))
+        {
+            line = null;
+        }
+
         if (line is not null)
         {
             BotChatReplySelector.RememberLine(throttle, bot, lines, line, requester);
@@ -1076,8 +1085,7 @@ public class BotChatPlugIn
                 || !this.MayTalkUnasked(bot, configuration)
                 || !throttle.IsCategoryDue(bot, category, now, configuration.GetCategoryCooldown(category))
                 || BotChatReplySelector.PickLineFor(throttle, bot, lines, player) is not { } line
-                || !throttle.TryReserveOccasion(occasionKey, now, configuration.CongratulationCooldown)
-                || !throttle.TryReserveChat(bot, now, configuration.BotChatCooldown, category: category, categoryCooldown: configuration.GetCategoryCooldown(category)))
+                || !throttle.TryReserveUnaskedLine(bot, now, occasionKey, configuration.CongratulationCooldown, configuration.BotChatCooldown, category, configuration.GetCategoryCooldown(category)))
             {
                 return;
             }
@@ -1136,8 +1144,7 @@ public class BotChatPlugIn
 
         var greetingLines = throttle.IsFriend(bot, playerName) && configuration.FriendLines.Count > 0 ? configuration.FriendLines : configuration.GreetingLines;
         if (BotChatReplySelector.PickLineFor(throttle, bot, greetingLines, player) is not { } line
-            || !throttle.TryReserveOccasion($"greeting {playerName}", now, configuration.GreetingCooldown)
-            || !throttle.TryReserveChat(bot, now, configuration.BotChatCooldown, category: BotChatCategory.Greeting, categoryCooldown: configuration.GetCategoryCooldown(BotChatCategory.Greeting)))
+            || !throttle.TryReserveUnaskedLine(bot, now, $"greeting {playerName}", configuration.GreetingCooldown, configuration.BotChatCooldown, BotChatCategory.Greeting, configuration.GetCategoryCooldown(BotChatCategory.Greeting)))
         {
             return;
         }

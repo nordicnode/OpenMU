@@ -119,8 +119,8 @@ internal sealed class BotChatConversationResponder
 
         if (place is not { } found)
         {
-            if (throttle.TryReserveWhisperReply(bot, DateTime.UtcNow, configuration.WhisperReplyCooldown)
-                && BotChatReplySelector.PickLineFor(throttle, bot, configuration.PartyAskWhereLines, requester) is { } askLine)
+            if (BotChatReplySelector.PickLineFor(throttle, bot, configuration.PartyAskWhereLines, requester) is { } askLine
+                && throttle.TryReserveWhisperReply(bot, DateTime.UtcNow, configuration.WhisperReplyCooldown))
             {
                 BotChatReplySelector.RememberLine(throttle, bot, configuration.PartyAskWhereLines, askLine, requester);
                 WhisperLater(bot, requester, askLine, values, language);

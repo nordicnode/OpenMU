@@ -271,6 +271,31 @@ internal sealed class BotChatThrottle
         => this.ReserveChatLine(bot, now, channel, ref this._bots.GetOrCreateValue(bot).NextChatTicks, cooldown, category, categoryCooldown);
 
     /// <summary>
+    /// Reserves the next unasked line of the bot together with the occasion it is about, e.g. a
+    /// greeting of a specific player. Both slots are granted or denied together: a budget, a mute or
+    /// a cooldown which denies the line must not consume the occasion, and a duplicate occasion must
+    /// not consume the line's cooldown.
+    /// </summary>
+    /// <param name="bot">The bot.</param>
+    /// <param name="now">The current time.</param>
+    /// <param name="occasionKey">The key of the occasion, e.g. the greeted player.</param>
+    /// <param name="occasionWindow">How long the occasion stays reserved.</param>
+    /// <param name="cooldown">The minimum time until the bot's next line.</param>
+    /// <param name="category">The topic of the line.</param>
+    /// <param name="categoryCooldown">The minimum time until the bot may say another unasked line of the topic.</param>
+    /// <returns><c>true</c>, if the bot may say the line about the occasion now.</returns>
+    public bool TryReserveUnaskedLine(Player bot, DateTime now, string occasionKey, TimeSpan occasionWindow, TimeSpan cooldown, BotChatCategory category, TimeSpan categoryCooldown)
+        => this.ReserveChatLine(
+            bot,
+            now,
+            BotChatChannel.Normal,
+            ref this._bots.GetOrCreateValue(bot).NextChatTicks,
+            cooldown,
+            category,
+            categoryCooldown,
+            () => this.TryReserveOccasion(occasionKey, now, occasionWindow));
+
+    /// <summary>
     /// Reserves the next whisper reply of the bot.
     /// </summary>
     /// <param name="bot">The bot.</param>
@@ -727,9 +752,19 @@ internal sealed class BotChatThrottle
     /// <summary>
     /// Checks the mute window, the message budgets, the topic cooldown and the bot's cooldown, and
     /// records the result. A denied message doesn't consume the bot's cooldown, and the topic cooldown
-    /// is only consumed when the line is actually granted.
+    /// is only consumed when the line is actually granted. An additional reservation - the occasion a
+    /// line is about - is made last, so nothing it needs is spent when the line itself is denied.
     /// </summary>
-    private bool ReserveChatLine(Player? bot, DateTime now, BotChatChannel channel, ref long nextTicks, TimeSpan cooldown, BotChatCategory? category, TimeSpan categoryCooldown)
+    /// <param name="bot">The bot.</param>
+    /// <param name="now">The current time.</param>
+    /// <param name="channel">The channel the line is said in.</param>
+    /// <param name="nextTicks">The bot's cooldown for the channel, as raw ticks.</param>
+    /// <param name="cooldown">The minimum time until the bot's next line of the channel.</param>
+    /// <param name="category">The topic of the line; <c>null</c> for an answer without a topic cooldown.</param>
+    /// <param name="categoryCooldown">The minimum time until the bot may say another unasked line of the topic.</param>
+    /// <param name="reserveOccasion">Reserves the occasion of the line; runs only after every other check passed.</param>
+    /// <returns><c>true</c>, if the line and the occasion were reserved.</returns>
+    private bool ReserveChatLine(Player? bot, DateTime now, BotChatChannel channel, ref long nextTicks, TimeSpan cooldown, BotChatCategory? category, TimeSpan categoryCooldown, Func<bool>? reserveOccasion = null)
     {
         lock (this._chatStatisticsLock)
         {
@@ -759,11 +794,20 @@ internal sealed class BotChatThrottle
                 return false;
             }
 
-            if (!TryReserve(ref nextTicks, now, cooldown))
+            if (now.Ticks < Interlocked.Read(ref nextTicks))
             {
                 this._throttled[index]++;
                 return false;
             }
+
+            // The occasion is only reserved once the line itself is grantable. Every chat reservation
+            // runs under this lock, so the cooldown cannot be taken by another caller in between.
+            if (reserveOccasion is not null && !reserveOccasion())
+            {
+                return false;
+            }
+
+            Interlocked.Exchange(ref nextTicks, (now + cooldown).Ticks);
 
             if (bot is not null && category is { } grantedTopic)
             {

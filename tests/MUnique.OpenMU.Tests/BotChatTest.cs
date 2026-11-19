@@ -542,6 +542,54 @@ public class BotChatTest
     }
 
     /// <summary>
+    /// An occasion and the line about it are reserved together: when the chat cooldown denies the
+    /// line, the next attempt may still greet the same player.
+    /// </summary>
+    /// <returns>The task.</returns>
+    [Test]
+    public async ValueTask ADeniedLineDoesNotConsumeTheOccasionAsync()
+    {
+        var gameContext = GameContextTestHelper.CreateGameContext();
+        var bot = await PlayerTestHelper.CreateOfflineLevelingPlayerAsync(gameContext).ConfigureAwait(false);
+        var throttle = new BotChatThrottle();
+        var occasion = "greeting Hero";
+
+        Assert.That(throttle.TryReserveChat(bot, Start, TimeSpan.FromMinutes(2)), Is.True);
+        Assert.That(
+            throttle.TryReserveUnaskedLine(bot, Start.AddMinutes(1), occasion, TimeSpan.FromMinutes(30), TimeSpan.FromMinutes(2), BotChatCategory.Greeting, TimeSpan.Zero),
+            Is.False);
+
+        // The cooldown is over, and the denied attempt did not spend the greeting.
+        Assert.That(
+            throttle.TryReserveUnaskedLine(bot, Start.AddMinutes(2), occasion, TimeSpan.FromMinutes(30), TimeSpan.FromMinutes(2), BotChatCategory.Greeting, TimeSpan.Zero),
+            Is.True);
+    }
+
+    /// <summary>
+    /// A duplicate occasion doesn't consume the chat cooldown either, so the bot can still say
+    /// something else while the occasion is running.
+    /// </summary>
+    /// <returns>The task.</returns>
+    [Test]
+    public async ValueTask ADuplicateOccasionDoesNotConsumeTheChatCooldownAsync()
+    {
+        var gameContext = GameContextTestHelper.CreateGameContext();
+        var bot = await PlayerTestHelper.CreateOfflineLevelingPlayerAsync(gameContext).ConfigureAwait(false);
+        var throttle = new BotChatThrottle();
+        var occasion = "greeting Hero";
+
+        Assert.That(
+            throttle.TryReserveUnaskedLine(bot, Start, occasion, TimeSpan.FromMinutes(30), TimeSpan.FromMinutes(1), BotChatCategory.Greeting, TimeSpan.Zero),
+            Is.True);
+        Assert.That(
+            throttle.TryReserveUnaskedLine(bot, Start.AddSeconds(30), occasion, TimeSpan.FromMinutes(30), TimeSpan.FromMinutes(1), BotChatCategory.Greeting, TimeSpan.Zero),
+            Is.False);
+
+        // A minute after the granted line - not half a minute later - the next line is due.
+        Assert.That(throttle.TryReserveChat(bot, Start.AddMinutes(1), TimeSpan.Zero), Is.True);
+    }
+
+    /// <summary>
     /// Picking a reply doesn't use up the recent-line memory either: only a reply which was reserved
     /// for sending is remembered.
     /// </summary>
