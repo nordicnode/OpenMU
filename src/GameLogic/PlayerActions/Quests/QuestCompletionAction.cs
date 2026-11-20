@@ -109,6 +109,14 @@ public class QuestCompletionAction
                 {
                     attribute = player.PersistenceContext.CreateNew<StatAttribute>(reward.AttributeReward, 0);
                     player.SelectedCharacter.Attributes.Add(attribute);
+
+                    // The attribute system was built at login. Wire a newly awarded stat into the live
+                    // graph as well, including an existing composable node used by relationships.
+                    if (player.Attributes is { } attributes && !attributes.TryAddStatAttribute(attribute)
+                        && attributes.GetOrCreateAttribute(reward.AttributeReward!) is IComposableAttribute)
+                    {
+                        attributes.AddElement(attribute, reward.AttributeReward!);
+                    }
                 }
 
                 attribute.Value += reward.Value;

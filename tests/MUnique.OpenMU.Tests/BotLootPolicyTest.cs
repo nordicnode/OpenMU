@@ -78,11 +78,14 @@ public class BotLootPolicyTest
     /// <summary>
     /// A potion the offline AI drinks is kept as consumable stock, not sold as vendor trash.
     /// </summary>
-    [Test]
-    public async ValueTask PotionIsConsumableStockAsync()
+    [TestCase(3)]
+    [TestCase(35)]
+    [TestCase(36)]
+    [TestCase(37)]
+    public async ValueTask PotionIsConsumableStockAsync(short number)
     {
         var player = await PlayerTestHelper.CreatePlayerAsync().ConfigureAwait(false);
-        var potion = CreateItem(3, 14, dropLevel: 0, level: 0, luck: false);
+        var potion = CreateItem(number, 14, dropLevel: 0, level: 0, luck: false);
         await player.Inventory!.AddItemAsync(InventoryConstants.EquippableSlotsCount, potion).ConfigureAwait(false);
 
         var decision = Classify(player, null).Single(entry => ReferenceEquals(entry.Item, potion)).Decision;

@@ -2085,4 +2085,10 @@
   <data name="WaitingItemsCommandConfiguration_ItemsNamed_Description" xml:space="preserve">
     <value>Die Anzahl der wartenden Gegenstände, die genannt werden, einer pro Nachricht.</value>
   </data>
+  <data name="BotConfiguration_Duels_Name" xml:space="preserve">
+    <value>Duelle</value>
+  </data>
+  <data name="BotConfiguration_Duels_Description" xml:space="preserve">
+    <value>Wenn aktiviert, nehmen Bots Duelle von Spielern vergleichbarer Stufe an und fordern gelegentlich selbst einen heraus. Standardmäßig aus: Duelle verändern das PvP eines Servers und sind daher eine bewusste Entscheidung. Ein Bot duelliert sich nie, während er mit einem Besorgungslauf, einem Event, einer Marktschicht oder einem Rachefeldzug beschäftigt ist.</value>
+  </data>
 </root>

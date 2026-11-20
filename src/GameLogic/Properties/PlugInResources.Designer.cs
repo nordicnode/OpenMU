@@ -1519,6 +1519,69 @@ namespace MUnique.OpenMU.GameLogic.Properties {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Said in the party chat when the bot leaves the group for a moment, e.g. to restock potions in town. Placeholders: {player}, {level}, {map}, {location}..
+        /// </summary>
+        public static string BotChatConfiguration_PartyDelayedLines_Description {
+            get {
+                return ResourceManager.GetString("BotChatConfiguration_PartyDelayedLines_Description", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Party: delayed.
+        /// </summary>
+        public static string BotChatConfiguration_PartyDelayedLines_Name {
+            get {
+                return ResourceManager.GetString("BotChatConfiguration_PartyDelayedLines_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Rescue: thanks.
+        /// </summary>
+        public static string BotChatCategory_Rescue_Name {
+            get {
+                return ResourceManager.GetString("BotChatCategory_Rescue_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Chance, in percent, that a bot thanks a player who killed a monster next to it while it was badly hurt. 0 switches the thank-you off..
+        /// </summary>
+        public static string BotChatConfiguration_RescueThanksChancePercent_Description {
+            get {
+                return ResourceManager.GetString("BotChatConfiguration_RescueThanksChancePercent_Description", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Rescue thanks %.
+        /// </summary>
+        public static string BotChatConfiguration_RescueThanksChancePercent_Name {
+            get {
+                return ResourceManager.GetString("BotChatConfiguration_RescueThanksChancePercent_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Whispered to a player who killed a monster next to the bot while it was low on health. Placeholders: {player} (the rescuer), {level}, {map}, {location}..
+        /// </summary>
+        public static string BotChatConfiguration_RescueThanksLines_Description {
+            get {
+                return ResourceManager.GetString("BotChatConfiguration_RescueThanksLines_Description", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Rescue: thanks lines.
+        /// </summary>
+        public static string BotChatConfiguration_RescueThanksLines_Name {
+            get {
+                return ResourceManager.GetString("BotChatConfiguration_RescueThanksLines_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to How long a bot waits at the meeting place for the party invitation before it goes back to hunting..
         /// </summary>
         public static string BotChatConfiguration_PartyMeetingWaitTime_Description {
@@ -2145,6 +2208,24 @@ namespace MUnique.OpenMU.GameLogic.Properties {
         public static string BotConfiguration_UseEnemyDebuffs_Name {
             get {
                 return ResourceManager.GetString("BotConfiguration_UseEnemyDebuffs_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to If enabled, bots accept duel requests of players of a comparable level and now and then challenge one themselves. Off by default: duels change the PvP experience of a server..
+        /// </summary>
+        public static string BotConfiguration_Duels_Description {
+            get {
+                return ResourceManager.GetString("BotConfiguration_Duels_Description", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Duels.
+        /// </summary>
+        public static string BotConfiguration_Duels_Name {
+            get {
+                return ResourceManager.GetString("BotConfiguration_Duels_Name", resourceCulture);
             }
         }
         

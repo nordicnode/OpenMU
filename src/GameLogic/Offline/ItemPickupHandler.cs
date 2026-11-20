@@ -225,6 +225,12 @@ public sealed class ItemPickupHandler
     /// <returns><c>true</c>, if the bot should pick the item up.</returns>
     private bool ShouldPickUpBot(Item item, IMuHelperSettings config)
     {
+        if (Bots.BotLootPolicy.WantsQuestItem(this._player, item))
+        {
+            Bots.BotLootDecisionLog.Log(this._player, item, new(Bots.BotLootAction.Keep, Bots.BotLootReason.QuestItem), "pickup");
+            return true;
+        }
+
         if (config.PickJewel && IsJewel(item))
         {
             // A bot has no later: it spends Bless, Soul and Life on its own gear and Chaos at the chaos

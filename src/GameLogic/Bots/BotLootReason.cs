@@ -54,4 +54,7 @@ internal enum BotLootReason
 
     /// <summary>The item is picked up because the bot's helper configuration names it.</summary>
     ConfiguredExtra = 14,
+
+    /// <summary>The item is needed for an active quest or is retained for a quest hand-in.</summary>
+    QuestItem = 15,
 }

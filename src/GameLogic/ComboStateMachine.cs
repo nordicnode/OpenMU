@@ -45,6 +45,12 @@ public sealed class ComboStateMachine : StateMachine
     public ComboState InitialState { get; set; }
 
     /// <summary>
+    /// Gets a value indicating whether the current attempt has exceeded its configured time limit.
+    /// </summary>
+    internal bool IsCurrentAttemptExpired => this.CurrentState != this.InitialState
+        && DateTime.UtcNow - this._lastStartedCombo > this._maximumCompletionTime;
+
+    /// <summary>
     /// Creates the specified combo definition, based on the <see cref="SkillComboDefinition"/>.
     /// </summary>
     /// <param name="comboDefinition">The combo definition.</param>

@@ -204,6 +204,34 @@ public sealed class OfflinePlayerMuHelper : AsyncDisposable
 
         if (this.IsOnSkillCooldown())
         {
+            // A bot may recover between attacks; a human's offline MU Helper retains its existing order.
+            if (this._player.Account?.IsBot == true)
+            {
+                if (this._combatHandler.HasActiveBotCombo)
+                {
+                    await this._healingHandler.PerformBotComboRecoveryAsync().ConfigureAwait(false);
+                }
+                else
+                {
+                    await this._healingHandler.PerformHealthRecoveryAsync().ConfigureAwait(false);
+                }
+
+                await this._healingHandler.PerformBotShieldRecoveryAsync(this._combatHandler.HasPlayerOpponent).ConfigureAwait(false);
+            }
+
+            return;
+        }
+
+        // Preserve an active bot combo across helper actions; potions do not cast another skill.
+        if (this._combatHandler.HasActiveBotCombo)
+        {
+            await this._healingHandler.PerformBotComboRecoveryAsync().ConfigureAwait(false);
+            await this._healingHandler.PerformBotShieldRecoveryAsync(this._combatHandler.HasPlayerOpponent).ConfigureAwait(false);
+            if (!this._player.IsWalking)
+            {
+                await this._combatHandler.PerformAttackAsync().ConfigureAwait(false);
+            }
+
             return;
         }
 
@@ -214,8 +242,12 @@ public sealed class OfflinePlayerMuHelper : AsyncDisposable
         }
 
         await this._healingHandler.PerformHealthRecoveryAsync().ConfigureAwait(false);
+        await this._healingHandler.PerformBotShieldRecoveryAsync(this._combatHandler.HasPlayerOpponent).ConfigureAwait(false);
         await this._combatHandler.PerformDrainLifeRecoveryAsync().ConfigureAwait(false);
-        await this._itemPickupHandler.PickupItemsAsync().ConfigureAwait(false);
+        if (!this._combatHandler.ShouldDeferLoot)
+        {
+            await this._itemPickupHandler.PickupItemsAsync().ConfigureAwait(false);
+        }
 
         if (this._player.IsWalking)
         {

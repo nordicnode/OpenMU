@@ -6,10 +6,13 @@ namespace MUnique.OpenMU.Tests.Offline;
 
 using Moq;
 using MUnique.OpenMU.AttributeSystem;
+using MUnique.OpenMU.DataModel.Configuration;
 using MUnique.OpenMU.DataModel.Configuration.Items;
+using MUnique.OpenMU.DataModel.Configuration.Quests;
 using MUnique.OpenMU.DataModel.Entities;
 using MUnique.OpenMU.GameLogic;
 using MUnique.OpenMU.GameLogic.Attributes;
+using MUnique.OpenMU.GameLogic.Bots;
 using MUnique.OpenMU.GameLogic.MuHelper;
 using MUnique.OpenMU.GameLogic.Offline;
 using MUnique.OpenMU.GameServer.RemoteView.MuHelper;
@@ -201,6 +204,52 @@ public class ItemPickupHandlerTests
         Assert.That(stack.Durability, Is.EqualTo(20), "The existing stack should be completed");
         Assert.That(droppedItem.Durability, Is.EqualTo(3), "The rest stays in its own item");
         Assert.That(player.Inventory.Items.Contains(droppedItem), Is.True, "The rest goes to the inventory");
+    }
+
+    /// <summary>Bot quest pickups respect the required item level and stop after the required count.</summary>
+    [Test]
+    public async ValueTask BotPicksUpNeededQuestItemAndKeepsItAsync()
+    {
+        var player = await this.CreateOfflinePlayerAsync().ConfigureAwait(false);
+        player.Account!.IsBot = true;
+        var item = this.CreateItem(14, 24);
+        item.Definition!.IsQuestItem = true;
+        item.Level = 1;
+        var dropGroup = new Mock<DropItemGroup>();
+        dropGroup.SetupAllProperties();
+        dropGroup.Object.ItemLevel = 1;
+        var quest = new Mock<QuestDefinition>();
+        quest.Setup(q => q.RequiredItems).Returns(new List<QuestItemRequirement>
+        {
+            new() { Item = item.Definition, DropItemGroup = dropGroup.Object, MinimumNumber = 1 },
+        });
+        Mock.Get(player.SelectedCharacter!).Setup(c => c.QuestStates).Returns(new List<CharacterQuestState>
+        {
+            new() { ActiveQuest = quest.Object },
+        });
+
+        Assert.That(BotLootPolicy.WantsQuestItem(player, item), Is.True);
+        var wrongLevel = this.CreateItem(14, 24);
+        Mock.Get(wrongLevel).Setup(i => i.Definition).Returns(item.Definition);
+        wrongLevel.Level = 0;
+        Assert.That(BotLootPolicy.WantsQuestItem(player, wrongLevel), Is.False);
+
+        var drop = new DroppedItem(item, player.Position, player.CurrentMap!, player);
+        await player.CurrentMap!.AddAsync(drop).ConfigureAwait(false);
+        var config = new MuHelperSettings { PickSelectItems = true, ObtainRange = 5 };
+        await new ItemPickupHandler(player, config).PickupItemsAsync().ConfigureAwait(false);
+
+        Assert.That(player.Inventory!.Items.Contains(item), Is.True);
+        Assert.That(BotLootPolicy.WantsQuestItem(player, item), Is.False);
+        var decision = BotLootPolicy.ClassifyBackpack(player, player.Inventory, new BotMerchantConfiguration())
+            .Single(entry => ReferenceEquals(entry.Item, item)).Decision;
+        Assert.That(decision, Is.EqualTo(new BotLootDecision(BotLootAction.Keep, BotLootReason.QuestItem)));
+
+        // A custom quest can require an ordinary sellable item rather than an IsQuestItem definition.
+        item.Definition.IsQuestItem = false;
+        decision = BotLootPolicy.ClassifyBackpack(player, player.Inventory, new BotMerchantConfiguration(), checkSkillItems: true)
+            .Single(entry => ReferenceEquals(entry.Item, item)).Decision;
+        Assert.That(decision, Is.EqualTo(new BotLootDecision(BotLootAction.Keep, BotLootReason.QuestItem)));
     }
 
     private async ValueTask<OfflinePlayer> CreateOfflinePlayerAsync()

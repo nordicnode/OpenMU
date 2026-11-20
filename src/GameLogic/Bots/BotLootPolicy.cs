@@ -91,6 +91,11 @@ internal static class BotLootPolicy
             return new(BotLootAction.Ignore, BotLootReason.UnknownItem);
         }
 
+        if (WantsQuestItem(player, item))
+        {
+            return new(BotLootAction.Keep, BotLootReason.QuestItem);
+        }
+
         var identifier = new ItemIdentifier(definition.Number, definition.Group);
         if (IsPotion(identifier))
         {
@@ -120,6 +125,27 @@ internal static class BotLootPolicy
         }
 
         return new(BotLootAction.Ignore, BotLootReason.NotAnUpgrade);
+    }
+
+    /// <summary>
+    /// Checks whether an active quest still needs this particular item and level.
+    /// </summary>
+    /// <param name="player">The player undertaking the quest.</param>
+    /// <param name="item">The dropped item.</param>
+    /// <returns><c>true</c> when the inventory holds fewer than the required number.</returns>
+    internal static bool WantsQuestItem(Player player, Item item)
+    {
+        if (item.Definition is null || player.Inventory is not { } inventory || player.SelectedCharacter?.QuestStates is not { } states)
+        {
+            return false;
+        }
+
+        return states.Where(state => state.ActiveQuest is not null)
+            .SelectMany(state => state.ActiveQuest!.RequiredItems)
+            .Where(requirement => Equals(requirement.Item, item.Definition)
+                                  && (requirement.DropItemGroup?.ItemLevel is not { } level || level == item.Level))
+            .Any(requirement => inventory.Items.Count(existing => Equals(existing.Definition, requirement.Item)
+                && (requirement.DropItemGroup?.ItemLevel is not { } requiredLevel || existing.Level == requiredLevel)) < requirement.MinimumNumber);
     }
 
     /// <summary>
@@ -164,6 +190,18 @@ internal static class BotLootPolicy
         if (item.Definition is not { } definition)
         {
             return new(BotLootAction.Ignore, BotLootReason.UnknownItem);
+        }
+
+        // Protect active requirements even when a server uses an ordinary item for its quest.
+        // Already collected requirements no longer satisfy WantsQuestItem, but are still needed
+        // for the hand-in and must not be sold, stored or discarded. Read active quest state only
+        // on the serialized helper tick, like the skill list; the navigator's estimate may be conservative.
+        if (definition.IsQuestItem
+            || (checkSkillItems && player.SelectedCharacter?.QuestStates?.Any(state => state.ActiveQuest?.RequiredItems.Any(requirement =>
+                Equals(requirement.Item, definition)
+                && (requirement.DropItemGroup?.ItemLevel is not { } level || level == item.Level)) == true) == true))
+        {
+            return new(BotLootAction.Keep, BotLootReason.QuestItem);
         }
 
         // An orb or scroll waiting for the learn pass must never be sold or listed on the market. Reading
@@ -238,5 +276,6 @@ internal static class BotLootPolicy
 
     private static bool IsPotion(ItemIdentifier identifier)
         => HealingHandler.HealthPotionPriority.Contains(identifier)
-           || HealingHandler.ManaPotionPriority.Contains(identifier);
+           || HealingHandler.ManaPotionPriority.Contains(identifier)
+           || HealingHandler.ShieldPotionPriority.Contains(identifier);
 }

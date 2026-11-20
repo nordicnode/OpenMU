@@ -66,6 +66,12 @@ internal enum BotState
     ChaosMachine,
 
     /// <summary>
+    /// Working on the quest which unlocks the combo: visiting the giver, farming its monsters or
+    /// handing it in.
+    /// </summary>
+    Quest,
+
+    /// <summary>
     /// Marching back to the place where another player killed it.
     /// </summary>
     Revenge,

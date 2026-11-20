@@ -1400,6 +1400,8 @@
   <data name="BotConfiguration_MasterPointBankingCap_Description" xml:space="preserve"><value>How many master points a bot may save up for a master skill which costs several points at once. 0 invests every point immediately.</value></data>
   <data name="BotConfiguration_UseEnemyDebuffs_Name" xml:space="preserve"><value>Use enemy debuffs</value></data>
   <data name="BotConfiguration_UseEnemyDebuffs_Description" xml:space="preserve"><value>If enabled, a bot casts the debuffs of its class (e.g. the summoner's Sleep, Weakness and Innovation) on its current target.</value></data>
+  <data name="BotConfiguration_Duels_Name" xml:space="preserve"><value>Duels</value></data>
+  <data name="BotConfiguration_Duels_Description" xml:space="preserve"><value>If enabled, bots accept duel requests of players of a comparable level and now and then challenge one themselves. Off by default: duels change the PvP experience of a server, so they are an explicit choice. A bot never duels while it is busy with an errand, an event, a market shift or a grudge.</value></data>
   <data name="BotConfiguration_JewelStockPerKind_Name" xml:space="preserve"><value>Jewel stock per kind</value></data>
   <data name="BotConfiguration_JewelStockPerKind_Description" xml:space="preserve"><value>How many Jewels of Bless/Soul/Life a bot keeps of each kind; above this it stops picking them up and sells the surplus.</value></data>
   <data name="BotConfiguration_PotionStockCharges_Name" xml:space="preserve"><value>Potion stock (charges)</value></data>
@@ -1975,6 +1977,13 @@
   <data name="BotChatConfiguration_WhisperReplies_Description" xml:space="preserve"><value>Answers to a player who whispered to the bot or mentioned its name in the normal chat next to it. The best keyword match wins; replies without keywords are the fallback. Placeholders: {player}, {level}, {map}, {location} (the bot's map and coordinates, e.g. "Devias 215, 40"), {wings} (the bot's wings; a bot without wings answers with one of the answers without wings).</value></data>
   <data name="BotChatConfiguration_GreetingLines_Name" xml:space="preserve"><value>Greetings</value></data>
   <data name="BotChatConfiguration_GreetingLines_Description" xml:space="preserve"><value>Said by the nearest bot in the normal chat when a player entered the game. Placeholders: {player}, {level}, {map}, {location} (the bot's map and coordinates, e.g. "Devias 215, 40").</value></data>
+  <data name="BotChatCategory_Rescue_Name" xml:space="preserve"><value>Rescue: thanks</value></data>
+  <data name="BotChatConfiguration_RescueThanksChancePercent_Name" xml:space="preserve"><value>Rescue thanks %</value></data>
+  <data name="BotChatConfiguration_RescueThanksChancePercent_Description" xml:space="preserve"><value>Chance, in percent, that a bot thanks a player who killed a monster next to it while it was badly hurt. 0 switches the thank-you off.</value></data>
+  <data name="BotChatConfiguration_RescueThanksLines_Name" xml:space="preserve"><value>Rescue: thanks lines</value></data>
+  <data name="BotChatConfiguration_RescueThanksLines_Description" xml:space="preserve"><value>Whispered to a player who killed a monster next to the bot while it was low on health. Placeholders: {player} (the rescuer), {level}, {map}, {location}.</value></data>
+  <data name="BotChatConfiguration_PartyDelayedLines_Name" xml:space="preserve"><value>Party: delayed</value></data>
+  <data name="BotChatConfiguration_PartyDelayedLines_Description" xml:space="preserve"><value>Said in the party chat when the bot leaves the group for a moment, e.g. to restock potions in town. Placeholders: {player}, {level}, {map}, {location}.</value></data>
   <data name="BotChatConfiguration_PartyJoinedLines_Name" xml:space="preserve"><value>Party: joined</value></data>
   <data name="BotChatConfiguration_PartyJoinedLines_Description" xml:space="preserve"><value>Said in the party chat after the bot accepted a player's invitation. Placeholders: {player} (the inviter), {level}, {map}, {location} (the bot's map and coordinates, e.g. "Devias 215, 40").</value></data>
   <data name="BotChatConfiguration_EventFinishedLines_Name" xml:space="preserve"><value>Party: event finished</value></data>

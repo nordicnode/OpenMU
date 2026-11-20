@@ -8,6 +8,7 @@ using MUnique.OpenMU.DataModel.Configuration;
 using MUnique.OpenMU.DataModel.Configuration.Items;
 using MUnique.OpenMU.DataModel.Entities;
 using MUnique.OpenMU.GameLogic.Attributes;
+using MUnique.OpenMU.GameLogic.Bots;
 using MUnique.OpenMU.GameLogic.MuHelper;
 using MUnique.OpenMU.GameLogic.PlayerActions.ItemConsumeActions;
 using MUnique.OpenMU.GameLogic.Views.World;
@@ -39,6 +40,14 @@ public sealed class HealingHandler
         ItemConstants.LargeManaPotion,
         ItemConstants.MediumManaPotion,
         ItemConstants.SmallManaPotion,
+    ];
+
+    /// <summary>The shield potions a bot can use in a player fight, best first.</summary>
+    internal static readonly ItemIdentifier[] ShieldPotionPriority =
+    [
+        ItemConstants.LargeShieldPotion,
+        ItemConstants.MediumShieldPotion,
+        ItemConstants.SmallShieldPotion,
     ];
 
     /// <summary>Drink a mana potion once mana falls below this share, so casters can keep casting.</summary>
@@ -73,6 +82,45 @@ public sealed class HealingHandler
         await this.PerformSelfHealingAsync().ConfigureAwait(false);
 
         await this.PerformPartyHealingAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Uses potions during a bot's combo without casting a healing skill that interrupts it.
+    /// </summary>
+    internal async ValueTask PerformBotComboRecoveryAsync()
+    {
+        if (this._config is null || this._player.Attributes is null)
+        {
+            return;
+        }
+
+        if (this._config.UseHealPotion && this.IsHealthBelowThreshold(this._player, this._config.PotionThresholdPercent))
+        {
+            await this.UseHealthPotionAsync().ConfigureAwait(false);
+        }
+        else if (this._config.UseManaPotion && this.IsManaBelowThreshold())
+        {
+            await this.UsePotionAsync(ManaPotionPriority).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Uses an existing shield potion if the bot is in a player fight and its shield is low.
+    /// HP and mana recovery run first and the normal potion cooldown applies to both.
+    /// </summary>
+    /// <param name="hasPlayerOpponent">Whether a legal player opponent is currently engaged.</param>
+    internal async ValueTask PerformBotShieldRecoveryAsync(bool hasPlayerOpponent)
+    {
+        if (!hasPlayerOpponent
+            || this._player.Account?.IsBot != true
+            || this._player.Attributes is not { } attributes
+            || attributes[Stats.MaximumShield] <= 0
+            || attributes[Stats.CurrentShield] * 100 > attributes[Stats.MaximumShield] * BotMuHelperSettings.ShieldPotionThresholdPercent)
+        {
+            return;
+        }
+
+        await this.UsePotionAsync(ShieldPotionPriority).ConfigureAwait(false);
     }
 
     private async ValueTask PerformSelfHealingAsync()
@@ -134,7 +182,9 @@ public sealed class HealingHandler
                 continue;
             }
 
-            if (!member.IsActive() || !this._player.IsInRange(member, this._config!.HuntingRange))
+            if (!member.IsActive()
+                || member.CurrentMap != this._player.CurrentMap
+                || !this._player.IsInRange(member, this._config!.HuntingRange))
             {
                 continue;
             }

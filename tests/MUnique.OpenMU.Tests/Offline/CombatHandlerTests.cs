@@ -12,8 +12,10 @@ using MUnique.OpenMU.DataModel.Configuration.Items;
 using MUnique.OpenMU.DataModel.Entities;
 using MUnique.OpenMU.GameLogic;
 using MUnique.OpenMU.GameLogic.Attributes;
+using MUnique.OpenMU.GameLogic.Bots;
 using MUnique.OpenMU.GameLogic.NPC;
 using MUnique.OpenMU.GameLogic.Offline;
+using MUnique.OpenMU.GameLogic.PlayerActions.Quests;
 using MUnique.OpenMU.GameServer.RemoteView.MuHelper;
 using MUnique.OpenMU.Pathfinding;
 using MonsterDefinition = MUnique.OpenMU.Persistence.BasicModel.MonsterDefinition;
@@ -188,6 +190,320 @@ public class CombatHandlerTests
         Assert.That(CombatHandler.IsSafeTarget(player, monster.Definition), Is.False);
     }
 
+    /// <summary>
+    /// Bots defer drops while injured, but a player's offline helper keeps its normal pickup behavior.
+    /// </summary>
+    [TestCase(true, 59, true)]
+    [TestCase(true, 60, false)]
+    [TestCase(false, 30, false)]
+    public async ValueTask LootDeferralRespectsHealthAndSessionTypeAsync(bool isBot, int healthPercent, bool expected)
+    {
+        var player = await this.CreateOfflinePlayerAsync().ConfigureAwait(false);
+        player.Account!.IsBot = isBot;
+        player.Attributes![Stats.CurrentHealth] = player.Attributes[Stats.MaximumHealth] * healthPercent / 100;
+        var config = new MuHelperSettings { PotionThresholdPercent = 60 };
+        var handler = new CombatHandler(player, config, new MovementHandler(player, config));
+
+        Assert.That(handler.ShouldDeferLoot, Is.EqualTo(expected));
+    }
+
+    /// <summary>
+    /// A legal aggressor takes priority over loot, but an expired self-defense window does not.
+    /// </summary>
+    [Test]
+    public async ValueTask LootDeferralRequiresLegalNearbyAggressorAsync()
+    {
+        var bot = await this.CreateOfflinePlayerAsync().ConfigureAwait(false);
+        bot.Account!.IsBot = true;
+        bot.Position = this._origin;
+        var attacker = await PlayerTestHelper.CreatePlayerAsync(this._gameContext).ConfigureAwait(false);
+        attacker.Position = new Point(101, 100);
+        attacker.IsAlive = true;
+        bot.RegisterAggressor(attacker);
+        var config = new MuHelperSettings { UseSelfDefense = true, HuntingRange = 6 };
+        var handler = new CombatHandler(bot, config, new MovementHandler(bot, config));
+
+        Assert.That(handler.ShouldDeferLoot, Is.False);
+        this._gameContext.SelfDefenseState[(attacker, bot)] = DateTime.UtcNow.AddMinutes(1);
+        Assert.That(handler.ShouldDeferLoot, Is.True);
+        attacker.Position = new Point(200, 200);
+        Assert.That(handler.ShouldDeferLoot, Is.False, "a distant aggressor must not block looting");
+        attacker.Position = new Point(101, 100);
+        this._gameContext.SelfDefenseState[(attacker, bot)] = DateTime.UtcNow;
+        Assert.That(handler.ShouldDeferLoot, Is.False);
+    }
+
+    /// <summary>A bot engaged in an active invasion attempt defers loot until its target is gone.</summary>
+    [Test]
+    public async ValueTask BossAttemptDefersLootOnlyDuringActiveFightAsync()
+    {
+        var bot = await this.CreateOfflinePlayerAsync().ConfigureAwait(false);
+        bot.Account!.IsBot = true;
+        bot.Position = this._origin;
+        bot.HuntingOrigin = this._origin;
+        var monster = await this.CreateMonsterAsync(new Point(101, 100)).ConfigureAwait(false);
+        await bot.CurrentMap!.AddAsync(monster).ConfigureAwait(false);
+        var config = new MuHelperSettings { HuntingRange = 6 };
+        var handler = new CombatHandler(bot, config, new MovementHandler(bot, config));
+        bot.BossAttempt = new BotBossAttempt(bot.CurrentMap.Definition, DateTime.UtcNow.AddMinutes(1));
+
+        Assert.That(handler.ShouldDeferLoot, Is.False, "traveling to an invasion is not an active fight");
+        await handler.PerformAttackAsync().ConfigureAwait(false);
+        Assert.That(handler.ShouldDeferLoot, Is.True);
+        bot.BossAttempt = new BotBossAttempt(bot.CurrentMap.Definition, DateTime.UtcNow.AddMinutes(-1));
+        Assert.That(handler.ShouldDeferLoot, Is.False);
+    }
+
+    /// <summary>Automatic selection requires an unlocked combo and a complete learned path.</summary>
+    [Test]
+    public async ValueTask BotComboSelectionRequiresUnlockAndCompletePathAsync()
+    {
+        var skills = CreateComboSkills();
+        var player = await this.CreateComboBotAsync(skills).ConfigureAwait(false);
+        var config = new MuHelperSettings { HuntingRange = 6 };
+        var handler = new CombatHandler(player, config, new MovementHandler(player, config));
+
+        Assert.That(handler.SelectBotComboSkill(), Is.Null, "the quest reward must unlock combos");
+        player.Attributes![Stats.IsSkillComboAvailable] = 1;
+        await player.SkillList!.AddLearnedSkillAsync(skills[0]).ConfigureAwait(false);
+        await player.SkillList.AddLearnedSkillAsync(skills[1]).ConfigureAwait(false);
+        Assert.That(handler.SelectBotComboSkill(), Is.Null, "a chain without a finisher must not start");
+        await player.SkillList.AddLearnedSkillAsync(skills[2]).ConfigureAwait(false);
+        Assert.That(handler.SelectBotComboSkill()?.Skill, Is.SameAs(skills[0]));
+        player.Account!.IsBot = false;
+        Assert.That(handler.SelectBotComboSkill(), Is.Null, "human helpers must not auto-select combos");
+    }
+
+    /// <summary>A quest reward activates the combo in the live attribute graph without a relog.</summary>
+    [TestCase(false)]
+    [TestCase(true)]
+    public async ValueTask QuestComboRewardActivatesLiveAttributesAsync(bool existingComposable)
+    {
+        var skills = CreateComboSkills();
+        var player = await this.CreateComboBotAsync(skills, includeComboAttribute: false).ConfigureAwait(false);
+        if (existingComposable)
+        {
+            player.Attributes!.GetOrCreateAttribute(Stats.IsSkillComboAvailable);
+        }
+
+        var quest = new Persistence.BasicModel.QuestDefinition { Group = 0, Number = 3 };
+        quest.Rewards.Add(new Persistence.BasicModel.QuestReward
+        {
+            RewardType = DataModel.Configuration.Quests.QuestRewardType.Attribute,
+            AttributeReward = Stats.IsSkillComboAvailable,
+            Value = 1,
+        });
+        var state = new Persistence.BasicModel.CharacterQuestState { Group = 0, ActiveQuest = quest };
+        Mock.Get(player.SelectedCharacter!).Setup(c => c.QuestStates).Returns(new List<CharacterQuestState> { state });
+        Assert.That(player.ComboState, Is.Null);
+
+        await new QuestCompletionAction().CompleteQuestAsync(player, 0, 3).ConfigureAwait(false);
+
+        Assert.That(state.LastFinishedQuest, Is.SameAs(quest));
+        Assert.That(player.SelectedCharacter!.Attributes.Single(a => a.Definition == Stats.IsSkillComboAvailable).Value, Is.EqualTo(1));
+        Assert.That(player.Attributes![Stats.IsSkillComboAvailable], Is.EqualTo(1));
+        Assert.That(player.ComboState, Is.Not.Null);
+    }
+
+    /// <summary>A combo definition gained after entering the world becomes available without a relog.</summary>
+    [Test]
+    public async ValueTask BotComboRecognizesClassChangeAfterLoginAsync()
+    {
+        var skills = CreateComboSkills();
+        var player = await this.CreateComboBotAsync(skills, configureAfterLogin: true).ConfigureAwait(false);
+        player.Attributes![Stats.IsSkillComboAvailable] = 1;
+        foreach (var skill in skills)
+        {
+            await player.SkillList!.AddLearnedSkillAsync(skill).ConfigureAwait(false);
+        }
+
+        var config = new MuHelperSettings { HuntingRange = 6 };
+        var handler = new CombatHandler(player, config, new MovementHandler(player, config));
+        Assert.That(handler.SelectBotComboSkill()?.Skill, Is.SameAs(skills[0]));
+    }
+
+    /// <summary>Targeted and area steps advance the configured combo and consume their costs.</summary>
+    [Test]
+    public async ValueTask BotComboAttacksAdvanceAndConsumeResourcesAsync()
+    {
+        var skills = CreateComboSkills();
+        skills[1].SkillType = SkillType.AreaSkillAutomaticHits;
+        skills[1].ConsumeRequirements.Add(new AttributeRequirement { Attribute = Stats.CurrentMana, MinimumValue = 5 });
+        var player = await this.CreateComboBotAsync(skills).ConfigureAwait(false);
+        player.Attributes![Stats.IsSkillComboAvailable] = 1;
+        player.Attributes[Stats.CurrentMana] = 30;
+        foreach (var skill in skills)
+        {
+            await player.SkillList!.AddLearnedSkillAsync(skill).ConfigureAwait(false);
+        }
+
+        var monster = await this.CreateMonsterAsync(new Point(101, 100)).ConfigureAwait(false);
+        await player.CurrentMap!.AddAsync(monster).ConfigureAwait(false);
+        var config = new MuHelperSettings { HuntingRange = 6 };
+        var handler = new CombatHandler(player, config, new MovementHandler(player, config));
+        var combo = player.ComboState!;
+
+        await handler.ExecuteBotComboAttackAsync(monster, handler.SelectBotComboSkill()!).ConfigureAwait(false);
+        Assert.That(combo.CurrentState, Is.Not.EqualTo(combo.InitialState));
+        Assert.That(handler.HasActiveBotCombo, Is.True);
+        Assert.That(handler.SkillCooldownTicks, Is.GreaterThan(0), "combo attacks need a human-paced gap");
+        Assert.That(handler.SelectBotComboSkill()?.Skill, Is.SameAs(skills[1]));
+        await handler.ExecuteBotComboAttackAsync(monster, handler.SelectBotComboSkill()!).ConfigureAwait(false);
+        Assert.That(player.Attributes[Stats.CurrentMana], Is.EqualTo(25));
+        Assert.That(handler.SelectBotComboSkill()?.Skill, Is.SameAs(skills[2]));
+        await handler.ExecuteBotComboAttackAsync(monster, handler.SelectBotComboSkill()!).ConfigureAwait(false);
+        Assert.That(combo.CurrentState, Is.EqualTo(combo.InitialState));
+        Assert.That(handler.HasActiveBotCombo, Is.False);
+        Assert.That(handler.SkillCooldownTicks, Is.GreaterThan(0), "a completed combo has a recovery delay");
+    }
+
+    /// <summary>The normal bot combat loop selects and completes the configured chain without helper slots.</summary>
+    [Test]
+    public async ValueTask BotCombatLoopUsesAutomaticComboAsync()
+    {
+        var skills = CreateComboSkills();
+        skills[1].SkillType = SkillType.AreaSkillAutomaticHits;
+        var player = await this.CreateComboBotAsync(skills).ConfigureAwait(false);
+        player.Attributes![Stats.IsSkillComboAvailable] = 1;
+        foreach (var skill in skills)
+        {
+            await player.SkillList!.AddLearnedSkillAsync(skill).ConfigureAwait(false);
+        }
+
+        var monster = await this.CreateMonsterAsync(new Point(101, 100)).ConfigureAwait(false);
+        await player.CurrentMap!.AddAsync(monster).ConfigureAwait(false);
+        var config = new MuHelperSettings { HuntingRange = 6 };
+        var handler = new CombatHandler(player, config, new MovementHandler(player, config));
+        var combo = player.ComboState!;
+
+        await handler.PerformAttackAsync().ConfigureAwait(false);
+        await Task.Delay(1000).ConfigureAwait(false);
+        await handler.PerformAttackAsync().ConfigureAwait(false);
+        Assert.That(combo.CurrentState, Is.Not.EqualTo(combo.InitialState));
+        await handler.PerformAttackAsync().ConfigureAwait(false);
+        Assert.That(combo.CurrentState, Is.Not.EqualTo(combo.InitialState));
+        await handler.PerformAttackAsync().ConfigureAwait(false);
+        Assert.That(combo.CurrentState, Is.EqualTo(combo.InitialState));
+    }
+
+    /// <summary>Rejected area attacks do not consume resources or advance the combo.</summary>
+    [Test]
+    public async ValueTask BotComboRejectedAreaAttackResetsWithoutConsumptionAsync()
+    {
+        var skills = CreateComboSkills();
+        skills[1].SkillType = SkillType.AreaSkillAutomaticHits;
+        skills[1].ConsumeRequirements.Add(new AttributeRequirement { Attribute = Stats.CurrentMana, MinimumValue = 5 });
+        var player = await this.CreateComboBotAsync(skills).ConfigureAwait(false);
+        player.Attributes![Stats.IsSkillComboAvailable] = 1;
+        player.Attributes[Stats.CurrentMana] = 30;
+        foreach (var skill in skills)
+        {
+            await player.SkillList!.AddLearnedSkillAsync(skill).ConfigureAwait(false);
+        }
+
+        var monster = await this.CreateMonsterAsync(new Point(101, 100)).ConfigureAwait(false);
+        await player.CurrentMap!.AddAsync(monster).ConfigureAwait(false);
+        var config = new MuHelperSettings { HuntingRange = 6 };
+        var handler = new CombatHandler(player, config, new MovementHandler(player, config));
+        await handler.ExecuteBotComboAttackAsync(monster, handler.SelectBotComboSkill()!).ConfigureAwait(false);
+        var second = handler.SelectBotComboSkill()!;
+        player.Attributes[Stats.IsStunned] = 1;
+        await handler.ExecuteBotComboAttackAsync(monster, second).ConfigureAwait(false);
+        Assert.That(player.Attributes[Stats.CurrentMana], Is.EqualTo(30));
+        Assert.That(player.ComboState!.CurrentState, Is.EqualTo(player.ComboState.InitialState));
+        Assert.That(handler.HasActiveBotCombo, Is.False);
+    }
+
+    /// <summary>A target which moves out of range aborts the chain instead of spending the next skill.</summary>
+    [Test]
+    public async ValueTask BotComboAbortsWhenTargetMovesOutOfRangeAsync()
+    {
+        var skills = CreateComboSkills();
+        var player = await this.CreateComboBotAsync(skills).ConfigureAwait(false);
+        player.Attributes![Stats.IsSkillComboAvailable] = 1;
+        foreach (var skill in skills)
+        {
+            await player.SkillList!.AddLearnedSkillAsync(skill).ConfigureAwait(false);
+        }
+
+        var monster = await this.CreateMonsterAsync(new Point(101, 100)).ConfigureAwait(false);
+        await player.CurrentMap!.AddAsync(monster).ConfigureAwait(false);
+        var config = new MuHelperSettings { HuntingRange = 6 };
+        var handler = new CombatHandler(player, config, new MovementHandler(player, config));
+        await handler.ExecuteBotComboAttackAsync(monster, handler.SelectBotComboSkill()!).ConfigureAwait(false);
+        var next = handler.SelectBotComboSkill()!;
+        monster.Position = new Point(104, 100);
+        await handler.ExecuteBotComboAttackAsync(monster, next).ConfigureAwait(false);
+
+        Assert.That(player.ComboState!.CurrentState, Is.EqualTo(player.ComboState.InitialState));
+        Assert.That(handler.HasActiveBotCombo, Is.False);
+        Assert.That(handler.SelectBotComboSkill()?.Skill, Is.SameAs(skills[0]));
+    }
+
+    /// <summary>An expired attempt no longer prevents other helper activities.</summary>
+    [Test]
+    public async ValueTask BotComboExpiresAtConfiguredDeadlineAsync()
+    {
+        var skills = CreateComboSkills();
+        var player = await this.CreateComboBotAsync(skills, TimeSpan.FromMilliseconds(10)).ConfigureAwait(false);
+        player.Attributes![Stats.IsSkillComboAvailable] = 1;
+        foreach (var skill in skills)
+        {
+            await player.SkillList!.AddLearnedSkillAsync(skill).ConfigureAwait(false);
+        }
+
+        var monster = await this.CreateMonsterAsync(new Point(101, 100)).ConfigureAwait(false);
+        await player.CurrentMap!.AddAsync(monster).ConfigureAwait(false);
+        var config = new MuHelperSettings { HuntingRange = 6 };
+        var handler = new CombatHandler(player, config, new MovementHandler(player, config));
+        await handler.ExecuteBotComboAttackAsync(monster, handler.SelectBotComboSkill()!).ConfigureAwait(false);
+        await Task.Delay(50).ConfigureAwait(false);
+
+        Assert.That(handler.HasActiveBotCombo, Is.False);
+        await handler.PerformAttackAsync().ConfigureAwait(false);
+        Assert.That(player.ComboState!.CurrentState, Is.EqualTo(player.ComboState.InitialState));
+    }
+
+    private static TestSkill[] CreateComboSkills()
+    {
+        return
+        [
+            new TestSkill { Number = 700, Target = SkillTarget.Explicit },
+            new TestSkill { Number = 701, Target = SkillTarget.Explicit },
+            new TestSkill { Number = 702, Target = SkillTarget.Explicit },
+        ];
+    }
+
+    private async ValueTask<OfflinePlayer> CreateComboBotAsync(TestSkill[] skills, TimeSpan? maximumCompletionTime = null, bool configureAfterLogin = false, bool includeComboAttribute = true)
+    {
+        var definition = new TestComboDefinition { MaximumCompletionTime = maximumCompletionTime ?? TimeSpan.FromSeconds(3) };
+        for (var i = 0; i < skills.Length; i++)
+        {
+            definition.Steps.Add(new SkillComboStep { Order = i + 1, Skill = skills[i], IsFinalStep = i == skills.Length - 1 });
+        }
+
+        var character = PlayerTestHelper.CreateCharacter(this._gameContext);
+        if (includeComboAttribute)
+        {
+            character.Attributes.Add(new StatAttribute(Stats.IsSkillComboAvailable, 0));
+        }
+
+        character.Attributes.Add(new StatAttribute(Stats.IsStunned, 0));
+        Mock.Get(character.CharacterClass!).SetupProperty(c => c.ComboDefinition, configureAfterLogin ? null : definition);
+        var player = new OfflinePlayer(this._gameContext);
+        await PlayerTestHelper.EnterWorldAsync(player, character).ConfigureAwait(false);
+        if (configureAfterLogin)
+        {
+            character.CharacterClass!.ComboDefinition = definition;
+        }
+
+        player.Account!.IsBot = true;
+        player.IsAlive = true;
+        player.Position = this._origin;
+        player.HuntingOrigin = this._origin;
+        return player;
+    }
+
     private async ValueTask<OfflinePlayer> CreateOfflinePlayerAsync()
     {
         return await PlayerTestHelper.CreateOfflineLevelingPlayerAsync(this._gameContext).ConfigureAwait(false);
@@ -240,12 +556,21 @@ public class CombatHandlerTests
         return monster;
     }
 
+    private sealed class TestComboDefinition : SkillComboDefinition
+    {
+        public TestComboDefinition()
+        {
+            this.Steps = new List<SkillComboStep>();
+        }
+    }
+
     private class TestSkill : Skill
     {
         public TestSkill()
         {
             this.Requirements = new List<AttributeRequirement>();
             this.ConsumeRequirements = new List<AttributeRequirement>();
+            this.AttributeRelationships = new List<AttributeRelationship>();
             this.Range = 1;
             this.SkillType = SkillType.DirectHit;
             this.DamageType = DamageType.Curse;

@@ -153,6 +153,15 @@ public class BotConfiguration
     public bool UseEnemyDebuffs { get; set; } = true;
 
     /// <summary>
+    /// Gets or sets a value indicating whether bots take part in the duel system: they accept requests
+    /// of players of a comparable level and now and then challenge one themselves. Off by default -
+    /// duels change the PvP experience of a server, so they are an explicit, deliberate choice. A bot
+    /// never duels while it is busy with an errand, an event, a market shift or a grudge.
+    /// </summary>
+    [Display(Name = nameof(MUnique.OpenMU.GameLogic.Properties.PlugInResources.BotConfiguration_Duels_Name), Description = nameof(MUnique.OpenMU.GameLogic.Properties.PlugInResources.BotConfiguration_Duels_Description), ResourceType = typeof(MUnique.OpenMU.GameLogic.Properties.PlugInResources))]
+    public bool Duels { get; set; }
+
+    /// <summary>
     /// Gets or sets a value indicating whether bots buy equipment upgrades from the merchants they
     /// visit. Off by default and deliberately opt-in: bots earn plenty of Zen, and letting them spend
     /// it on gear changes the economy of a server which balances prices around trading players.

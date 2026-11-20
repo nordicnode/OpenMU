@@ -426,7 +426,25 @@ public class Player : AsyncDisposable, IBucketMapObserver, IAttackable, IAttacke
     public ISkillList? SkillList { get; private set; }
 
     /// <inheritdoc />
-    public ComboStateMachine? ComboState => this.Attributes?[Stats.IsSkillComboAvailable] > 0 ? this._comboStateLazy?.Value : null;
+    public ComboStateMachine? ComboState
+    {
+        get
+        {
+            if (this.Attributes?[Stats.IsSkillComboAvailable] is not > 0 || this.SelectedCharacter is null)
+            {
+                return null;
+            }
+
+            // A character can evolve after entering the world, so it may acquire a combo definition
+            // even though none existed at login. Publish only one machine if multiple callers race.
+            if (this._comboStateLazy is null && this.DetermineComboDefinition() is { } definition)
+            {
+                Interlocked.CompareExchange(ref this._comboStateLazy, new Lazy<ComboStateMachine>(() => ComboStateMachine.Create(definition)), null);
+            }
+
+            return this._comboStateLazy?.Value;
+        }
+    }
 
     /// <summary>
     /// Gets the player summon.

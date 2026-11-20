@@ -10,6 +10,7 @@ using MUnique.OpenMU.GameLogic.Attributes;
 using MUnique.OpenMU.GameLogic.Bots;
 using MUnique.OpenMU.GameLogic.MuHelper;
 using MUnique.OpenMU.GameLogic.NPC;
+using MUnique.OpenMU.GameLogic.PlayerActions;
 using MUnique.OpenMU.GameLogic.PlayerActions.Skills;
 using MUnique.OpenMU.GameLogic.PlugIns;
 using MUnique.OpenMU.GameLogic.Views.World;
@@ -122,6 +123,9 @@ public sealed class CombatHandler
     /// <summary>How long an unreachable target is ignored before it may be considered again.</summary>
     private static readonly TimeSpan UnreachableTargetBlacklistDuration = TimeSpan.FromSeconds(10);
 
+    /// <summary>How long a Soul Master waits before it blinks away from a melee opponent again.</summary>
+    private static readonly TimeSpan TeleportCooldown = TimeSpan.FromSeconds(5);
+
     private static readonly TargetedSkillDefaultPlugin DefaultPlugin = new();
 
     /// <summary>
@@ -153,6 +157,9 @@ public sealed class CombatHandler
     private DateTime _unreachableTargetUntilUtc = DateTime.MinValue;
     private SkillEntry? _tickBestSkill;
     private bool _tickBestSkillComputed;
+    private IAttackable? _botComboTarget;
+    private DateTime _nextRetreatUtc = DateTime.MinValue;
+    private DateTime _nextTeleportUtc = DateTime.MinValue;
 
     private DateTime _engageAtUtc = DateTime.MinValue;
 
@@ -183,6 +190,76 @@ public sealed class CombatHandler
     /// Gets the hunting range in tiles.
     /// </summary>
     public byte HuntingRange => CalculateHuntingRange(this._config);
+
+    /// <summary>
+    /// Gets a value indicating whether the bot has an active, legal player opponent nearby.
+    /// </summary>
+    internal bool HasPlayerOpponent
+        => this.IsBot
+           && ((this._config?.UseSelfDefense == true
+                && this._player.RecentAggressor is { } aggressor
+                && ReferenceEquals(aggressor.CurrentMap, this._player.CurrentMap)
+                && aggressor.IsInRange(this._player.Position, this.HuntingRange * 2)
+                && BotPvpRules.IsLegalPvpTarget(this._player, aggressor))
+               || (this._currentTarget is Player target
+                   && ReferenceEquals(target.CurrentMap, this._player.CurrentMap)
+                   && this.IsTargetStillValid(target)));
+
+    /// <summary>
+    /// Gets a value indicating whether a bot has an unexpired combo against a valid target.
+    /// </summary>
+    internal bool HasActiveBotCombo
+        => this.IsBot
+           && this._botComboTarget is { } target
+           && ReferenceEquals(target.CurrentMap, this._player.CurrentMap)
+           && this.IsTargetStillValid(target)
+           && this._player.ComboState is { } combo
+           && combo.CurrentState != combo.InitialState
+           && !combo.IsCurrentAttemptExpired;
+
+    /// <summary>
+    /// Gets a value indicating whether a bot should postpone looting for its safety or to finish a fight.
+    /// A real player's offline helper retains its configured pickup behavior.
+    /// </summary>
+    internal bool ShouldDeferLoot
+    {
+        get
+        {
+            if (!this.IsBot)
+            {
+                return false;
+            }
+
+            if (this._player.Attributes is { } attributes
+                && attributes[Stats.MaximumHealth] > 0
+                && attributes[Stats.CurrentHealth] * 100 < attributes[Stats.MaximumHealth] * (this._config?.PotionThresholdPercent ?? 0))
+            {
+                return true;
+            }
+
+            if (this.HasPlayerOpponent)
+            {
+                return true;
+            }
+
+            if (this._currentTarget is not { } target
+                || !ReferenceEquals(target.CurrentMap, this._player.CurrentMap)
+                || !this.IsTargetStillValid(target))
+            {
+                return false;
+            }
+
+            return target is Player
+                   || (target is Monster && this._player.BossAttempt is { } attempt
+                       && attempt.UntilUtc > DateTime.UtcNow
+                       && ReferenceEquals(attempt.Map, this._player.CurrentMap?.Definition))
+                   || this.HasActiveBotCombo
+                   || (this._config?.UseCombo == true
+                       && this._currentComboStep > 0
+                       && this._player.ComboState is { } combo
+                       && combo.CurrentState != combo.InitialState);
+        }
+    }
 
     /// <summary>
     /// Gets the position to hunt around. Dynamic so bots can roam between hunting grounds.
@@ -279,8 +356,23 @@ public sealed class CombatHandler
     /// </summary>
     public async ValueTask PerformAttackAsync()
     {
+        // A bot in a human leader's party follows the pull first: while the player runs ahead, it
+        // doesn't start a fight behind his back (see BotPartyTempo). An ongoing fight is finished.
+        if (this.IsBot
+            && BotPartyTempo.ShouldHoldFire(this._player, this._currentTarget is { } engaged && this.IsTargetStillValid(engaged)))
+        {
+            return;
+        }
+
         var previousTarget = this._currentTarget;
         this.RefreshTarget();
+
+        if (this.IsBot && this._player.ComboState is { } botCombo
+            && (botCombo.IsCurrentAttemptExpired
+                || (this._botComboTarget is not null && !ReferenceEquals(this._botComboTarget, this._currentTarget))))
+        {
+            await this.ResetBotComboAsync(botCombo).ConfigureAwait(false);
+        }
 
         if (this._currentTarget is null)
         {
@@ -305,9 +397,28 @@ public sealed class CombatHandler
             }
         }
 
-        byte attackRange = this.GetEffectiveAttackRange();
+        var automaticComboSkill = this.IsBot ? this.SelectBotComboSkill() : null;
+        byte attackRange = automaticComboSkill?.Skill is { Range: > 0 } comboSkill
+            ? (byte)comboSkill.Range
+            : this.GetEffectiveAttackRange();
+
+        // A ranged bot does not let a melee opponent stand on top of it: it steps - or blinks - out of
+        // reach before shooting. Only PvP and boss fights are worth it (see BotCombatSpacing).
+        if (this.IsBot
+            && DateTime.UtcNow >= this._nextRetreatUtc
+            && BotCombatSpacing.ShouldRetreat(this._player, this._currentTarget, attackRange, DateTime.UtcNow))
+        {
+            await this.TryRetreatAsync(this._currentTarget).ConfigureAwait(false);
+            return;
+        }
+
         if (!this.IsTargetInAttackRange(this._currentTarget, attackRange))
         {
+            if (this.IsBot && this._player.ComboState is { } combo && combo.CurrentState != combo.InitialState)
+            {
+                await this.ResetBotComboAsync(combo).ConfigureAwait(false);
+            }
+
             if (await this._movementHandler.MoveCloserToTargetAsync(this._currentTarget, attackRange).ConfigureAwait(false))
             {
                 this._approachFailures = 0;
@@ -330,12 +441,21 @@ public sealed class CombatHandler
 
         // A debuff is cast on the enemy, not through the buff rotation (which casts on SELF). It uses the
         // tick which the attack would have used; the next tick attacks a weakened monster.
-        if (await this.TryCastDebuffAsync(this._currentTarget).ConfigureAwait(false))
+        if (!this.HasActiveBotCombo && await this.TryCastDebuffAsync(this._currentTarget).ConfigureAwait(false))
         {
             return;
         }
 
-        if (this._config?.UseCombo == true)
+        if (automaticComboSkill is not null)
+        {
+            await this.ExecuteBotComboAttackAsync(this._currentTarget, automaticComboSkill).ConfigureAwait(false);
+        }
+        else if (this.IsBot && this._player.ComboState is { } unavailableCombo && unavailableCombo.CurrentState != unavailableCombo.InitialState)
+        {
+            await this.ResetBotComboAsync(unavailableCombo).ConfigureAwait(false);
+            await this.ExecuteAttackAsync(this._currentTarget).ConfigureAwait(false);
+        }
+        else if (this._config?.UseCombo == true)
         {
             await this.ExecuteComboAttackAsync().ConfigureAwait(false);
         }
@@ -375,6 +495,109 @@ public sealed class CombatHandler
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Finds the first skill on a complete path through the configured combo graph. The skill list
+    /// includes equipped-weapon skills and excludes skills lost when a weapon is removed.
+    /// </summary>
+    /// <returns>The next skill on an available path, or <c>null</c>.</returns>
+    internal SkillEntry? SelectBotComboSkill()
+    {
+        if (!this.IsBot || this._player.ComboState is not { } combo || this._player.SkillList is not { } skills)
+        {
+            return null;
+        }
+
+        SkillEntry? FindPath(State state, HashSet<State> visited)
+        {
+            if (!visited.Add(state))
+            {
+                return null;
+            }
+
+            foreach (var next in state.PossibleTransitions?.OfType<ComboState>() ?? [])
+            {
+                if (next.RequiredSkill is not { } required)
+                {
+                    continue;
+                }
+
+                var entry = skills.Skills.FirstOrDefault(e => e.Skill is { } skill
+                    && skill.GetBaseSkill() == required
+                    && skill.Range > 0
+                    && BotProgression.IsAttackSkill(skill)
+                    && (BotProgression.IsAreaSkill(skill) || skill.Target == SkillTarget.Explicit)
+                    && skill.TargetRestriction is not (SkillTargetRestriction.Self or SkillTargetRestriction.Party)
+                    && !BotProgression.IsCastleSiegeOnly(skill)
+                    && !BotProgression.RequiresMount(skill)
+                    && (!BotProgression.RequiresPet(skill) || this.RidesFenrir())
+                    && BotProgression.MeetsRequirements(skill, attribute => this._player.Attributes?[attribute])
+                    && this._player.HasEnoughResources(e));
+                if (entry is not null
+                    && (next.PossibleTransitions?.Contains(combo.FinalState) == true || FindPath(next, visited) is not null))
+                {
+                    visited.Remove(state);
+                    return entry;
+                }
+            }
+
+            visited.Remove(state);
+            return null;
+        }
+
+        return FindPath(combo.CurrentState, new HashSet<State>());
+    }
+
+    /// <summary>Executes one automatic combo step against the selected target.</summary>
+    /// <param name="target">The target.</param>
+    /// <param name="entry">The skill to use.</param>
+    internal async ValueTask ExecuteBotComboAttackAsync(IAttackable target, SkillEntry entry)
+    {
+        if (this._player.ComboState is not { } combo || entry.Skill is not { } skill)
+        {
+            return;
+        }
+
+        if (!ReferenceEquals(target.CurrentMap, this._player.CurrentMap)
+            || !this.IsTargetStillValid(target)
+            || !target.IsInRange(this._player.Position, skill.Range))
+        {
+            await this.ResetBotComboAsync(combo).ConfigureAwait(false);
+            return;
+        }
+
+        var before = combo.CurrentState;
+        if (skill.SkillType is SkillType.AreaSkillAutomaticHits or SkillType.AreaSkillExplicitTarget or SkillType.AreaSkillExplicitHits)
+        {
+            // Unlike targeted skills, the helper's area attack bypasses the normal action. Validate and
+            // consume before advancing the combo, and retain its restricted PvP splash behavior.
+            if (!this.IsTargetStillValid(target)
+                || !target.CheckSkillTargetRestrictions(this._player, skill)
+                || !await AttackActionValidator.CanAttackAsync(this._player, skill).ConfigureAwait(false)
+                || !await this._player.TryConsumeForSkillAsync(entry).ConfigureAwait(false))
+            {
+                await this.ResetBotComboAsync(combo).ConfigureAwait(false);
+                return;
+            }
+
+            var finished = await combo.RegisterSkillAsync(skill).ConfigureAwait(false);
+            await this.ExecuteAttackAsync(target, entry, finished).ConfigureAwait(false);
+        }
+        else
+        {
+            await this.ExecuteAttackAsync(target, entry, false).ConfigureAwait(false);
+        }
+
+        var after = combo.CurrentState;
+        if (after == before)
+        {
+            await this.ResetBotComboAsync(combo).ConfigureAwait(false);
+            return;
+        }
+
+        this._botComboTarget = after == combo.InitialState ? null : target;
+        this._skillCooldownTicks = after == combo.InitialState ? ComboFinisherDelayTicks : InterSkillDelayTicks;
     }
 
     private static (int Level, float AverageDamage, float Defense, float Health, float AttackRate) GetMonsterCombatStats(MonsterDefinition monster)
@@ -579,9 +802,10 @@ public sealed class CombatHandler
             // is actually needed - not on every tick of a fight. The counts below stay unfiltered: claimed
             // monsters are still part of the pack an area skill hits.
             var pool = this.IsBot ? this.PreferUnclaimedTargets(targets) : targets;
+            var freeForAll = this.IsBot && this._player.CurrentMiniGame is { AllowPlayerKilling: true };
             var candidates = pool
                 .Where(m => m.Id != this._unreachableTargetId || DateTime.UtcNow >= this._unreachableTargetUntilUtc)
-                .OrderBy(m => m.GetDistanceTo(this._player))
+                .OrderBy(m => this.GetTargetPriority(m, freeForAll))
                 .Take(this.IsBot ? 2 : 1)
                 .ToList();
 
@@ -1068,6 +1292,72 @@ public sealed class CombatHandler
     {
         return this.GetAttackableMonstersInHuntingRange()
             .Count(m => m.IsTargetingPlayer(this._player));
+    }
+
+    /// <summary>
+    /// Orders the targets of a tick: inside a free-for-all event (Chaos Castle) an opponent whose shield
+    /// is already broken is worth more than a fresh one - see <see cref="BotCombatSpacing.GetEventTargetPriority"/>.
+    /// Outside of it, and for monsters, the nearest target wins as before.
+    /// </summary>
+    /// <param name="target">The candidate.</param>
+    /// <param name="freeForAll">Whether the bot fights in a free-for-all event.</param>
+    /// <returns>The sort key; lower is better.</returns>
+    private (int Kind, int Score, int Distance) GetTargetPriority(IAttackable target, bool freeForAll)
+    {
+        var kind = freeForAll && target is Player ? 0 : 1;
+        var score = target is Player player ? BotCombatSpacing.GetEventTargetPriority(player) : 0;
+        return (kind, score, (int)target.GetDistanceTo(this._player));
+    }
+
+    /// <summary>
+    /// Steps out of a melee opponent's reach - with the wizard teleport when the class has it, otherwise
+    /// with a short walk. Does nothing when no walkable tile is free, so a bot in a corner keeps fighting
+    /// instead of doing nothing.
+    /// </summary>
+    /// <param name="target">The melee opponent.</param>
+    /// <returns>The task.</returns>
+    private async ValueTask TryRetreatAsync(IAttackable target)
+    {
+        if (this._player.CurrentMap is not { } map)
+        {
+            return;
+        }
+
+        var point = BotCombatSpacing.FindRetreatPoint(map, this._player.Position, target.Position, BotCombatSpacing.RetreatDistance);
+        if (point is null)
+        {
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        this._nextRetreatUtc = now + BotCombatSpacing.KiteCooldown;
+        if (this._player.IsWalking)
+        {
+            return;
+        }
+
+        // A blink breaks the enemy's combo lock; walking away from a melee rusher who sticks to the
+        // bot would not. It costs mana, so it is used for close threats only, not for every retreat.
+        if (now >= this._nextTeleportUtc
+            && target.IsInRange(this._player.Position, 2)
+            && BotCombatSpacing.CanTeleportAway(this._player))
+        {
+            this._nextTeleportUtc = now + TeleportCooldown;
+            await new WizardTeleportAction().TryTeleportWithSkillAsync(this._player, point.Value).ConfigureAwait(false);
+            return;
+        }
+
+        await this._movementHandler.WalkToPositionAsync(point.Value).ConfigureAwait(false);
+    }
+
+    private async ValueTask ResetBotComboAsync(ComboStateMachine combo)
+    {
+        if (combo.CurrentState != combo.InitialState)
+        {
+            await combo.TryAdvanceToAsync(combo.InitialState).ConfigureAwait(false);
+        }
+
+        this._botComboTarget = null;
     }
 
     private async ValueTask ExecuteComboAttackAsync()

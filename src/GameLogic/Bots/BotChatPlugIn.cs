@@ -316,6 +316,15 @@ public class BotChatPlugIn
     /// <inheritdoc />
     public ValueTask AttackableGotKilledAsync(IAttackable killed, IAttacker? killer)
     {
+        // A monster killed next to a badly hurt bot is a rescue: the bot noticed, and says thanks.
+        if (killed is Monster rescuedMonster
+            && killer is Player rescuer
+            && rescuer is not OfflinePlayer
+            && this.Configuration is { RescueThanksChancePercent: > 0 } rescueConfiguration)
+        {
+            this.ThankForRescue(rescuedMonster, rescuer, rescueConfiguration);
+        }
+
         // Same cases as the revenge (BotRevengePlugIn): a human player's kill outside of an event,
         // where dying is part of the game.
         if (this.Configuration is not { KilledByPlayerChancePercent: > 0 } configuration
@@ -476,12 +485,25 @@ public class BotChatPlugIn
     /// <inheritdoc />
     public ValueTask DuelRequestedAsync(Player requester, Player target)
     {
-        // A bot never answered a duel request, which left the challenger waiting in vain: it refuses,
-        // like a player clicking "no", and says why.
+        // A bot only duels when the operator enabled it and the challenge is fair (see BotDuelHandler).
+        // Accepting answers the request like a player would - in its next MU Helper tick, because the
+        // acceptance warps both duelists. Otherwise it refuses, like a player clicking "no", and says why.
         if (this.Configuration is { } configuration
             && BotChatAudience.IsBot(target)
             && requester is not OfflinePlayer)
         {
+            if (target is OfflinePlayer bot && BotDuelHandler.CanAccept(bot, requester))
+            {
+                bot.PendingBotActions.Enqueue(async () =>
+                {
+                    if (!await BotDuelHandler.TryAcceptAsync(bot, requester).ConfigureAwait(false))
+                    {
+                        this.DeclineLater(bot, requester, configuration, configuration.DuelDeclineLines, () => RefuseDuelAsync(bot, requester));
+                    }
+                });
+                return ValueTask.CompletedTask;
+            }
+
             this.DeclineLater(target, requester, configuration, configuration.DuelDeclineLines, () => RefuseDuelAsync(target, requester));
         }
 
@@ -654,6 +676,36 @@ public class BotChatPlugIn
     }
 
     /// <summary>
+    /// Tells the bot's party that it is away for a moment - restocking potions in town, for example -
+    /// so its human companions know why it walked off. A bot without a human in its party stays
+    /// silent; there is nobody it could tell.
+    /// </summary>
+    /// <param name="bot">The bot.</param>
+    internal static void AnnouncePartyDelay(OfflinePlayer bot)
+    {
+        if (bot.GameContext.FeaturePlugIns.GetPlugIn<BotChatPlugIn>() is not { Configuration: { } configuration } plugin
+            || configuration.PartyDelayedLines.Count == 0
+            || configuration.PartyChatChancePercent <= 0
+            || bot.Party is not { } party
+            || !party.PartyList.Any(member => member is not OfflinePlayer)
+            || !Rand.NextRandomBool(configuration.PartyChatChancePercent))
+        {
+            return;
+        }
+
+        var throttle = plugin.GetThrottle(bot.GameContext);
+        if (BotChatReplySelector.PickLineFor(throttle, bot, configuration.PartyDelayedLines) is not { } line
+            || !throttle.TryReserveChat(bot, DateTime.UtcNow, configuration.BotChatCooldown, BotChatChannel.Party))
+        {
+            return;
+        }
+
+        BotChatReplySelector.RememberLine(throttle, bot, configuration.PartyDelayedLines, line);
+        var values = BotChatValues.Create(bot);
+        RunLater(bot.GameContext, BotChatTiming.TypingDelay(line.Text), () => BotChatSpeaker.PartySayAsync(bot, party, line.Text, values, gesture: line.Gesture));
+    }
+
+    /// <summary>
     /// Runs the action after the delay, without holding up the caller - the plugin points are called
     /// from the game logic, which must not wait for a bot's "typing time". A plugin deactivated
     /// meanwhile drops the action: the bots fall silent at once, not a few lines later.
@@ -714,6 +766,55 @@ public class BotChatPlugIn
         => bot.DuelRoom is { State: DuelState.DuelRequested } duelRoom && ReferenceEquals(duelRoom.Requester, requester)
             ? new DuelActions().HandleDuelResponseAsync(bot, requester, false)
             : ValueTask.CompletedTask;
+
+    /// <summary>
+    /// Whispers a thank-you from the nearest hurt bot when a player kills a monster beside it: the bot
+    /// was in trouble and the player got it out. No line is spent when no bot is hurt - a bot which
+    /// didn't need help has nothing to thank for.
+    /// </summary>
+    /// <param name="monster">The killed monster.</param>
+    /// <param name="rescuer">The player who killed it.</param>
+    /// <param name="configuration">The chat configuration.</param>
+    private void ThankForRescue(Monster monster, Player rescuer, BotChatConfiguration configuration)
+    {
+        if (monster.CurrentMap is not { } map || !Rand.NextRandomBool(configuration.RescueThanksChancePercent))
+        {
+            return;
+        }
+
+        var bot = map.GetAttackablesInRange(monster.Position, (int)BotChatAudience.HearingRange)
+            .OfType<OfflinePlayer>()
+            .Where(candidate => BotChatAudience.IsBot(candidate)
+                                && BotChatAudience.IsAvailable(candidate)
+                                && candidate.Attributes is { } attributes
+                                && attributes[Stats.MaximumHealth] > 0
+                                && attributes[Stats.CurrentHealth] * 100 <= attributes[Stats.MaximumHealth] * 60)
+            .OrderBy(candidate => candidate.GetDistanceTo(monster))
+            .FirstOrDefault();
+        if (bot is null)
+        {
+            return;
+        }
+
+        var throttle = this.GetThrottle(bot.GameContext);
+        if (!throttle.IsCategoryDue(bot, BotChatCategory.Rescue, DateTime.UtcNow, configuration.GetCategoryCooldown(BotChatCategory.Rescue))
+            || BotChatReplySelector.PickLineFor(throttle, bot, configuration.RescueThanksLines, rescuer) is not { } line
+            || !throttle.TryReserveChat(bot, DateTime.UtcNow, configuration.BotChatCooldown, category: BotChatCategory.Rescue, categoryCooldown: configuration.GetCategoryCooldown(BotChatCategory.Rescue)))
+        {
+            return;
+        }
+
+        BotChatReplySelector.RememberLine(throttle, bot, configuration.RescueThanksLines, line, rescuer);
+        var values = BotChatValues.Create(bot);
+        var rescuerName = rescuer.SelectedCharacter?.Name ?? string.Empty;
+        values["player"] = _ => rescuerName;
+        RunLater(
+            bot.GameContext,
+            BotChatTiming.TypingDelay(line.Text),
+            () => BotChatAudience.IsAvailable(bot) && rescuer.PlayerState.CurrentState == PlayerState.EnteredWorld
+                ? BotChatSpeaker.WhisperAsync(bot, rescuer, line.Text, values, gesture: line.Gesture)
+                : ValueTask.CompletedTask);
+    }
 
     /// <summary>
     /// Gets the text a bot answers with: the chosen reply - unless it names the bot's wings and the

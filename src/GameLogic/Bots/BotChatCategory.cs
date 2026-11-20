@@ -71,4 +71,10 @@ public enum BotChatCategory
     /// </summary>
     [Display(ResourceType = typeof(PlugInResources), Name = nameof(PlugInResources.BotChatCategory_Killed_Name))]
     Killed,
+
+    /// <summary>
+    /// A thank-you to a player who killed a monster next to a bot in trouble.
+    /// </summary>
+    [Display(ResourceType = typeof(PlugInResources), Name = nameof(PlugInResources.BotChatCategory_Rescue_Name))]
+    Rescue,
 }

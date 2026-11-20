@@ -49,6 +49,58 @@ public class BotFollowMovementTest
     }
 
     /// <summary>
+    /// A quiet hunt runs less often, but a newly visible player restores the normal cadence immediately.
+    /// </summary>
+    [Test]
+    public async ValueTask UnobservedHuntUsesSlowerCadenceAsync()
+    {
+        var gameContext = GameContextTestHelper.CreateGameContext();
+        var bot = await PlayerTestHelper.CreateOfflineLevelingPlayerAsync(gameContext).ConfigureAwait(false);
+        foreach (var observer in bot.Observers.ToList())
+        {
+            await bot.RemoveObserverAsync(observer).ConfigureAwait(false);
+        }
+
+        var navigator = new BotNavigator(bot);
+        navigator.States.Enter(BotState.Hunt, "test hunt");
+
+        Assert.That(await navigator.IsUnobservedHuntAsync().ConfigureAwait(false), Is.True);
+        Assert.That(navigator.TryBeginEvaluation(Start, true), Is.True);
+        Assert.That(navigator.TryBeginEvaluation(Start.AddSeconds(1), true), Is.False);
+
+        var human = await PlayerTestHelper.CreatePlayerAsync(gameContext).ConfigureAwait(false);
+        await bot.AddObserverAsync(human).ConfigureAwait(false);
+        Assert.That(await navigator.IsUnobservedHuntAsync().ConfigureAwait(false), Is.False);
+        Assert.That(navigator.TryBeginEvaluation(Start.AddSeconds(1), false), Is.True);
+
+        await bot.RemoveObserverAsync(human).ConfigureAwait(false);
+        Assert.That(await navigator.IsUnobservedHuntAsync().ConfigureAwait(false), Is.True);
+        Assert.That(navigator.TryBeginEvaluation(Start.AddSeconds(2), true), Is.False);
+        Assert.That(navigator.TryBeginEvaluation(Start.AddSeconds(3), true), Is.True);
+    }
+
+    /// <summary>
+    /// An off-screen human party member keeps the normal navigation cadence.
+    /// </summary>
+    [Test]
+    public async ValueTask HumanCompanionPreventsSlowHuntAsync()
+    {
+        var (bot, human, _) = await CreatePartyOnOpenMapAsync(new Point(10, 10), new Point(40, 10)).ConfigureAwait(false);
+        var party = bot.GameContext.PartyManager.CreateParty();
+        await party.AddAsync(bot).ConfigureAwait(false);
+        await party.AddAsync(human).ConfigureAwait(false);
+        foreach (var observer in bot.Observers.ToList())
+        {
+            await bot.RemoveObserverAsync(observer).ConfigureAwait(false);
+        }
+
+        var navigator = new BotNavigator(bot);
+        navigator.States.Enter(BotState.Hunt, "test hunt");
+
+        Assert.That(await navigator.IsUnobservedHuntAsync().ConfigureAwait(false), Is.False);
+    }
+
+    /// <summary>
     /// The next decision comes right after a travel hop ended, not only at the next full interval -
     /// otherwise the bot stands between hops and travels at about half the speed of a player.
     /// </summary>

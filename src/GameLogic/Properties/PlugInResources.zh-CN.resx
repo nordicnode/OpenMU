@@ -1873,4 +1873,10 @@
   <data name="WaitingItemsCommandConfiguration_ItemsNamed_Description" xml:space="preserve">
     <value>列出的等待物品数量，每条消息一件。</value>
   </data>
+  <data name="BotConfiguration_Duels_Name" xml:space="preserve">
+    <value>决斗</value>
+  </data>
+  <data name="BotConfiguration_Duels_Description" xml:space="preserve">
+    <value>启用后，机器人会接受等级相近玩家的决斗请求，并偶尔主动挑战。默认关闭：决斗会改变服务器的 PvP 体验，因此需要明确开启。机器人忙于跑腿、活动、摆摊或复仇时不会决斗。</value>
+  </data>
 </root>

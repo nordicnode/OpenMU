@@ -111,6 +111,10 @@ The *Bots* feature plugin, in the "Feature Plugins" section of the
 - **`Equipment budget %`** — the share of its money a bot may spend on equipment
   per shopping trip (only used when buying equipment is enabled). A piece above
   it stays on the shelf, so the bot keeps its potion and warp money.
+- **`Duels`** — whether bots take part in the game's own duel system. Off by
+  default: a bot accepts a fair challenge of a player of a comparable level and
+  now and then challenges one itself, but never while it is busy with an errand,
+  an event, a market shift or a grudge.
 - **`Persona mix`** — the weighted play styles the population is drawn from, as
   `name:weight` pairs (default
   `balanced:70,aggressive:10,cautious:10,trader:5,social:5`). A persona shifts
@@ -326,7 +330,46 @@ affords, so the budget is stretched for them — a slow fight it survives beats 
 quick one worth nothing. What is not stretched is its survivability: a monster
 whose hits the bot cannot take is refused, mastered or not.
 
+A bot with a regeneration skill heals eligible nearby party members on the same
+map at or below 70% health. Its learned party buffs are applied when missing.
+
+A bot that already has its configured combo unlocked can use a complete chain of
+available skills, including its equipped weapon's skill. It follows the server's
+combo definition and timing; if a skill becomes unavailable, the target changes,
+or the target moves out of range, it abandons the attempt. During a chain it can
+use carried potions without stopping to loot or cast buffs and heals.
+
+A high-level Blade Knight without a combo runs the Marlon quest chain itself: it
+finds the wandering Marlon where he currently stands, takes *Hero Status* and
+*Secret of the Dark Stone* through his dialog, farms the monsters and item bands
+the quests ask for and hands them in. While the chain runs it only backpacks what
+the next requirement needs. The quest is a longer goal than a town errand: it
+runs only when no event, reset, market shift, fight or party leader claims the
+bot, and it is not started below the level the quest data requires.
+
+Fairy Elves, Soul Masters and Summoners fight from a distance and keep it: when a
+player or an invasion boss comes inside melee reach, a ranged bot steps a few
+tiles away before the next shot instead of facetanking the rush, and a Soul Master
+can break the hold with Teleport. Ordinary monsters are never a reason to kite -
+farming a wolf is no duel. The step-back has a short cooldown, so a bot
+repositions like a player instead of stuttering every tick.
+
+While a bot is hunting with no human observer or human party companion, its
+navigator reviews the hunting ground every two seconds instead of every half
+second. Combat and healing keep their usual cadence; travel hops, event meetings,
+pending invitations and recent attackers keep the responsive navigation cadence.
+A player coming into view restores that cadence on the next navigator poll. The
+navigator already reuses planned travel routes rather than recomputing every hop.
+
 ### Items and money
+
+Bots postpone picking up drops when their health is below their potion threshold,
+when a nearby attacker can legally be fought in self-defense, or while they have
+an active player target or an in-progress configured combo. Once the danger or
+combo passes, they can collect drops again; normal offline-helper sessions are
+unchanged. During a legal player fight, a bot also uses a shield potion it already
+carries at 35% shield or below, subject to the ordinary potion cooldown. Bots do
+not buy or create shield potions automatically.
 
 Dropped gear is judged before it is picked up: a bot collects what it can wear
 and what is worth money, and leaves the rest lying. An upgrade is put on through
@@ -374,6 +417,13 @@ offer is preferred over one which only sells potions. The bought piece goes into
 the backpack and is put on by the regular equipment pass a few seconds later —
 the swap itself keeps going through the one validated path. Without the setting
 the bot still only wears what it finds.
+
+While it waits at its own stall, a bot with `Buy equipment` also looks at the
+open player stores around it and buys a fair offer for Zen: a jewel, a skill
+item it still needs, or a piece which beats its gear, within the same per-trip
+budget. It never pays in jewels or account coins, so it doesn't hand back what
+it collects for its own upgrades. This makes the player market two-way without a
+trade window — the bot buys exactly like a player from the open store.
 
 Only Jewels of Bless, Soul, Life and Chaos are collected, and only up to the
 configured stock — Chaos only by a bot which wears a lucky piece it can still
@@ -477,9 +527,9 @@ most 3 bots start a shift every 30 seconds (`New merchants per 30 seconds`), so
 after a server start the market fills up within minutes and the parties don't
 fall apart at once. On a shift, a bot declines party invitations.
 
-A bot buys nothing, so the zen and the jewels paid for its goods are removed
-right after each sale. There are no discounts - players would learn to wait for
-them. A good which found no buyer for three shifts leaves the store and is sold
+A bot keeps none of the income, so the zen and the jewels paid for its goods are
+removed right after each sale. There are no discounts - players would learn to
+wait for them. A good which found no buyer for three shifts leaves the store and is sold
 to the NPC, making room for fresh goods. The server counts these shifts in
 memory only: a restart, or a day in which the good wasn't on the market, starts
 the count over.
@@ -515,9 +565,12 @@ party and goes back to its own life instead of blocking the entry.
 Inside, its open-world routine is suspended: no shopping, no map changes, no
 grudges. It fights what the event throws at it and keeps up with the
 leader. Chaos Castle is a free-for-all, so there the other participants are
-targets like everyone else — and a fight inside leaves no grudge outside. A bot
-which dies respawns in the safezone like a player, which takes it out of the
-event; the survivors are warped out when the event ends.
+targets like everyone else — and a fight inside leaves no grudge outside. The
+free-for-all has no fixed target, so the bot rates its opponents cheaply: a
+depleted shield first and the lowest health as the tie-breaker, because the
+shield absorbs most of a PvP hit. A bot which dies respawns in the safezone like
+a player, which takes it out of the event; the survivors are warped out when the
+event ends.
 
 ### Company and rhythm
 
@@ -548,7 +601,11 @@ whole session. A living player takes precedence over the bot's own company
 party up if it was leading it, so a player never has to guess which bot happens
 to be free. In a party the bot follows its leader — in town too, back from a
 fight once it falls more than twelve tiles behind, and to another map through the
-warp entry closest to the leader, so it lands on the leader's floor. It pays that
+warp entry closest to the leader, so it lands on the leader's floor. While a human
+leader runs ahead to pull, the bot members hold their fire: they don't start a
+new fight until they caught up to within twelve tiles or the leader stops. A
+fight which is already running is finished, and bot-only parties keep their own
+tempo. It pays that
 warp like a player; one which can't afford it hunts where it stands, without trips
 of its own, until it can — and defers a due reset, leaving
 only on the engine's own terms: when the party disbands, when it is kicked,
@@ -562,6 +619,13 @@ already flagged as a killer. It can therefore never be provoked into becoming an
 outlaw that players could farm for free. It remembers who hit it, and a killed
 bot walks back to its killer — waiting for a legal opening rather than taking
 one.
+
+With the opt-in `Duels` setting, a bot also answers the game's own duel system: it
+accepts a challenge of a player of a comparable level (at most 30 levels apart,
+on the same map, alive and in the world) and now and then challenges one itself.
+It never duels while it is on an errand, in a mini game, at a market shift, in a
+fight or while it carries a grudge. A duel stays a duel: it leaves no grudge
+outside, and a bot never starts one with a party mate.
 
 Over the day, the presence rotation logs bots in and out: fewest in the early
 morning, most in the evening, and never more than one at a time, so the
@@ -613,7 +677,7 @@ only talks about what it could actually do:
 | Now and then, advertising its goods (see Selling on the market) | normal chat, `{location}`, `{store}` | a bot behind its open store on the market or in a city which a player sees |
 | A player whispered to a merchant what it sells ("what are you selling?", "za ile?"), or asked it by name in the normal chat | the same way back: a line of the *merchant whisper replies* which points to its store, `{store}` | a bot behind its open store on the market or in a city |
 | A player stands near two bots (every 5 minutes per player) | normal chat: one bot says something, the other answers | two bots close together, both in a town or both out hunting |
-| A player asked the bot for a trade or challenged it to a duel | whisper, 70 % chance, `{player}` — the bot turns it down in any case (no trade window, no duels) | the bot |
+| A player asked the bot for a trade or challenged it to a duel | whisper, 70 % chance, `{player}` — a trade is turned down; a duel is accepted when `Duels` is on and the challenge is fair, otherwise declined | the bot |
 | A player whispered to the bot | whisper back, after a few seconds — answering the whisper's keywords (see below) | the bot |
 | A player whispered to a bot which is on its way to a meeting place or already waits there | whisper back with the concrete place: the map and the NPC or coordinates it waits at, or that it is still coming | the bot |
 
@@ -827,9 +891,11 @@ hash dominates); starting an existing one of 1100 bots takes some 15 seconds.
   often than human players do: a few caught exceptions per minute. A bot whose
   attribute graph gets corrupted restarts itself (see above); a real fix belongs
   into the engine, not into the bots.
-- **Bots do no quests and do not trade with players.** Deliberate scope. The
-  quests which matter for progression (the class changes) are performed
-  directly, and trading would be an abuse surface.
+- **Only the combo quest chain is automated, and bots open no trade windows.**
+  The class-change quests are performed directly, the Marlon chain is run by the
+  bots which need it (see above), and everything else stays out of scope. Bots
+  buy from open player stores, but a direct trade window would be an abuse
+  surface and is never opened.
 - **Adding a game server to a running deployment does not spread the bots onto
   it before a restart.** Deliberate: moving a bot between two running servers
   would animate one account from two persistence contexts, which corrupts the

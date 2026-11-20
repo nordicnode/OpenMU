@@ -8,6 +8,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using MUnique.OpenMU.DataModel.Configuration;
+using MUnique.OpenMU.DataModel.Configuration.Quests;
 using MUnique.OpenMU.DataModel.Entities;
 using MUnique.OpenMU.GameLogic.Attributes;
 using MUnique.OpenMU.GameLogic.NPC;
@@ -156,6 +157,12 @@ internal sealed class BotNavigator : AsyncDisposable
     /// after him. The errands checked on each decision keep their own, much longer intervals.
     /// </summary>
     private static readonly TimeSpan EvaluationInterval = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>
+    /// How often an unseen, solitary bot reviews its hunting ground. Travel, events and player
+    /// interactions retain the normal cadence; combat and recovery run on the separate helper tick.
+    /// </summary>
+    private static readonly TimeSpan UnobservedHuntInterval = TimeSpan.FromSeconds(2);
 
     /// <summary>
     /// How often the navigator timer fires. Most shots end right away; they only exist to notice that a
@@ -317,6 +324,11 @@ internal sealed class BotNavigator : AsyncDisposable
         new(BotState.FollowLeader, "following the leader to his map", [BotState.FollowLeader], (navigator, map, tick, cancellationToken) => navigator.FollowLeaderCrossMapStepAsync(map, tick, cancellationToken)),
         new(BotState.FollowLeader, "following the leader", [BotState.FollowLeader], (navigator, map, tick, cancellationToken) => navigator.FollowLeaderStepAsync(map, tick, cancellationToken)),
 
+        // The quest which unlocks a class combo (see BotQuestHandler) is a longer goal than an errand, but
+        // still below events, resets, a market shift and the short town errands. It runs after following the
+        // party leader: a bot in a group plays with the group, and quests when nothing else claims it.
+        new(BotState.Quest, "quest: unlocking a combo", [BotState.Quest], (navigator, map, tick, cancellationToken) => navigator.QuestStepAsync(map, tick, cancellationToken)),
+
         // A bot whose map is no longer the best it could safely hunt warps away before it fights what is left
         // (see WarpToBetterMapStepAsync).
         new(BotState.Travel, "warping to a better map", [BotState.Travel], (navigator, map, tick, cancellationToken) => navigator.WarpToBetterMapStepAsync(map, tick, cancellationToken)),
@@ -389,6 +401,30 @@ internal sealed class BotNavigator : AsyncDisposable
     private DateTime _nextChaosMachineCheckUtc = DateTime.UtcNow + (ChaosMachineCooldown * Rand.NextDouble());
 
     /// <summary>
+    /// When the bot considers its combo quest again. The first check is spread over the retry cooldown, so
+    /// a population which starts together does not all walk to the giver in the same minute.
+    /// </summary>
+    private DateTime _nextQuestCheckUtc = DateTime.UtcNow + (BotQuestHandler.RetryCooldown * Rand.NextDouble());
+
+    /// <summary>
+    /// When the bot considers challenging a nearby player to a duel (see <see cref="BotDuelHandler"/>).
+    /// The first check is spread out, so a fresh population does not all ask at once.
+    /// </summary>
+    private DateTime _nextDuelCheckUtc = DateTime.UtcNow + (BotDuelHandler.ChallengeInterval * Rand.NextDouble());
+
+    /// <summary>
+    /// When the bot looks at the player stores around its own stall the next time (see
+    /// <see cref="BotStoreBrowser"/>).
+    /// </summary>
+    private DateTime _nextStoreBrowseUtc = DateTime.UtcNow + (BotStoreBrowser.BrowseInterval * Rand.NextDouble());
+
+    /// <summary>
+    /// Whether the visit of the quest giver is already queued for the MU Helper tick, so the navigation
+    /// does not enqueue the same dialog again every check.
+    /// </summary>
+    private bool _questVisitQueued;
+
+    /// <summary>
     /// When the bot considers a buff trip again. Like the shopping check, the first one is spread over the
     /// cooldown (not "now"), so bots don't all march to the Elf Soldier at once.
     /// </summary>
@@ -407,7 +443,7 @@ internal sealed class BotNavigator : AsyncDisposable
     private int _minWarpLevel = FallbackMinWarpLevel;
     private Guid _leaderMapId;
     private DateTimeOffset _leaderOnMapSinceUtc = DateTimeOffset.MinValue;
-    private DateTimeOffset _nextEvaluationUtc = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastEvaluationUtc = DateTimeOffset.MinValue;
     private bool _isHopInProgress;
 
     /// <summary>
@@ -1005,6 +1041,7 @@ internal sealed class BotNavigator : AsyncDisposable
     /// once per <see cref="EvaluationInterval"/>, and additionally as soon as a travel hop has ended.
     /// </summary>
     /// <param name="now">The current time.</param>
+    /// <param name="unobservedHunt">Whether the bot is hunting without a human observer or companion.</param>
     /// <returns><c>true</c>, if the bot should take its next navigation decision now.</returns>
     /// <remarks>
     /// A hop of <see cref="StepsPerHop"/> steps takes about a second. When the hop still ran at a decision,
@@ -1012,15 +1049,48 @@ internal sealed class BotNavigator : AsyncDisposable
     /// the speed of a player. Continuing right after the hop keeps it moving, while it still stops between
     /// hops when a monster comes into range.
     /// </remarks>
-    internal bool TryBeginEvaluation(DateTimeOffset now)
+    internal bool TryBeginEvaluation(DateTimeOffset now, bool unobservedHunt = false)
     {
-        if (now < this._nextEvaluationUtc && !(this._isHopInProgress && !this._player.IsWalking))
+        var interval = unobservedHunt ? UnobservedHuntInterval : EvaluationInterval;
+        if (now - this._lastEvaluationUtc < interval && !(this._isHopInProgress && !this._player.IsWalking))
         {
             return false;
         }
 
-        this._nextEvaluationUtc = now + EvaluationInterval;
+        this._lastEvaluationUtc = now;
         this._isHopInProgress = false;
+        return true;
+    }
+
+    /// <summary>
+    /// Checks the bot's existing observers under their lock, without scanning the whole map. A human
+    /// companion or pending interaction also keeps the ordinary cadence even when out of view.
+    /// </summary>
+    /// <returns>Whether the slower hunting cadence may be used.</returns>
+    internal async ValueTask<bool> IsUnobservedHuntAsync()
+    {
+        if (this._states.Current != BotState.Hunt
+            || this._player.CurrentMiniGame is not null
+            || this._player.EventMeeting is not null
+            || this._player.MarketShift is not null
+            || this._player.PendingPartyInvite is not null
+            || this._player.DuelRoom is not null
+            || this._player.HasRevengeIntent
+            || this._player.RecentAggressor is not null
+            || BotPartyHandler.HasHumanCompanion(this._player))
+        {
+            return false;
+        }
+
+        using var observerLock = await this._player.ObserverLock.ReaderLockAsync().ConfigureAwait(false);
+        foreach (var observer in this._player.Observers)
+        {
+            if (observer is Player and not OfflinePlayer)
+            {
+                return false;
+            }
+        }
+
         return true;
     }
 
@@ -1552,7 +1622,8 @@ internal sealed class BotNavigator : AsyncDisposable
 
         try
         {
-            if (!this.TryBeginEvaluation(this._timeProvider.GetUtcNow()))
+            var unobservedHunt = await this.IsUnobservedHuntAsync().ConfigureAwait(false);
+            if (!this.TryBeginEvaluation(this._timeProvider.GetUtcNow(), unobservedHunt))
             {
                 return;
             }
@@ -1602,6 +1673,22 @@ internal sealed class BotNavigator : AsyncDisposable
         // Party bookkeeping: answer a pending invitation from a player once its human-like delay
         // passed (see BotPartyHandler).
         await BotPartyHandler.ProcessAsync(this._player).ConfigureAwait(false);
+
+        // Now and then, offer a fair duel to a nearby player - only when the operator enabled duels.
+        if (DateTime.UtcNow >= this._nextDuelCheckUtc)
+        {
+            this._nextDuelCheckUtc = DateTime.UtcNow + BotDuelHandler.ChallengeInterval + TimeSpan.FromSeconds(Rand.NextInt(0, 120));
+            await BotDuelHandler.TryChallengeNearbyPlayerAsync(this._player, DateTime.UtcNow).ConfigureAwait(false);
+        }
+
+        // A bot waiting at its own stall also browses the player stores around it. Queued into the MU
+        // Helper tick: a purchase moves an item into the inventory, like every other bot mutation.
+        if (this._player.MarketShift is { IsStoreOpened: true, IsEnding: false }
+            && DateTime.UtcNow >= this._nextStoreBrowseUtc)
+        {
+            this._nextStoreBrowseUtc = DateTime.UtcNow + BotStoreBrowser.BrowseInterval;
+            this._player.PendingBotActions.Enqueue(async () => await BotStoreBrowser.TryBuyAsync(this._player).ConfigureAwait(false));
+        }
 
         // Make sure the bot always carries healing and mana potions. Without them, the offline handlers
         // have nothing to drink: the bot dies to sustained damage, and casters degrade to weak melee
@@ -1932,6 +2019,237 @@ internal sealed class BotNavigator : AsyncDisposable
     }
 
     /// <summary>
+    /// The step of the quest which unlocks a class combo: the bot visits the giver, farms the monsters the
+    /// quest needs and hands it in (see <see cref="BotQuestHandler"/>). The step is below the events and the
+    /// short town errands, and below following a party leader.
+    /// </summary>
+    /// <param name="map">The map the bot is on.</param>
+    /// <param name="tick">What this tick gathered.</param>
+    /// <param name="cancellationToken">The token which aborts the tick on shutdown.</param>
+    /// <returns>True, if the step consumed the tick.</returns>
+    private async ValueTask<bool> QuestStepAsync(GameMap map, TickContext tick, CancellationToken cancellationToken)
+    {
+        if (this._questVisitQueued || DateTime.UtcNow < this._nextQuestCheckUtc)
+        {
+            return false;
+        }
+
+        this._nextQuestCheckUtc = DateTime.UtcNow + BotQuestHandler.CheckInterval;
+        if (BotQuestHandler.GetComboQuestGoal(this._player) is not { } goal)
+        {
+            return false;
+        }
+
+        var progress = BotQuestHandler.GetProgress(this._player, goal.Quest);
+        if (progress is BotQuestHandler.QuestProgress.NotStarted or BotQuestHandler.QuestProgress.ReadyToComplete)
+        {
+            return await this.TryVisitQuestGiverAsync(map, goal, progress, cancellationToken).ConfigureAwait(false);
+        }
+
+        return progress == BotQuestHandler.QuestProgress.InProgress
+               && await this.TryQuestFarmAsync(map, goal.Quest, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Walks the bot to its quest giver and queues the dialog which starts or completes the quest. The
+    /// dialog runs in the MU Helper tick, like every other bot mutation.
+    /// </summary>
+    /// <param name="map">The map the bot is on.</param>
+    /// <param name="goal">The quest goal.</param>
+    /// <param name="progress">Whether the quest has to be started or completed.</param>
+    /// <param name="cancellationToken">The token which aborts the tick on shutdown.</param>
+    /// <returns>True, if the step consumed the tick.</returns>
+    private async ValueTask<bool> TryVisitQuestGiverAsync(
+        GameMap map,
+        BotQuestHandler.QuestGoal goal,
+        BotQuestHandler.QuestProgress progress,
+        CancellationToken cancellationToken)
+    {
+        var location = await BotQuestHandler.FindGiverAsync(this._player, goal.Giver, cancellationToken).ConfigureAwait(false);
+        if (location is not { } giver)
+        {
+            this._nextQuestCheckUtc = DateTime.UtcNow + BotQuestHandler.RetryCooldown;
+            this._player.Logger.LogDebug("Bot '{Name}' finds its quest giver '{Giver}' nowhere; it retries later.", this._player.Name, goal.Giver.Designation);
+            return false;
+        }
+
+        if (map.Definition.Number != giver.Map.Definition.Number)
+        {
+            if (this._timeProvider.GetUtcNow() - this._lastWarpUtc < WarpCooldown)
+            {
+                // A warp which just happened only defers the trip; the routine keeps the bot busy meanwhile.
+                return false;
+            }
+
+            var warp = this.GetLegalWarps(giver.Map.Definition)
+                .Where(this.CanAffordWarp)
+                .MinBy(candidate => candidate.Costs);
+            if (warp is null)
+            {
+                this._nextQuestCheckUtc = DateTime.UtcNow + BotQuestHandler.RetryCooldown;
+                return false;
+            }
+
+            this._travelPath = null;
+            this._hasDestination = false;
+            this._player.HuntingSpot = null;
+            this._lastWarpUtc = this._timeProvider.GetUtcNow();
+            this._nextQuestCheckUtc = DateTime.UtcNow; // start the visit on the new map right away
+            this._player.Logger.LogDebug("Bot '{Name}' warps to {Map} for its quest giver '{Giver}'.", this._player.Name, giver.Map.Definition.Name, goal.Giver.Designation);
+            await WarpAction.WarpToAsync(this._player, warp).ConfigureAwait(false);
+            return true;
+        }
+
+        var standingPoint = BotEventMeetingPlanner.FindStandingPoint(map.Terrain, giver.Position, BotTownTripPlanner.NpcInteractionRange);
+        if (standingPoint is null)
+        {
+            this._nextQuestCheckUtc = DateTime.UtcNow + BotQuestHandler.RetryCooldown;
+            return false;
+        }
+
+        if (this._player.GetDistanceTo(giver.Position) > BotTownTripPlanner.NpcInteractionRange)
+        {
+            if (!await this.TravelTowardAsync(map, standingPoint.Value, cancellationToken).ConfigureAwait(false))
+            {
+                this._player.Logger.LogDebug("Bot '{Name}' gives up its quest visit: no route to '{Giver}'.", this._player.Name, goal.Giver.Designation);
+                this._nextQuestCheckUtc = DateTime.UtcNow + BotQuestHandler.RetryCooldown;
+            }
+
+            return true;
+        }
+
+        this.QueueQuestVisit(giver.Map, giver.Position, goal.Quest, progress);
+        this._lastMoveUtc = DateTime.UtcNow; // standing at the giver is not "stuck"
+        return true;
+    }
+
+    /// <summary>
+    /// Queues the start or completion dialog for the next MU Helper tick, so the item and attribute
+    /// mutations it performs run serialized with combat and persistence.
+    /// </summary>
+    /// <param name="map">The map of the giver.</param>
+    /// <param name="giverPosition">The position of the giver.</param>
+    /// <param name="quest">The quest.</param>
+    /// <param name="progress">Whether the quest has to be started or completed.</param>
+    private void QueueQuestVisit(
+        GameMap map,
+        Point giverPosition,
+        QuestDefinition quest,
+        BotQuestHandler.QuestProgress progress)
+    {
+        this._questVisitQueued = true;
+        this._player.PendingBotActions.Enqueue(async () =>
+        {
+            try
+            {
+                if (progress == BotQuestHandler.QuestProgress.NotStarted)
+                {
+                    await BotQuestHandler.TryStartQuestAsync(this._player, map, giverPosition, quest).ConfigureAwait(false);
+                }
+                else
+                {
+                    await BotQuestHandler.TryCompleteQuestAsync(this._player, map, giverPosition, quest).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                this._questVisitQueued = false;
+                this._nextQuestCheckUtc = DateTime.UtcNow + BotQuestHandler.CheckInterval;
+            }
+        });
+    }
+
+    /// <summary>
+    /// Farms the monsters an active quest needs: it warps to a map which holds them and closes in on the
+    /// next one. Inside combat range the routine fights, so the kill counts and drops the quest needs are
+    /// produced by the normal combat loop.
+    /// </summary>
+    /// <param name="map">The map the bot is on.</param>
+    /// <param name="quest">The active quest.</param>
+    /// <param name="cancellationToken">The token which aborts the tick on shutdown.</param>
+    /// <returns>True, if the step consumed the tick.</returns>
+    private async ValueTask<bool> TryQuestFarmAsync(GameMap map, QuestDefinition quest, CancellationToken cancellationToken)
+    {
+        if (BotQuestHandler.GetFarmTarget(this._player, quest) is not { } target)
+        {
+            return false;
+        }
+
+        var targetMap = BotQuestHandler.PickQuestMap(
+            this._player,
+            target,
+            mapDefinition => mapDefinition.Number != map.Definition.Number
+                             && this.GetLegalWarps(mapDefinition).Any(this.CanAffordWarp));
+        if (targetMap is null)
+        {
+            this._nextQuestCheckUtc = DateTime.UtcNow + BotQuestHandler.RetryCooldown;
+            return false;
+        }
+
+        if (map.Definition.Number != targetMap.Number)
+        {
+            if (this._timeProvider.GetUtcNow() - this._lastWarpUtc < WarpCooldown)
+            {
+                return false;
+            }
+
+            var warp = this.GetLegalWarps(targetMap)
+                .Where(this.CanAffordWarp)
+                .MinBy(candidate => candidate.Costs);
+            if (warp is null)
+            {
+                this._nextQuestCheckUtc = DateTime.UtcNow + BotQuestHandler.RetryCooldown;
+                return false;
+            }
+
+            this._travelPath = null;
+            this._hasDestination = false;
+            this._player.HuntingSpot = null;
+            this._lastWarpUtc = this._timeProvider.GetUtcNow();
+            this._nextQuestCheckUtc = DateTime.UtcNow; // start farming on the new map right away
+            this._player.Logger.LogDebug("Bot '{Name}' warps to {Map} to farm its quest '{Quest}'.", this._player.Name, targetMap.Name, quest.Name);
+            await WarpAction.WarpToAsync(this._player, warp).ConfigureAwait(false);
+            return true;
+        }
+
+        var position = this._player.Position;
+        var nearest = map.GetAttackablesInRange(position, MonsterSeekRadius)
+            .OfType<Monster>()
+            .Where(monster => monster.IsAlive
+                              && !monster.IsAtSafezone()
+                              && monster.SummonedBy is null
+                              && target.Matches(monster.Definition)
+                              && CombatHandler.IsSafeTarget(this._player, monster.Definition))
+            .OrderBy(monster => monster.GetDistanceTo(position))
+            .FirstOrDefault();
+        if (nearest is not null)
+        {
+            this._player.HuntingOrigin = nearest.Position;
+            if (nearest.GetDistanceTo(position) <= TravelStopRange)
+            {
+                // Close enough: the routine and the combat handler take the fight from here.
+                return false;
+            }
+
+            await this.TravelTowardAsync(map, nearest.Position, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+
+        if (BotQuestHandler.TryPickQuestGround(map, target, position, out var ground))
+        {
+            this._player.HuntingOrigin = ground;
+            this._destination = ground;
+            this._hasDestination = true;
+            await this.TravelTowardAsync(map, ground, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+
+        // The spawns are empty right now; the routine hunts what is there until the next check.
+        this._player.HuntingOrigin = position;
+        return false;
+    }
+
+    /// <summary>
     /// The routine, and the step every tick ends in: hunt what is around, walk to what is worth walking to,
     /// and relocate when there is nothing left here.
     /// </summary>
@@ -2129,6 +2447,12 @@ internal sealed class BotNavigator : AsyncDisposable
             // potion restock, no selling, a slowly silting backpack.
             this._nextShoppingCheckUtc = NextShoppingCheckUtc();
             return false;
+        }
+
+        if (step is BotTownTripPlanner.TripStep.WarpHome or BotTownTripPlanner.TripStep.WarpToSafezone)
+        {
+            // A human party should know why one of its bots walks off instead of silently vanishing.
+            BotChatPlugIn.AnnouncePartyDelay(this._player);
         }
 
         if (step == BotTownTripPlanner.TripStep.WarpHome)
@@ -2920,9 +3244,11 @@ internal sealed class BotNavigator : AsyncDisposable
     {
         if (this._player.BossAttempt is not null
             || this._player.PlayerState.CurrentState != PlayerState.EnteredWorld
-            || this._player.SelectedCharacter is null)
+            || this._player.SelectedCharacter is null
+            || BotQuestHandler.NeedsQuestFarm(this._player))
         {
-            // A running boss attempt holds the bot on the invaded map; leaving would waste the trip.
+            // A running boss attempt holds the bot on the invaded map; leaving would waste the trip, and a
+            // quest being farmed holds it on the quest's map for the same reason.
             return false;
         }
 

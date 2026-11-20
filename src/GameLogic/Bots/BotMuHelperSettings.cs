@@ -21,6 +21,9 @@ internal sealed class BotMuHelperSettings : IMuHelperSettings
     /// </summary>
     internal const int DefaultHuntingRange = 6;
 
+    /// <summary>Shield percentage at which a bot uses a carried potion during a player fight.</summary>
+    internal const int ShieldPotionThresholdPercent = 35;
+
     /// <inheritdoc />
     public int BasicSkillId => 0;
 
@@ -124,7 +127,7 @@ internal sealed class BotMuHelperSettings : IMuHelperSettings
     public bool AutoHealParty => true;
 
     /// <inheritdoc />
-    public int HealPartyThresholdPercent => 60;
+    public int HealPartyThresholdPercent => 70;
 
     /// <inheritdoc />
     public bool UseDarkRaven => false;

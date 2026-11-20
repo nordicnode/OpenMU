@@ -448,6 +448,17 @@ public class BotChatConfiguration
     public ICollection<BotChatLine> PartyJoinedLines { get; set; } = new List<BotChatLine>();
 
     /// <summary>
+    /// Gets or sets the lines a bot says in the party chat when it leaves the group for a moment - to
+    /// restock potions in town, for example. It tells its human party why it is away instead of just
+    /// walking off. Placeholders: <c>{player}</c>, <c>{level}</c>, <c>{map}</c>, <c>{location}</c>.
+    /// </summary>
+    [MemberOfAggregate]
+    [ScaffoldColumn(true)]
+    [CollapsedByDefault]
+    [Display(ResourceType = typeof(PlugInResources), Name = nameof(PlugInResources.BotChatConfiguration_PartyDelayedLines_Name), Description = nameof(PlugInResources.BotChatConfiguration_PartyDelayedLines_Description))]
+    public ICollection<BotChatLine> PartyDelayedLines { get; set; } = new List<BotChatLine>();
+
+    /// <summary>
     /// Gets or sets the lines one bot per party says in the party chat when an event it went through with a
     /// player's party ended. Placeholders: <c>{event}</c>, <c>{level}</c>.
     /// </summary>
@@ -456,6 +467,26 @@ public class BotChatConfiguration
     [CollapsedByDefault]
     [Display(ResourceType = typeof(PlugInResources), Name = nameof(PlugInResources.BotChatConfiguration_EventFinishedLines_Name), Description = nameof(PlugInResources.BotChatConfiguration_EventFinishedLines_Description))]
     public ICollection<BotChatLine> EventFinishedLines { get; set; } = new List<BotChatLine>();
+
+    /// <summary>
+    /// Gets or sets the chance, in percent, that a bot whispers a thank-you to a player who killed a
+    /// monster right next to it while it was badly hurt - the player got it out of trouble, and the bot
+    /// noticed.
+    /// </summary>
+    [Range(0, 100)]
+    [Display(ResourceType = typeof(PlugInResources), Name = nameof(PlugInResources.BotChatConfiguration_RescueThanksChancePercent_Name), Description = nameof(PlugInResources.BotChatConfiguration_RescueThanksChancePercent_Description))]
+    public int RescueThanksChancePercent { get; set; } = 40;
+
+    /// <summary>
+    /// Gets or sets the lines with which a bot thanks a player for a rescue: the player killed a monster
+    /// next to it while it was low on health. Placeholders: <c>{player}</c> (the rescuer), <c>{level}</c>,
+    /// <c>{map}</c>, <c>{location}</c>.
+    /// </summary>
+    [MemberOfAggregate]
+    [ScaffoldColumn(true)]
+    [CollapsedByDefault]
+    [Display(ResourceType = typeof(PlugInResources), Name = nameof(PlugInResources.BotChatConfiguration_RescueThanksLines_Name), Description = nameof(PlugInResources.BotChatConfiguration_RescueThanksLines_Description))]
+    public ICollection<BotChatLine> RescueThanksLines { get; set; } = new List<BotChatLine>();
 
     /// <summary>
     /// Gets or sets the lines with which the nearest bot congratulates a player on a level-up.
@@ -772,6 +803,18 @@ public class BotChatConfiguration
             ("where are we going?", "gdzie idziemy?"),
             ("ready when you are", "gotowy, jak tylko powiesz"),
             ("nice, a party at last", "o, nareszcie grupa"));
+        Add(
+            configuration.RescueThanksLines,
+            ("thanks {player}, i was done for", "dzięki {player}, było już krucho"),
+            ("phew, thanks {player}", "uff, dzięki {player}"),
+            ("saved me there, thx", "uratowałeś mnie, dzięki"),
+            ("nice one {player}, i owe you", "niezle {player}, mam u ciebie dług"));
+        Add(
+            configuration.PartyDelayedLines,
+            ("brb, restocking potions in town", "zaraz wracam, dokupię potki w mieście"),
+            ("one moment, i'm at the merchant", "chwila, jestem u kupca"),
+            ("need potions, back in a minute", "muszę dokupić potki, wracam za chwilę"),
+            ("hold on, selling junk in town", "czekajcie, sprzedaję graty w mieście"));
         Add(
             configuration.EventFinishedLines,
             ("gg", "gg"),

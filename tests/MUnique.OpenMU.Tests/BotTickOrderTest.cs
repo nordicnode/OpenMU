@@ -42,6 +42,7 @@ public class BotTickOrderTest
                 BotState.Revenge,
                 BotState.FollowLeader, // to the leader's map
                 BotState.FollowLeader, // around the leader
+                BotState.Quest, // unlocking a class combo, when no group claims the bot
                 BotState.Travel, // warping to a better map
                 null, // the routine, which claims its own state
             }));

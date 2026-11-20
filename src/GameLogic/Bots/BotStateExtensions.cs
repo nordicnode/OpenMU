@@ -11,8 +11,8 @@ internal static class BotStateExtensions
 {
     /// <summary>
     /// Gets a value indicating whether the state is a side trip the bot finishes before it returns to its
-    /// routine: a town errand, a market shift, an announced event meeting or a revenge march. While one of
-    /// these runs, the errand's own flags on the player are still set - which is the invariant
+    /// routine: a town errand, a market shift, an announced event meeting, a quest step or a revenge march.
+    /// While one of these runs, the errand's own flags on the player are still set - which is the invariant
     /// <see cref="BotStateMachine.GuardViolations"/> watches over.
     /// </summary>
     /// <param name="state">The state.</param>
@@ -23,6 +23,7 @@ internal static class BotStateExtensions
             or BotState.ChaosMachine
             or BotState.MarketShift
             or BotState.EventMeeting
+            or BotState.Quest
             or BotState.Revenge;
 
     /// <summary>
