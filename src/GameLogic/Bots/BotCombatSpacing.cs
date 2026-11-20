@@ -101,7 +101,9 @@ internal static class BotCombatSpacing
     /// <summary>
     /// Finds a walkable tile away from the threat, up to the given distance. It first tries straight
     /// away from the threat and then the two diagonal escapes, because a wall or a river often blocks
-    /// exactly one direction.
+    /// exactly one direction. A point only counts when the whole way to it is walkable: a free tile
+    /// behind a wall is no escape, because the way around the obstacle would lead the ranged bot right
+    /// back past the melee opponent which already stands on top of it.
     /// </summary>
     /// <param name="map">The map.</param>
     /// <param name="from">The bot's position.</param>
@@ -139,9 +141,12 @@ internal static class BotCombatSpacing
                     continue;
                 }
 
-                if (map.Terrain.WalkMap[x, y] && !map.Terrain.SafezoneMap[x, y])
+                var point = new Point((byte)x, (byte)y);
+                if (map.Terrain.WalkMap[x, y]
+                    && !map.Terrain.SafezoneMap[x, y]
+                    && IsWayClear(map, from, point))
                 {
-                    return new Point((byte)x, (byte)y);
+                    return point;
                 }
             }
         }
@@ -166,6 +171,31 @@ internal static class BotCombatSpacing
         var shieldShare = GetShare(attributes[Stats.CurrentShield], attributes[Stats.MaximumShield]);
         var healthShare = GetShare(attributes[Stats.CurrentHealth], attributes[Stats.MaximumHealth]);
         return (int)(shieldShare * 1000) + (int)(healthShare * 100);
+    }
+
+    /// <summary>
+    /// Checks that every tile between the bot and a retreat point is walkable. The straight line is
+    /// enough as a test: it is cheap, and a lane blocked on its direct way is exactly the case which
+    /// makes the path finder lead the bot around the obstacle - and back towards the threat.
+    /// </summary>
+    /// <param name="map">The map.</param>
+    /// <param name="from">The bot's position.</param>
+    /// <param name="to">The retreat point.</param>
+    /// <returns><c>true</c> if no tile on the way is blocked.</returns>
+    private static bool IsWayClear(GameMap map, Point from, Point to)
+    {
+        var steps = Math.Max(Math.Abs(to.X - from.X), Math.Abs(to.Y - from.Y));
+        for (var i = 1; i < steps; i++)
+        {
+            var x = from.X + (int)Math.Round((to.X - from.X) * (double)i / steps);
+            var y = from.Y + (int)Math.Round((to.Y - from.Y) * (double)i / steps);
+            if (!map.Terrain.WalkMap[x, y])
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static float GetShare(float current, float maximum)

@@ -335,9 +335,12 @@ map at or below 70% health. Its learned party buffs are applied when missing.
 
 A bot that already has its configured combo unlocked can use a complete chain of
 available skills, including its equipped weapon's skill. It follows the server's
-combo definition and timing; if a skill becomes unavailable, the target changes,
-or the target moves out of range, it abandons the attempt. During a chain it can
-use carried potions without stopping to loot or cast buffs and heals.
+combo definition and timing. A target which steps out of reach, or a step which is
+only momentarily unaffordable (mana, ability), costs it a moment rather than the
+chain: it walks after the target, waits for the potion of the next tick, and only
+abandons the attempt when the completion window runs out or the target changes.
+During a chain it can use carried potions without stopping to loot or cast buffs
+and heals.
 
 A high-level Blade Knight without a combo runs the Marlon quest chain itself: it
 finds the wandering Marlon where he currently stands, takes *Hero Status* and
@@ -351,8 +354,10 @@ Fairy Elves, Soul Masters and Summoners fight from a distance and keep it: when 
 player or an invasion boss comes inside melee reach, a ranged bot steps a few
 tiles away before the next shot instead of facetanking the rush, and a Soul Master
 can break the hold with Teleport. Ordinary monsters are never a reason to kite -
-farming a wolf is no duel. The step-back has a short cooldown, so a bot
-repositions like a player instead of stuttering every tick.
+farming a wolf is no duel. It only retreats to a tile it can actually walk to: a
+free spot behind a wall would only lead the path finder around the obstacle and
+back past the attacker. The step-back has a short cooldown, so a bot repositions
+like a player instead of stuttering every tick.
 
 While a bot is hunting with no human observer or human party companion, its
 navigator reviews the hunting ground every two seconds instead of every half

@@ -75,7 +75,8 @@ public class BotCombatSpacingTest
 
     /// <summary>
     /// The retreat point is the walkable tile straight away from the threat; a blocked straight escape
-    /// falls back to a diagonal one, and a fully blocked map yields no point at all.
+    /// falls back to a diagonal one, and a fully blocked map yields no point at all. A free tile which
+    /// can only be reached around a wall is not a retreat point either.
     /// </summary>
     [Test]
     public async ValueTask RetreatsToAWalkableTileAwayFromTheThreatAsync()
@@ -102,7 +103,14 @@ public class BotCombatSpacingTest
 
         Assert.That(BotCombatSpacing.FindRetreatPoint(map, from, threat, 4), Is.Null, "every tile is blocked");
 
-        // A wall straight ahead: the diagonal escape is used instead.
+        // A free tile behind a wall is no escape: the path around the obstacle would lead the bot back
+        // past the threat it is trying to get away from.
+        walkMap[104, 100] = true;
+        Assert.That(BotCombatSpacing.FindRetreatPoint(map, from, threat, 4), Is.Null, "the straight way is walled off");
+
+        // A clear diagonal lane is used instead of the blocked straight one.
+        walkMap[101, 101] = true;
+        walkMap[102, 102] = true;
         walkMap[103, 103] = true;
         var diagonal = BotCombatSpacing.FindRetreatPoint(map, from, threat, 4);
         Assert.That(diagonal, Is.Not.Null);

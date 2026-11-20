@@ -464,6 +464,79 @@ public class CombatHandlerTests
         Assert.That(player.ComboState!.CurrentState, Is.EqualTo(player.ComboState.InitialState));
     }
 
+    /// <summary>
+    /// A target which steps out of reach costs the bot a step, not the whole chain: it walks after it
+    /// while the completion window is still open.
+    /// </summary>
+    [Test]
+    public async ValueTask BotComboHoldsWhileTheTargetIsOutOfReachAsync()
+    {
+        var skills = CreateComboSkills();
+        var player = await this.CreateComboBotAsync(skills).ConfigureAwait(false);
+        player.Attributes![Stats.IsSkillComboAvailable] = 1;
+        foreach (var skill in skills)
+        {
+            await player.SkillList!.AddLearnedSkillAsync(skill).ConfigureAwait(false);
+        }
+
+        var monster = await this.CreateMonsterAsync(new Point(101, 100)).ConfigureAwait(false);
+        await player.CurrentMap!.AddAsync(monster).ConfigureAwait(false);
+        var config = new MuHelperSettings { HuntingRange = 6 };
+        var handler = new CombatHandler(player, config, new MovementHandler(player, config));
+
+        // Acquire the target first: a fresh target costs the bot its human-like reaction delay, so the
+        // first call only turns towards it and the chain still starts at its first step.
+        await handler.PerformAttackAsync().ConfigureAwait(false);
+        await Task.Delay(1000).ConfigureAwait(false);
+        await handler.ExecuteBotComboAttackAsync(monster, handler.SelectBotComboSkill()!).ConfigureAwait(false);
+        var combo = player.ComboState!;
+        Assert.That(combo.CurrentState, Is.Not.EqualTo(combo.InitialState));
+
+        monster.Position = new Point(104, 100);
+        await handler.PerformAttackAsync().ConfigureAwait(false);
+
+        Assert.That(combo.CurrentState, Is.Not.EqualTo(combo.InitialState), "walking after the target keeps the chain");
+        Assert.That(handler.HasActiveBotCombo, Is.True);
+        Assert.That(player.IsWalking, Is.True);
+    }
+
+    /// <summary>
+    /// A combo step which is momentarily unaffordable waits for the recovery of the next tick instead
+    /// of dropping the chain - and only an expired attempt falls back to a normal attack.
+    /// </summary>
+    [Test]
+    public async ValueTask BotComboWaitsForResourcesAsync()
+    {
+        var skills = CreateComboSkills();
+        skills[1].ConsumeRequirements.Add(new AttributeRequirement { Attribute = Stats.CurrentMana, MinimumValue = 5 });
+        var player = await this.CreateComboBotAsync(skills).ConfigureAwait(false);
+        player.Attributes![Stats.IsSkillComboAvailable] = 1;
+        player.Attributes[Stats.CurrentMana] = 30;
+        foreach (var skill in skills)
+        {
+            await player.SkillList!.AddLearnedSkillAsync(skill).ConfigureAwait(false);
+        }
+
+        var monster = await this.CreateMonsterAsync(new Point(101, 100)).ConfigureAwait(false);
+        await player.CurrentMap!.AddAsync(monster).ConfigureAwait(false);
+        var config = new MuHelperSettings { HuntingRange = 6 };
+        var handler = new CombatHandler(player, config, new MovementHandler(player, config));
+
+        await handler.PerformAttackAsync().ConfigureAwait(false);
+        await Task.Delay(1000).ConfigureAwait(false);
+        await handler.ExecuteBotComboAttackAsync(monster, handler.SelectBotComboSkill()!).ConfigureAwait(false);
+        var combo = player.ComboState!;
+        Assert.That(combo.CurrentState, Is.Not.EqualTo(combo.InitialState));
+
+        player.Attributes[Stats.CurrentMana] = 0;
+        Assert.That(player.Attributes[Stats.CurrentMana], Is.EqualTo(0), "the mana bar is empty");
+        Assert.That(handler.SelectBotComboSkill(), Is.Null, "the next step needs mana");
+        await handler.PerformAttackAsync().ConfigureAwait(false);
+
+        Assert.That(combo.CurrentState, Is.Not.EqualTo(combo.InitialState), "the chain waits for the mana potion");
+        Assert.That(handler.HasActiveBotCombo, Is.True);
+    }
+
     private static TestSkill[] CreateComboSkills()
     {
         return

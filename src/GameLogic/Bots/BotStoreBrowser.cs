@@ -76,13 +76,21 @@ internal static class BotStoreBrowser
             return false;
         }
 
+        var moneyBefore = bot.Money;
         await BuyAction.BuyItemAsync(bot, offer.Seller, offer.Slot).ConfigureAwait(false);
+        if (bot.Money >= moneyBefore)
+        {
+            // The store re-reads its price under its own lock, so the offer may have been taken, priced
+            // up or left unpaid in the meantime. Only a purchase which actually cost money is reported.
+            return false;
+        }
+
         bot.Logger.LogDebug(
             "Bot '{Name}' bought '{Item}' from the store of '{Seller}' for {Price} zen.",
             bot.Name,
             offer.Item,
             offer.Seller.Name,
-            offer.Price);
+            moneyBefore - bot.Money);
         return true;
     }
 

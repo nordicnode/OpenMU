@@ -94,11 +94,17 @@ public sealed class HealingHandler
             return;
         }
 
-        if (this._config.UseHealPotion && this.IsHealthBelowThreshold(this._player, this._config.PotionThresholdPercent))
+        // Health comes first, but it must not block mana recovery: a chain which stopped because the
+        // mana bar ran dry has to be able to continue while the bot is still hurt - and a bot whose
+        // healing potions are used up drinks a mana potion instead of doing nothing at all.
+        if (this._config.UseHealPotion
+            && this.IsHealthBelowThreshold(this._player, this._config.PotionThresholdPercent)
+            && await this.UseHealthPotionAsync().ConfigureAwait(false))
         {
-            await this.UseHealthPotionAsync().ConfigureAwait(false);
+            return;
         }
-        else if (this._config.UseManaPotion && this.IsManaBelowThreshold())
+
+        if (this._config.UseManaPotion && this.IsManaBelowThreshold())
         {
             await this.UsePotionAsync(ManaPotionPriority).ConfigureAwait(false);
         }
@@ -138,12 +144,14 @@ public sealed class HealingHandler
             }
         }
 
-        if (this._config!.UseHealPotion && this.IsHealthBelowThreshold(this._player, this._config.PotionThresholdPercent))
+        if (this._config!.UseHealPotion
+            && this.IsHealthBelowThreshold(this._player, this._config.PotionThresholdPercent)
+            && await this.UseHealthPotionAsync().ConfigureAwait(false))
         {
-            await this.UseHealthPotionAsync().ConfigureAwait(false);
             return;
         }
 
+        // Out of healing potions: mana recovery still happens instead of the bot standing idle.
         if (this._config.UseManaPotion && this.IsManaBelowThreshold())
         {
             await this.UsePotionAsync(ManaPotionPriority).ConfigureAwait(false);
@@ -212,13 +220,18 @@ public sealed class HealingHandler
         return maxHp > 0 && (hp * 100.0 / maxHp) <= thresholdPercent;
     }
 
-    private ValueTask UseHealthPotionAsync() => this.UsePotionAsync(HealthPotionPriority);
+    private ValueTask<bool> UseHealthPotionAsync() => this.UsePotionAsync(HealthPotionPriority);
 
-    private async ValueTask UsePotionAsync(ItemIdentifier[] priority)
+    /// <summary>
+    /// Drinks the best available potion of the given priority list.
+    /// </summary>
+    /// <param name="priority">The potions, best first.</param>
+    /// <returns><c>true</c> if a potion was found and used; <c>false</c> if none of them is in the inventory.</returns>
+    private async ValueTask<bool> UsePotionAsync(ItemIdentifier[] priority)
     {
         if (this._player.Inventory is null)
         {
-            return;
+            return false;
         }
 
         foreach (var identifier in priority)
@@ -230,9 +243,11 @@ public sealed class HealingHandler
             {
                 await ConsumeAction.HandleConsumeRequestAsync(
                     this._player, potion.ItemSlot, potion.ItemSlot, FruitUsage.Undefined).ConfigureAwait(false);
-                return;
+                return true;
             }
         }
+
+        return false;
     }
 
     private SkillEntry? FindSkillByType(SkillType type)

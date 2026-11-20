@@ -414,7 +414,13 @@ public sealed class CombatHandler
 
         if (!this.IsTargetInAttackRange(this._currentTarget, attackRange))
         {
-            if (this.IsBot && this._player.ComboState is { } combo && combo.CurrentState != combo.InitialState)
+            // A target which stepped out of reach is no reason to drop the chain by itself: like a
+            // player, the bot walks after it while the completion window is still open. Only an
+            // attempt which ran out of time is given up here.
+            if (this.IsBot
+                && this._player.ComboState is { } combo
+                && combo.CurrentState != combo.InitialState
+                && combo.IsCurrentAttemptExpired)
             {
                 await this.ResetBotComboAsync(combo).ConfigureAwait(false);
             }
@@ -452,8 +458,15 @@ public sealed class CombatHandler
         }
         else if (this.IsBot && this._player.ComboState is { } unavailableCombo && unavailableCombo.CurrentState != unavailableCombo.InitialState)
         {
-            await this.ResetBotComboAsync(unavailableCombo).ConfigureAwait(false);
-            await this.ExecuteAttackAsync(this._currentTarget).ConfigureAwait(false);
+            // The next step is momentarily unavailable - typically mana or ability dipped below its
+            // requirement. The chain waits for the recovery of the next tick instead of being thrown
+            // away on the spot; only an attempt past its completion window is abandoned for a normal
+            // attack (a permanently lost skill therefore costs one window, not the chain).
+            if (unavailableCombo.IsCurrentAttemptExpired)
+            {
+                await this.ResetBotComboAsync(unavailableCombo).ConfigureAwait(false);
+                await this.ExecuteAttackAsync(this._currentTarget).ConfigureAwait(false);
+            }
         }
         else if (this._config?.UseCombo == true)
         {
@@ -1329,12 +1342,15 @@ public sealed class CombatHandler
             return;
         }
 
-        var now = DateTime.UtcNow;
-        this._nextRetreatUtc = now + BotCombatSpacing.KiteCooldown;
         if (this._player.IsWalking)
         {
+            // The running step already moves the bot; the cooldown must not be spent on it, or the
+            // bot would stand in melee reach until it runs out.
             return;
         }
+
+        var now = DateTime.UtcNow;
+        this._nextRetreatUtc = now + BotCombatSpacing.KiteCooldown;
 
         // A blink breaks the enemy's combo lock; walking away from a melee rusher who sticks to the
         // bot would not. It costs mana, so it is used for close threats only, not for every retreat.
