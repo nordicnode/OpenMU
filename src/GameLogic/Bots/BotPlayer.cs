@@ -123,12 +123,26 @@ public sealed class BotPlayer : OfflinePlayer
     /// </summary>
     internal BotHealthSupervisor Health { get; set; } = new();
 
+    /// <inheritdoc />
+    /// <remarks>
+    /// A bot opens its store only on a market shift (see <see cref="BotMarketShift"/>): a store which was
+    /// open when it logged out must stay closed after the next login, wherever the bot enters the game.
+    /// </remarks>
+    protected override bool IsPlayerStoreOpeningAfterEnterSupported => false;
+
     /// <summary>
     /// Forgets the failures, the restarts and the quarantine of this bot's character, so it is allowed to run and to be
     /// restarted again. This is the operator's answer to "I fixed the cause" - the policy itself is unchanged, and a
     /// bot which still fails every tick simply keeps asking for a restart.
     /// </summary>
     public void ResetHealth() => this.Health.Reset();
+
+    /// <inheritdoc />
+    public override async ValueTask StopAsync()
+    {
+        await this.StopNavigatorAsync().ConfigureAwait(false);
+        await base.StopAsync().ConfigureAwait(false);
+    }
 
     /// <summary>
     /// Records a loot decision for the administration surfaces. Every decision is kept in the small
@@ -148,20 +162,6 @@ public sealed class BotPlayer : OfflinePlayer
                 this._recentLootDecisions.RemoveAt(this._recentLootDecisions.Count - 1);
             }
         }
-    }
-
-    /// <inheritdoc />
-    /// <remarks>
-    /// A bot opens its store only on a market shift (see <see cref="BotMarketShift"/>): a store which was
-    /// open when it logged out must stay closed after the next login, wherever the bot enters the game.
-    /// </remarks>
-    protected override bool IsPlayerStoreOpeningAfterEnterSupported => false;
-
-    /// <inheritdoc />
-    public override async ValueTask StopAsync()
-    {
-        await this.StopNavigatorAsync().ConfigureAwait(false);
-        await base.StopAsync().ConfigureAwait(false);
     }
 
     /// <inheritdoc />

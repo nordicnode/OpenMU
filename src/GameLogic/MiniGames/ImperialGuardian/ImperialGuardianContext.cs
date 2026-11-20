@@ -30,9 +30,10 @@ public sealed class ImperialGuardianContext : MiniGameContext
     private const TerrainAttributeType GateTerrainAttribute = TerrainAttributeType.Water;
 
     /// <summary>
-    /// The duration of the countdown between the entering phase and the start of the game.
+    /// The duration of the standby countdown between the entering phase and the start of the game. The
+    /// field is named after the timer it feeds, so it doesn't shadow <see cref="MiniGameContext.CountdownDuration"/>.
     /// </summary>
-    private static readonly TimeSpan CountdownDuration = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan StandbyCountdownDuration = TimeSpan.FromSeconds(30);
 
     private static readonly TimeSpan TimerInterval = TimeSpan.FromSeconds(1);
 
@@ -76,7 +77,7 @@ public sealed class ImperialGuardianContext : MiniGameContext
             .DefaultIfEmpty(0)
             .Max());
         this._weather = (ImperialGuardianWeather)Rand.NextInt(0, 4);
-        this._timer = new TimerState(ImperialGuardianTimerType.Standby, this.EnterEndsAtUtc.Add(CountdownDuration));
+        this._timer = new TimerState(ImperialGuardianTimerType.Standby, this.EnterEndsAtUtc.Add(StandbyCountdownDuration));
 
         _ = Task.Run(() => this.RunTimerLoopAsync(this.GameEndedToken), this.GameEndedToken);
     }
@@ -172,7 +173,7 @@ public sealed class ImperialGuardianContext : MiniGameContext
                 {
                     // The entering phase is over, e.g. because it was skipped, so the countdown until the start is shown.
                     isCountdownShown = true;
-                    this.SetTimer(ImperialGuardianTimerType.Standby, CountdownDuration);
+                    this.SetTimer(ImperialGuardianTimerType.Standby, StandbyCountdownDuration);
                 }
 
                 var timerState = Volatile.Read(ref this._timer);

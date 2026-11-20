@@ -65,7 +65,7 @@ public class ObjectMovedPlugInExtended : ObjectMovedPlugIn
 
     private void SetStepData(ObjectWalkedExtendedRef walkPacket, Span<Direction> steps, int stepsSize)
     {
-        if (steps == default || walkPacket.StepCount == 0)
+        if (steps.IsEmpty || walkPacket.StepCount == 0)
         {
             return;
         }

@@ -95,7 +95,7 @@ public class Scrolls : InitializerBase
 
         scroll.Value = money;
         scroll.SetGuid(scroll.Group, scroll.Number);
-        var classes = this.GameConfiguration.DetermineCharacterClasses(darkWizardClassLevel, darkKnightClassLevel, elfClassLevel, magicGladiatorClassLevel, darkLordClassLevel, summonerClassLevel, ragefighterClassLevel);
+        var classes = this.GameConfiguration.DetermineCharacterClasses(CharacterClassHelper.FromClassRanks(darkWizardClassLevel, darkKnightClassLevel, elfClassLevel, magicGladiatorClassLevel, darkLordClassLevel, summonerClassLevel, ragefighterClassLevel), ignoreMissing: true);
         foreach (var characterClass in classes)
         {
             scroll.QualifiedCharacters.Add(characterClass);

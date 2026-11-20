@@ -33,20 +33,6 @@ public static class BotPvpRules
     private static readonly TimeSpan SelfDefenseSafetyMargin = TimeSpan.FromSeconds(3);
 
     /// <summary>
-    /// Determines whether the bot is in a running duel against the given player. The duel must have
-    /// started: during the countdown the game doesn't exempt the kill from the player killer penalty yet.
-    /// </summary>
-    /// <param name="bot">The bot which wants to attack.</param>
-    /// <param name="target">The player it wants to attack.</param>
-    /// <returns><c>true</c> if both players are duelists of the same running duel.</returns>
-    internal static bool IsRunningDuelOpponent(Player bot, Player target)
-        => !ReferenceEquals(bot, target)
-           && bot.DuelRoom is { State: DuelState.DuelStarted } duelRoom
-           && ReferenceEquals(duelRoom, target.DuelRoom)
-           && duelRoom.IsDuelist(bot)
-           && duelRoom.IsDuelist(target);
-
-    /// <summary>
     /// Determines whether the bot may legally attack the given player, i.e. without any risk of
     /// escalating the bot's own <see cref="HeroState"/>.
     /// </summary>
@@ -97,4 +83,18 @@ public static class BotPvpRules
 
         return false;
     }
+
+    /// <summary>
+    /// Determines whether the bot is in a running duel against the given player. The duel must have
+    /// started: during the countdown the game doesn't exempt the kill from the player killer penalty yet.
+    /// </summary>
+    /// <param name="bot">The bot which wants to attack.</param>
+    /// <param name="target">The player it wants to attack.</param>
+    /// <returns><c>true</c> if both players are duelists of the same running duel.</returns>
+    internal static bool IsRunningDuelOpponent(Player bot, Player target)
+        => !ReferenceEquals(bot, target)
+           && bot.DuelRoom is { State: DuelState.DuelStarted } duelRoom
+           && ReferenceEquals(duelRoom, target.DuelRoom)
+           && duelRoom.IsDuelist(bot)
+           && duelRoom.IsDuelist(target);
 }

@@ -80,20 +80,6 @@ internal sealed class BotChatConversationResponder
     }
 
     /// <summary>
-    /// Gets the configured lines which answer a whisper to a bot with an active meeting.
-    /// </summary>
-    /// <param name="configuration">The chat configuration.</param>
-    /// <param name="state">The state of the meeting.</param>
-    /// <returns>The lines of the state, or <c>null</c> for a terminal state.</returns>
-    private static ICollection<BotChatLine>? GetMeetingStatusLines(BotChatConfiguration configuration, BotMeetingState state)
-        => state switch
-        {
-            BotMeetingState.Waiting => configuration.PartyWaitingLines ?? [],
-            BotMeetingState.Announced or BotMeetingState.Traveling => configuration.PartyOnTheWayLines ?? [],
-            _ => null,
-        };
-
-    /// <summary>
     /// Answers the player's suggestion where to meet: it names the place back, and either walks to its
     /// entry NPC and waits there (the meeting, see <see cref="BotEventMeeting"/>) or explains that it can't
     /// go there - in which case the player may name another place until the offer expires.
@@ -200,6 +186,20 @@ internal sealed class BotChatConversationResponder
         WhisperLater(bot, requester, line, values, language);
         return true;
     }
+
+    /// <summary>
+    /// Gets the configured lines which announce the state of a meeting.
+    /// </summary>
+    /// <param name="configuration">The chat configuration.</param>
+    /// <param name="state">The state of the meeting.</param>
+    /// <returns>The lines of the state, or <c>null</c> for a terminal state.</returns>
+    private static ICollection<BotChatLine>? GetMeetingStatusLines(BotChatConfiguration configuration, BotMeetingState state)
+        => state switch
+        {
+            BotMeetingState.Waiting => configuration.PartyWaitingLines ?? [],
+            BotMeetingState.Announced or BotMeetingState.Traveling => configuration.PartyOnTheWayLines ?? [],
+            _ => null,
+        };
 
     /// <summary>
     /// Whispers a line to the player after the typing delay, as it runs in the MU Helper tick.

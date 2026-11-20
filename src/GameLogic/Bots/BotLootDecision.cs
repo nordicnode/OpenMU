@@ -19,6 +19,11 @@ internal readonly record struct BotLootDecision(BotLootAction Action, BotLootRea
     public bool IsJunk => this.Action is BotLootAction.Sell or BotLootAction.Store;
 
     /// <summary>
+    /// Gets the stable, lower-case code used in logs, e.g. <c>store/market_candidate</c>.
+    /// </summary>
+    public string Code => $"{this.ActionCode}/{this.ReasonCode}";
+
+    /// <summary>
     /// Gets the stable, lower-case action code, e.g. <c>store</c>.
     /// </summary>
     internal string ActionCode => ToCode(this.Action);
@@ -27,11 +32,6 @@ internal readonly record struct BotLootDecision(BotLootAction Action, BotLootRea
     /// Gets the stable, lower-case reason code, e.g. <c>market_candidate</c>.
     /// </summary>
     internal string ReasonCode => ToCode(this.Reason);
-
-    /// <summary>
-    /// Gets the stable, lower-case code used in logs, e.g. <c>store/market_candidate</c>.
-    /// </summary>
-    public string Code => $"{this.ActionCode}/{this.ReasonCode}";
 
     /// <inheritdoc />
     public override string ToString()

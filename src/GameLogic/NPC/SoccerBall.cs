@@ -37,7 +37,9 @@ public sealed class SoccerBall : NonPlayerCharacter, IAttackable, IMovable
     public event AsyncEventHandler<(Point From, Point To)>? Moved;
 
     /// <inheritdoc />
+#pragma warning disable CS0067 // required by IAttackable; a soccer ball is never killed, so it never dies
     public event EventHandler<DeathInformation>? Died;
+#pragma warning restore CS0067
 
     /// <inheritdoc />
     public IAttributeSystem Attributes { get; }

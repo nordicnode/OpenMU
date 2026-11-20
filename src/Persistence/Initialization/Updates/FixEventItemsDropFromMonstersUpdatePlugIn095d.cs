@@ -17,14 +17,15 @@ using MUnique.OpenMU.PlugIns;
 public class FixEventItemsDropFromMonstersUpdatePlugIn095d : FixEventItemsDropFromMonstersUpdatePlugInBase
 {
     /// <summary>
-    /// The plug in name.
+    /// The plug in name. It deliberately shadows the base constant: the version is what tells the two
+    /// updates apart in the admin panel.
     /// </summary>
-    internal const string PlugInName = "Fix Event Items DropsFromMonsters 0.95d";
+    internal new const string PlugInName = "Fix Event Items DropsFromMonsters 0.95d";
 
     /// <summary>
-    /// The plug in description.
+    /// The plug in description. It shadows the base constant for the same reason as <see cref="PlugInName"/>.
     /// </summary>
-    internal const string PlugInDescription = "This update fixes event items that have DropsFromMonsters set to true, causing them to drop at level 0 instead of using their dedicated DropItemGroups.";
+    internal new const string PlugInDescription = "This update fixes event items that have DropsFromMonsters set to true, causing them to drop at level 0 instead of using their dedicated DropItemGroups.";
 
     /// <inheritdoc />
     public override string DataInitializationKey => Version095d.DataInitialization.Id;

@@ -99,9 +99,45 @@ public static class CharacterClassHelper
         var characterClasses = gameConfiguration.CharacterClasses;
         foreach (var characterClassNumber in NumberMapping.Where(c => classes.HasFlag(c.Classes)).Select(c => c.Number))
         {
-            yield return characterClasses.First(c => c.Number == (int)characterClassNumber);
+            if (characterClasses.FirstOrDefault(c => c.Number == (int)characterClassNumber) is { } characterClass)
+            {
+                yield return characterClass;
+            }
+            else if (!ignoreMissing)
+            {
+                throw new InvalidOperationException($"The game configuration does not contain the character class {characterClassNumber}.");
+            }
         }
     }
+
+    /// <summary>
+    /// Converts the class ranks of the original game data into the flags of the character classes they
+    /// unlock, so a caller which is handed ranks can use the enum overload of
+    /// <see cref="DetermineCharacterClasses(GameConfiguration, CharacterClasses, bool)"/>.
+    /// </summary>
+    /// <remarks>
+    /// A rank says how far a class tree is developed for an item: 0 means the item is not for that tree,
+    /// 1 and 2 unlock the whole tree (first, second and master class), and 3 only the master class -
+    /// exactly what the obsolete rank-based overload does. Like that overload, the flags are meant to be
+    /// resolved with <c>ignoreMissing: true</c>: the older configurations don't contain every class a rank
+    /// can name.
+    /// </remarks>
+    /// <param name="wizardClass">Class rank of the wizard class.</param>
+    /// <param name="knightClass">Class rank of the knight class.</param>
+    /// <param name="elfClass">Class rank of the elf class.</param>
+    /// <param name="magicGladiatorClass">Class rank of the magic gladiator class.</param>
+    /// <param name="darkLordClass">Class rank of the dark lord class.</param>
+    /// <param name="summonerClass">Class rank of the summoner class.</param>
+    /// <param name="ragefighterClass">Class rank of the ragefighter class.</param>
+    /// <returns>The flags of the classes which the ranks unlock.</returns>
+    public static CharacterClasses FromClassRanks(int wizardClass, int knightClass, int elfClass, int magicGladiatorClass, int darkLordClass, int summonerClass, int ragefighterClass)
+        => FromClassRank(wizardClass, CharacterClasses.GrandMaster, CharacterClasses.SoulMaster, CharacterClasses.DarkWizard)
+           | FromClassRank(knightClass, CharacterClasses.BladeMaster, CharacterClasses.BladeKnight, CharacterClasses.DarkKnight)
+           | FromClassRank(elfClass, CharacterClasses.HighElf, CharacterClasses.MuseElf, CharacterClasses.FairyElf)
+           | FromClassRank(magicGladiatorClass, CharacterClasses.DuelMaster, null, CharacterClasses.MagicGladiator)
+           | FromClassRank(darkLordClass, CharacterClasses.LordEmperor, null, CharacterClasses.DarkLord)
+           | FromClassRank(summonerClass, CharacterClasses.DimensionMaster, CharacterClasses.BloodySummoner, CharacterClasses.Summoner)
+           | FromClassRank(ragefighterClass, CharacterClasses.FistMaster, null, CharacterClasses.RageFighter);
 
     /// <summary>
     /// Determines the <see cref="CharacterClass"/>es, depending on the given classes which are provided by original configuration files.
@@ -205,5 +241,28 @@ public static class CharacterClassHelper
     public static ConstValueAttribute CreateConstValueAttribute(IContext context, GameConfiguration gameConfiguration, float value, AttributeDefinition attribute, AggregateType aggregateType = AggregateType.AddRaw)
     {
         return context.CreateNew<ConstValueAttribute>(value, attribute.GetPersistent(gameConfiguration), aggregateType);
+    }
+
+    /// <summary>
+    /// Converts the class rank of one class tree into the flags of the classes it unlocks.
+    /// </summary>
+    /// <param name="classRank">The class rank from the original game data.</param>
+    /// <param name="masterClass">The flag of the master class of the tree.</param>
+    /// <param name="secondClass">The flag of the second class of the tree, if it has one.</param>
+    /// <param name="firstClass">The flag of the first class of the tree.</param>
+    /// <returns>The flags of the classes which the rank unlocks.</returns>
+    private static CharacterClasses FromClassRank(int classRank, CharacterClasses masterClass, CharacterClasses? secondClass, CharacterClasses firstClass)
+    {
+        if (classRank <= 0)
+        {
+            return CharacterClasses.None;
+        }
+
+        if (classRank < 3)
+        {
+            return masterClass | firstClass | (secondClass ?? CharacterClasses.None);
+        }
+
+        return masterClass;
     }
 }

@@ -132,11 +132,16 @@ public class CompiledModelTests
             return factory(property, property.DeclaringType).GetType();
         }
 
+        // The compiled model keeps the factory as the type of the annotation value instead of a delegate,
+        // and EF Core exposes that annotation name only through its internal API. The whole point of this
+        // test is to compare the two models, so there is no public alternative to use here.
+#pragma warning disable EF1001 // Internal EF Core API usage.
         if (property.FindAnnotation(CoreAnnotationNames.ValueGeneratorFactoryType)?.Value is Type factoryType
             && Activator.CreateInstance(factoryType) is ValueGeneratorFactory typeBasedFactory)
         {
             return typeBasedFactory.Create(property, property.DeclaringType).GetType();
         }
+#pragma warning restore EF1001 // Internal EF Core API usage.
 
         return null;
     }

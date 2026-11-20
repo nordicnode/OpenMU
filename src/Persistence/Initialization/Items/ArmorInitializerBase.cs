@@ -429,7 +429,7 @@ public abstract class ArmorInitializerBase : InitializerBase
             armor.BasePowerUpAttributes.Add(powerUp);
         }
 
-        var classes = this.GameConfiguration.DetermineCharacterClasses(darkWizardClassLevel, darkKnightClassLevel, elfClassLevel, magicGladiatorClassLevel, darkLordClassLevel, summonerClassLevel, ragefighterClassLevel);
+        var classes = this.GameConfiguration.DetermineCharacterClasses(CharacterClassHelper.FromClassRanks(darkWizardClassLevel, darkKnightClassLevel, elfClassLevel, magicGladiatorClassLevel, darkLordClassLevel, summonerClassLevel, ragefighterClassLevel), ignoreMissing: true);
         foreach (var characterClass in classes)
         {
             armor.QualifiedCharacters.Add(characterClass);

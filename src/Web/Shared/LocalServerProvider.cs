@@ -22,7 +22,9 @@ public sealed class LocalServerProvider : IServerProvider
     }
 
     /// <inheritdoc />
+#pragma warning disable CS0067 // required by IServerProvider; the local list is fixed, so nothing changes
     public event PropertyChangedEventHandler? PropertyChanged;
+#pragma warning restore CS0067
 
     /// <inheritdoc />
     public IList<IManageableServer> Servers { get; }

@@ -216,6 +216,7 @@ public static class EnumExtensions
         {
             GameLogic.Views.Guild.GuildRelationshipChangeResultType.Failed => Network.Packets.ServerToClient.GuildRelationshipChangeResult.GuildRelationshipChangeResultType.Failed,
             GameLogic.Views.Guild.GuildRelationshipChangeResultType.Success => Network.Packets.ServerToClient.GuildRelationshipChangeResult.GuildRelationshipChangeResultType.Success,
+
             // The client reads 0x10 (GuildNotFound) of this packet as FailedDuringCastleSiege, which shares the value,
             // so a missing guild is sent as the generic failure.
             GameLogic.Views.Guild.GuildRelationshipChangeResultType.GuildNotFound => Network.Packets.ServerToClient.GuildRelationshipChangeResult.GuildRelationshipChangeResultType.Failed,

@@ -87,7 +87,7 @@ public class Orbs : InitializerBase
         this.CreateItemRequirementIfNeeded(orb, Stats.TotalLeadership, leadershipRequirement);
 
         orb.Value = money;
-        var classes = this.GameConfiguration.DetermineCharacterClasses(darkWizardClassLevel, darkKnightClassLevel, elfClassLevel, magicGladiatorClassLevel, darkLordClassLevel, summonerClassLevel, ragefighterClassLevel);
+        var classes = this.GameConfiguration.DetermineCharacterClasses(CharacterClassHelper.FromClassRanks(darkWizardClassLevel, darkKnightClassLevel, elfClassLevel, magicGladiatorClassLevel, darkLordClassLevel, summonerClassLevel, ragefighterClassLevel), ignoreMissing: true);
         foreach (var characterClass in classes)
         {
             orb.QualifiedCharacters.Add(characterClass);

@@ -568,10 +568,12 @@ public class MiniGameStartPlugInTests
         public MiniGameContext? GameToCreate { get; set; }
 
         /// <inheritdoc />
+#pragma warning disable CS0067 // required by IMiniGameManager; a canned test manager never raises them
         public event EventHandler<GameMap>? GameMapCreated;
 
         /// <inheritdoc />
         public event EventHandler<GameMap>? GameMapRemoved;
+#pragma warning restore CS0067
 
         /// <inheritdoc />
         public IReadOnlyList<GameMap> Maps => this.Games.Select(game => game.Map).ToList();

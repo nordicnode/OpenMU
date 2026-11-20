@@ -29,7 +29,9 @@ internal class CharacterAppearanceDataAdapter : IAppearanceData
     /// Occurs when the appearance of the player changed.
     /// </summary>
     /// <remarks>This never happens in this implementation.</remarks>
+#pragma warning disable CS0067 // required by IAppearanceData; this adapter is a snapshot and never changes
     public event EventHandler? AppearanceChanged;
+#pragma warning restore CS0067
 
     /// <inheritdoc/>
     public CharacterClass? CharacterClass => this._character?.CharacterClass;

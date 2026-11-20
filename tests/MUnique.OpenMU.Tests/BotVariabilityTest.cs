@@ -180,7 +180,8 @@ public class BotVariabilityTest
 
     /// <summary>
     /// The dial means what its name says: a hit which is too big for a cautious bot is still acceptable to
-    /// an aggressive one. Deliberately measured through <see cref="Offline.CombatHandler.IsSafeTarget"/>
+    /// an aggressive one. Deliberately measured through
+    /// <see cref="MUnique.OpenMU.GameLogic.Offline.CombatHandler.IsSafeTarget"/>
     /// rather than on the profile numbers, because a tolerance factor applied to a maximum is easy to get
     /// backwards - and did ship backwards once.
     /// </summary>

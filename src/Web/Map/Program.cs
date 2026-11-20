@@ -24,7 +24,12 @@ public class Program
             .ConfigureServices(serviceCollection =>
             {
                 serviceCollection.AddSingleton<IObservableGameServer, NullGameServer>();
+
+                // This project is the standalone map host, which is obsolete in favour of the map view of
+                // the admin panel - but it is still what starts it, so this is the intended use.
+#pragma warning disable CS0612 // Use of obsolete member
                 serviceCollection.AddHostedService<MapApp>();
+#pragma warning restore CS0612 // Use of obsolete member
             })
             .Build();
         host.Run();
@@ -36,7 +41,9 @@ public class Program
     private class NullGameServer : IObservableGameServer
     {
         /// <inheritdoc />
+#pragma warning disable CS0067 // required by IObservableGameServer; this null implementation has no state which could change
         public event PropertyChangedEventHandler? PropertyChanged;
+#pragma warning restore CS0067
 
         /// <inheritdoc />
         public int Id { get; }
