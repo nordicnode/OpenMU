@@ -1452,6 +1452,12 @@
   <data name="BotRevengePlugIn_Description" xml:space="preserve">
     <value>Lässt serverseitige Bots zu ihrem Todesort zurückkehren und sich an dem Spieler rächen, der sie getötet hat.</value>
   </data>
+  <data name="BotDuelPlugIn_Name" xml:space="preserve">
+    <value>Duelle der Bots</value>
+  </data>
+  <data name="BotDuelPlugIn_Description" xml:space="preserve">
+    <value>Beantwortet Duell-Anfragen an serverseitige Bots: eine faire Herausforderung wird angenommen, wenn Duelle in der Bot-Konfiguration aktiviert sind, alles andere wird abgelehnt.</value>
+  </data>
   <data name="BotSkillProgressionPlugIn_Name" xml:space="preserve">
     <value>Fähigkeitsfortschritt der Bots</value>
   </data>

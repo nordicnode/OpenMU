@@ -547,6 +547,119 @@ public class CombatHandlerTests
         ];
     }
 
+    /// <summary>
+    /// A running duel makes the bot fight its partner instead of the monsters around it. The duel
+    /// partner is a player, which the bot otherwise only attacks in self-defense or in an event.
+    /// </summary>
+    [Test]
+    public async ValueTask BotFightsItsDuelOpponentAsync()
+    {
+        var player = await this.CreateComboBotAsync(CreateComboSkills()).ConfigureAwait(false);
+        var opponent = await PlayerTestHelper.CreatePlayerAsync(this._gameContext).ConfigureAwait(false);
+        opponent.IsAlive = true;
+        opponent.Position = new Point((byte)(this._origin.X + 2), this._origin.Y);
+
+        var monster = await this.CreateMonsterAsync(new Point((byte)(this._origin.X + 1), (byte)(this._origin.Y + 2))).ConfigureAwait(false);
+        await player.CurrentMap!.AddAsync(monster).ConfigureAwait(false);
+
+        var room = new DuelRoom(new Mock<DuelArea>().Object, opponent, player) { State = DuelState.DuelStarted };
+        player.DuelRoom = room;
+        opponent.DuelRoom = room;
+
+        var config = new MuHelperSettings { HuntingRange = 6 };
+        var handler = new CombatHandler(player, config, new MovementHandler(player, config));
+
+        await handler.PerformAttackAsync().ConfigureAwait(false);
+
+        Assert.That(handler.HasPlayerOpponent, Is.True, "the duel partner outranks the monster next to it");
+    }
+
+    /// <summary>Without a duel, the same bot leaves the player alone and hunts the monster.</summary>
+    [Test]
+    public async ValueTask BotWithoutADuelLeavesAPlayerAloneAsync()
+    {
+        var player = await this.CreateComboBotAsync(CreateComboSkills()).ConfigureAwait(false);
+        var bystander = await PlayerTestHelper.CreatePlayerAsync(this._gameContext).ConfigureAwait(false);
+        bystander.IsAlive = true;
+        bystander.Position = new Point((byte)(this._origin.X + 2), this._origin.Y);
+
+        var monster = await this.CreateMonsterAsync(new Point((byte)(this._origin.X + 1), (byte)(this._origin.Y + 2))).ConfigureAwait(false);
+        await player.CurrentMap!.AddAsync(monster).ConfigureAwait(false);
+
+        var config = new MuHelperSettings { HuntingRange = 6 };
+        var handler = new CombatHandler(player, config, new MovementHandler(player, config));
+
+        await handler.PerformAttackAsync().ConfigureAwait(false);
+
+        Assert.That(handler.HasPlayerOpponent, Is.False);
+    }
+
+    /// <summary>
+    /// The blade knight combo is finished with Death Stab, a direct hit which also hits everything
+    /// around its target. The chain has to accept that target kind, or the bot stops one step short
+    /// of its own finisher.
+    /// </summary>
+    [Test]
+    public async ValueTask BotComboAcceptsAnImplicitSplashFinisherAsync()
+    {
+        var skills = CreateComboSkills();
+        skills[2].Target = SkillTarget.ExplicitWithImplicitInRange;
+        skills[2].ImplicitTargetRange = 2;
+        var player = await this.CreateComboBotAsync(skills).ConfigureAwait(false);
+        player.Attributes![Stats.IsSkillComboAvailable] = 1;
+        foreach (var skill in skills)
+        {
+            await player.SkillList!.AddLearnedSkillAsync(skill).ConfigureAwait(false);
+        }
+
+        var monster = await this.CreateMonsterAsync(new Point(101, 100)).ConfigureAwait(false);
+        await player.CurrentMap!.AddAsync(monster).ConfigureAwait(false);
+        var config = new MuHelperSettings { HuntingRange = 6 };
+        var handler = new CombatHandler(player, config, new MovementHandler(player, config));
+        var combo = player.ComboState!;
+
+        await handler.ExecuteBotComboAttackAsync(monster, handler.SelectBotComboSkill()!).ConfigureAwait(false);
+        await handler.ExecuteBotComboAttackAsync(monster, handler.SelectBotComboSkill()!).ConfigureAwait(false);
+        Assert.That(handler.SelectBotComboSkill()?.Skill, Is.SameAs(skills[2]), "the finisher must be reachable");
+
+        await handler.ExecuteBotComboAttackAsync(monster, handler.SelectBotComboSkill()!).ConfigureAwait(false);
+        Assert.That(combo.CurrentState, Is.EqualTo(combo.InitialState), "the chain completed");
+    }
+
+    /// <summary>
+    /// A skill which splashes around its target is left unused while a player stands near the target
+    /// who is not a legal PvP target - the splash would make the bot an outlaw otherwise.
+    /// </summary>
+    [Test]
+    public async ValueTask BotDoesNotSplashAnIllegalBystanderAsync()
+    {
+        var skills = CreateComboSkills();
+        skills[2].Target = SkillTarget.ExplicitWithImplicitInRange;
+        skills[2].ImplicitTargetRange = 2;
+        var player = await this.CreateComboBotAsync(skills).ConfigureAwait(false);
+        foreach (var skill in skills)
+        {
+            await player.SkillList!.AddLearnedSkillAsync(skill).ConfigureAwait(false);
+        }
+
+        var monster = await this.CreateMonsterAsync(new Point(101, 100)).ConfigureAwait(false);
+        await player.CurrentMap!.AddAsync(monster).ConfigureAwait(false);
+        var config = new MuHelperSettings { HuntingRange = 6 };
+        var handler = new CombatHandler(player, config, new MovementHandler(player, config));
+        await handler.PerformAttackAsync().ConfigureAwait(false);
+        Assert.That(handler.WouldHitIllegalPlayer(skills[2]), Is.False, "nobody else stands next to the monster");
+
+        // The game passes players to the splash only with this setting - and then a bystander counts.
+        this._gameContext.Configuration.AreaSkillHitsPlayer = true;
+        var bystander = await PlayerTestHelper.CreatePlayerAsync(this._gameContext).ConfigureAwait(false);
+        bystander.IsAlive = true;
+        bystander.SelectedCharacter!.PositionX = (byte)(this._origin.X + 2);
+        bystander.SelectedCharacter.PositionY = (byte)(this._origin.Y - 1);
+        await player.CurrentMap!.AddAsync(bystander).ConfigureAwait(false);
+
+        Assert.That(handler.WouldHitIllegalPlayer(skills[2]), Is.True, "the splash would hit the bystander");
+    }
+
     private async ValueTask<OfflinePlayer> CreateComboBotAsync(TestSkill[] skills, TimeSpan? maximumCompletionTime = null, bool configureAfterLogin = false, bool includeComboAttribute = true)
     {
         var definition = new TestComboDefinition { MaximumCompletionTime = maximumCompletionTime ?? TimeSpan.FromSeconds(3) };

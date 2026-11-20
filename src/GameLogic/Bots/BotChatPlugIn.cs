@@ -13,7 +13,6 @@ using MUnique.OpenMU.GameLogic.Attributes;
 using MUnique.OpenMU.GameLogic.MiniGames;
 using MUnique.OpenMU.GameLogic.NPC;
 using MUnique.OpenMU.GameLogic.Offline;
-using MUnique.OpenMU.GameLogic.PlayerActions.Duel;
 using MUnique.OpenMU.GameLogic.PlugIns;
 using MUnique.OpenMU.GameLogic.PlugIns.PeriodicTasks;
 using MUnique.OpenMU.GameLogic.Views;
@@ -485,26 +484,16 @@ public class BotChatPlugIn
     /// <inheritdoc />
     public ValueTask DuelRequestedAsync(Player requester, Player target)
     {
-        // A bot only duels when the operator enabled it and the challenge is fair (see BotDuelHandler).
-        // Accepting answers the request like a player would - in its next MU Helper tick, because the
-        // acceptance warps both duelists. Otherwise it refuses, like a player clicking "no", and says why.
+        // The answer itself is given by BotDuelPlugIn, which listens for every bot - a bot's duel
+        // behavior must not depend on the optional chat. This plugin only adds the line which explains
+        // a refusal; accepting stays silent, the duel itself is the answer.
         if (this.Configuration is { } configuration
             && BotChatAudience.IsBot(target)
-            && requester is not OfflinePlayer)
+            && requester is not OfflinePlayer
+            && target is OfflinePlayer bot
+            && !BotDuelHandler.CanAccept(bot, requester))
         {
-            if (target is OfflinePlayer bot && BotDuelHandler.CanAccept(bot, requester))
-            {
-                bot.PendingBotActions.Enqueue(async () =>
-                {
-                    if (!await BotDuelHandler.TryAcceptAsync(bot, requester).ConfigureAwait(false))
-                    {
-                        this.DeclineLater(bot, requester, configuration, configuration.DuelDeclineLines, () => RefuseDuelAsync(bot, requester));
-                    }
-                });
-                return ValueTask.CompletedTask;
-            }
-
-            this.DeclineLater(target, requester, configuration, configuration.DuelDeclineLines, () => RefuseDuelAsync(target, requester));
+            this.DeclineLater(bot, requester, configuration, configuration.DuelDeclineLines, null);
         }
 
         return ValueTask.CompletedTask;
@@ -762,11 +751,6 @@ public class BotChatPlugIn
     /// Refuses the duel the player challenged the bot to - unless the challenge is already over, e.g.
     /// the player took it back meanwhile.
     /// </summary>
-    private static ValueTask RefuseDuelAsync(Player bot, Player requester)
-        => bot.DuelRoom is { State: DuelState.DuelRequested } duelRoom && ReferenceEquals(duelRoom.Requester, requester)
-            ? new DuelActions().HandleDuelResponseAsync(bot, requester, false)
-            : ValueTask.CompletedTask;
-
     /// <summary>
     /// Whispers a thank-you from the nearest hurt bot when a player kills a monster beside it: the bot
     /// was in trouble and the player got it out. No line is spent when no bot is hurt - a bot which

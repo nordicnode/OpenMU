@@ -340,12 +340,14 @@ internal sealed class BotNavigator : AsyncDisposable
     ];
 
     /// <summary>
-    /// The states the tick can claim before it walks <see cref="TickSteps" />: the mini-game which suspends the
-    /// routine, the recovery from a wedged position, and a walk which is already in progress.
+    /// The states the tick can claim before it walks <see cref="TickSteps" />: the fights which suspend the
+    /// routine (a mini-game event, a duel), the recovery from a wedged position, and a walk which is
+    /// already in progress.
     /// </summary>
     private static readonly BotState[] ClaimsBeforeTheSteps =
     [
         BotState.MiniGame,
+        BotState.Duel,
         BotState.Recover,
         BotState.Idle,
     ];
@@ -1077,6 +1079,10 @@ internal sealed class BotNavigator : AsyncDisposable
             || this._player.DuelRoom is not null
             || this._player.HasRevengeIntent
             || this._player.RecentAggressor is not null
+
+            // An invasion champion is a fight a joining player can watch at any moment, and the
+            // meeting point of an announced event is agreed on - both stay on the human pace.
+            || this._player.BossAttempt is not null
             || BotPartyHandler.HasHumanCompanion(this._player))
         {
             return false;
@@ -1806,6 +1812,17 @@ internal sealed class BotNavigator : AsyncDisposable
         {
             this.Claim(new TickClaim(BotState.MiniGame, "mini-game event"));
             await this.EvaluateInsideMiniGameAsync(map, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        // The same holds for a duel, which a bot accepts from a player (see BotDuelHandler): it is a
+        // consensual fight with its own pace, and leaving the arena cancels it. So the routine is
+        // suspended - no shopping, no warp to a better map - and the bot stays on its opponent.
+        if (this._player.DuelRoom is { State: DuelState.DuelAccepted or DuelState.DuelStarted }
+            && BotDuelHandler.GetOpponent(this._player) is { } duelOpponent)
+        {
+            this.Claim(new TickClaim(BotState.Duel, "duel"));
+            await this.EvaluateInsideDuelAsync(map, duelOpponent, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -3059,6 +3076,41 @@ internal sealed class BotNavigator : AsyncDisposable
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// The bot's behaviour while it is in a duel: stay on the opponent, keep the fighting origin on
+    /// itself, and let the combat handler fight. The duel room decides the rest - the countdown, the
+    /// scoring, the respawn between rounds and the move back out of the arena - so the bot must not
+    /// start anything which could take it off the arena's map.
+    /// </summary>
+    /// <param name="map">The map the bot is on.</param>
+    /// <param name="opponent">The other duelist.</param>
+    /// <param name="cancellationToken">The token which aborts the tick on shutdown.</param>
+    private async ValueTask EvaluateInsideDuelAsync(GameMap map, Player opponent, CancellationToken cancellationToken)
+    {
+        // The arena is small and the opponent keeps moving, so the bot fights from where it stands
+        // instead of walking back to a hunting origin.
+        this._player.HuntingOrigin = this._player.Position;
+
+        if (this._player.IsWalking)
+        {
+            return;
+        }
+
+        // Between the rounds the loser respawns at its gate, and a finished duel is cleaned up by the
+        // duel room itself; waiting is the bot's part until then.
+        if (!opponent.IsAlive
+            || !ReferenceEquals(opponent.CurrentMap, map)
+            || opponent.IsAtSafezone())
+        {
+            return;
+        }
+
+        if (this._player.GetDistanceTo(opponent.Position) > TravelStopRange)
+        {
+            await this.TravelTowardAsync(map, opponent.Position, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <summary>

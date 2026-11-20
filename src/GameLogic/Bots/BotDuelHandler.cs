@@ -36,13 +36,23 @@ internal static class BotDuelHandler
         => bot.GameContext.FeaturePlugIns.GetPlugIn<BotFeaturePlugIn>()?.Configuration?.Duels == true;
 
     /// <summary>
+    /// Gets the duel partner of the bot, or <c>null</c> when it isn't in a duel.
+    /// </summary>
+    /// <param name="bot">The bot.</param>
+    /// <returns>The other duelist of the bot's duel room, or <c>null</c>.</returns>
+    internal static Player? GetOpponent(Player bot)
+        => bot.DuelRoom is { } room && room.IsDuelist(bot)
+            ? ReferenceEquals(room.Requester, bot) ? room.Opponent : room.Requester
+            : null;
+
+    /// <summary>
     /// Determines whether the bot may answer the player's duel request now.
     /// </summary>
     /// <param name="bot">The bot.</param>
     /// <param name="requester">The player who sent the request.</param>
     /// <returns><c>true</c> if the bot accepts.</returns>
     internal static bool CanAccept(Player bot, Player requester)
-        => IsDuelEnabled(bot) && IsFree(bot) && IsFairOpponent(bot, requester);
+        => IsDuelEnabled(bot) && IsFree(bot, allowPendingRequest: true) && IsFairOpponent(bot, requester, allowPendingRequest: true);
 
     /// <summary>
     /// Accepts a pending duel request, if it is still the one the player sent and still acceptable.
@@ -100,15 +110,20 @@ internal static class BotDuelHandler
     /// errand, an event, a market shift or a grudge.
     /// </summary>
     /// <param name="bot">The bot.</param>
+    /// <param name="allowPendingRequest">
+    /// Whether the duel room of a request which is still waiting for the bot's answer counts as free.
+    /// A real request reaches the bot with its room already attached (see
+    /// <see cref="DuelActions.HandleDuelRequestAsync"/>), so answering it needs the exception.
+    /// </param>
     /// <returns><c>true</c> if the bot is free.</returns>
-    private static bool IsFree(Player bot)
+    private static bool IsFree(Player bot, bool allowPendingRequest = false)
     {
         if (bot.Account?.IsBot != true
             || bot.PlayerState.CurrentState != PlayerState.EnteredWorld
             || !bot.IsAlive
-            || bot.DuelRoom is not null
             || bot.CurrentMiniGame is not null
-            || bot.CurrentMap is null)
+            || bot.CurrentMap is null
+            || (bot.DuelRoom is { } duelRoom && !(allowPendingRequest && duelRoom.State == DuelState.DuelRequested)))
         {
             return false;
         }
@@ -119,6 +134,7 @@ internal static class BotDuelHandler
                    && !offline.IsOnBuffTrip
                    && !offline.IsOnChaosMachineTrip
                    && offline.MarketShift is null
+                   && offline.EventMeeting is null
                    && offline.BossAttempt is null
                    && !offline.HasRevengeIntent;
         }
@@ -132,15 +148,23 @@ internal static class BotDuelHandler
     /// </summary>
     /// <param name="bot">The bot.</param>
     /// <param name="player">The player.</param>
+    /// <param name="allowPendingRequest">
+    /// Whether the room of a request which is still waiting for the bot's answer counts as no duel yet.
+    /// The requester carries the same room when the request arrives (see
+    /// <see cref="DuelActions.HandleDuelRequestAsync"/>), so answering it needs the exception.
+    /// </param>
     /// <returns><c>true</c> if a duel against the player is fair.</returns>
-    private static bool IsFairOpponent(Player bot, Player player)
+    private static bool IsFairOpponent(Player bot, Player player, bool allowPendingRequest = false)
     {
+        var isThePendingRequest = allowPendingRequest
+                                  && bot.DuelRoom is { State: DuelState.DuelRequested } pendingRoom
+                                  && ReferenceEquals(pendingRoom, player.DuelRoom);
         if (player is OfflinePlayer
             || ReferenceEquals(bot, player)
             || player.PlayerState.CurrentState != PlayerState.EnteredWorld
             || !player.IsAlive
             || player.IsAtSafezone()
-            || player.DuelRoom is not null
+            || (player.DuelRoom is not null && !isThePendingRequest)
             || player.CurrentMap is null
             || !ReferenceEquals(player.CurrentMap, bot.CurrentMap)
             || Math.Abs(player.Level - bot.Level) > MaximumLevelDifference)

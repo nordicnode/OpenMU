@@ -206,6 +206,14 @@ public sealed class CombatHandler
                    && this.IsTargetStillValid(target)));
 
     /// <summary>
+    /// Gets the opponent of a running duel, or <c>null</c> when the bot isn't in one. A duel is a fair,
+    /// consensual fight, so the bot finishes it instead of farming next to it - the same way it treats
+    /// the other participants of a free-for-all event.
+    /// </summary>
+    private Player? DuelOpponent
+        => this.IsBot ? BotDuelHandler.GetOpponent(this._player) : null;
+
+    /// <summary>
     /// Gets a value indicating whether a bot has an unexpired combo against a valid target.
     /// </summary>
     internal bool HasActiveBotCombo
@@ -540,12 +548,19 @@ public sealed class CombatHandler
                     && skill.GetBaseSkill() == required
                     && skill.Range > 0
                     && BotProgression.IsAttackSkill(skill)
-                    && (BotProgression.IsAreaSkill(skill) || skill.Target == SkillTarget.Explicit)
+
+                    // The finisher of the blade knight combo is a direct hit which also hits everything
+                    // around its target (Death Stab, see SkillsInitializer.CreateSkillCombos), so the
+                    // chain must accept that target kind as well - otherwise the bot stops one step
+                    // short of the finisher and the combo never completes.
+                    && (BotProgression.IsAreaSkill(skill)
+                        || skill.Target is SkillTarget.Explicit or SkillTarget.ExplicitWithImplicitInRange)
                     && skill.TargetRestriction is not (SkillTargetRestriction.Self or SkillTargetRestriction.Party)
                     && !BotProgression.IsCastleSiegeOnly(skill)
                     && !BotProgression.RequiresMount(skill)
                     && (!BotProgression.RequiresPet(skill) || this.RidesFenrir())
                     && BotProgression.MeetsRequirements(skill, attribute => this._player.Attributes?[attribute])
+                    && !this.WouldHitIllegalPlayer(skill)
                     && this._player.HasEnoughResources(e));
                 if (entry is not null
                     && (next.PossibleTransitions?.Contains(combo.FinalState) == true || FindPath(next, visited) is not null))
@@ -787,6 +802,14 @@ public sealed class CombatHandler
         // check and the actual attack); a new tick starts with a fresh choice.
         this._tickBestSkill = null;
         this._tickBestSkillComputed = false;
+
+        // A running duel has exactly one opponent, and that fight has priority over everything else:
+        // the players agreed to it, and the game ends the duel when the bot walks off to do something else.
+        if (this.DuelOpponent is { } duelOpponent)
+        {
+            this._currentTarget = duelOpponent;
+            return;
+        }
 
         // Self-defense has priority over farming: a player who recently attacked this bot becomes the
         // target, as long as they are still viable and anywhere near. Without this the bot placidly
@@ -1179,7 +1202,8 @@ public sealed class CombatHandler
                 // skill picked here would simply not go off - the basic attack only steps in when NO
                 // skill was selected, not when the selected one fails.
                 || !BotProgression.MeetsRequirements(skill, attribute => this._player.Attributes?[attribute])
-                || !this._player.HasEnoughResources(entry))
+                || !this._player.HasEnoughResources(entry)
+                || this.WouldHitIllegalPlayer(skill))
             {
                 continue;
             }
@@ -1206,6 +1230,38 @@ public sealed class CombatHandler
             .ThenByDescending(c => c.Score)
             .First()
             .Entry;
+    }
+
+    /// <summary>
+    /// Determines whether a cast of the skill would damage a player who is not a legal PvP target.
+    /// A skill targeted as <see cref="SkillTarget.ExplicitWithImplicitInRange"/> also hits everything
+    /// around its target (see <c>TargetedSkillDefaultPlugin</c>), so a bot which fires it next to a
+    /// bystander becomes an outlaw through the splash, however carefully it picked its target - the
+    /// game's attack check only judges the explicit target (see <see cref="BotPvpRules"/>). The bot
+    /// leaves such a skill unused while a bystander stands in its reach and falls back to the others.
+    /// </summary>
+    /// <param name="skill">The skill to check.</param>
+    /// <returns><c>true</c> if the splash would hit a player the bot may not attack.</returns>
+    internal bool WouldHitIllegalPlayer(Skill skill)
+    {
+        if (!this.IsBot
+            || skill.Target != SkillTarget.ExplicitWithImplicitInRange
+            || skill.ImplicitTargetRange <= 0
+
+            // Without the setting the game only passes monsters to the splash, so no player can be hit.
+            || !this._player.GameContext.Configuration.AreaSkillHitsPlayer
+            || this._currentTarget is not { } target
+            || target.CurrentMap is not { } map)
+        {
+            return false;
+        }
+
+        return map.GetAttackablesInRange(target.Position, skill.ImplicitTargetRange)
+            .OfType<Player>()
+            .Any(p => !ReferenceEquals(p, this._player)
+                      && p.IsAlive
+                      && !p.IsAtSafezone()
+                      && !BotPvpRules.IsLegalPvpTarget(this._player, p));
     }
 
     /// <summary>

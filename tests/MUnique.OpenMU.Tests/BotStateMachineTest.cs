@@ -338,6 +338,7 @@ public class BotStateMachineTest
     [TestCase(BotState.Recover, false, false)]
     [TestCase(BotState.Idle, false, false)]
     [TestCase(BotState.MiniGame, false, true)]
+    [TestCase(BotState.Duel, false, true)]
     [TestCase(BotState.Reset, false, true)]
     public void ClassifiesTheStates(int stateValue, bool isErrand, bool isSuspended)
     {

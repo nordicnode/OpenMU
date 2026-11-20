@@ -339,6 +339,8 @@ combo definition and timing. A target which steps out of reach, or a step which 
 only momentarily unaffordable (mana, ability), costs it a moment rather than the
 chain: it walks after the target, waits for the potion of the next tick, and only
 abandons the attempt when the completion window runs out or the target changes.
+A finisher which is a direct hit that also hits everything around its target - the
+Blade Knight's Death Stab - counts as the chain step it is, so the combo completes.
 During a chain it can use carried potions without stopping to loot or cast buffs
 and heals.
 
@@ -362,9 +364,10 @@ like a player instead of stuttering every tick.
 While a bot is hunting with no human observer or human party companion, its
 navigator reviews the hunting ground every two seconds instead of every half
 second. Combat and healing keep their usual cadence; travel hops, event meetings,
-pending invitations and recent attackers keep the responsive navigation cadence.
-A player coming into view restores that cadence on the next navigator poll. The
-navigator already reuses planned travel routes rather than recomputing every hop.
+pending invitations, recent attackers, a running duel and an invasion attempt keep
+the responsive navigation cadence. A player coming into view restores that cadence
+on the next navigator poll. The navigator already reuses planned travel routes
+rather than recomputing every hop.
 
 ### Items and money
 
@@ -621,16 +624,23 @@ companion has disconnected without reconnecting, or before the bot's own logout
 A bot fights back when a player attacks it, but only as far as the game's own
 PvP rules allow: inside the active self-defense window, or against a player
 already flagged as a killer. It can therefore never be provoked into becoming an
-outlaw that players could farm for free. It remembers who hit it, and a killed
-bot walks back to its killer — waiting for a legal opening rather than taking
-one.
+outlaw that players could farm for free. Skills which also hit everything around
+their target are left unused while a player who is not a legal target stands in
+that reach — the game judges only the explicit target, so the splash would make
+the bot an outlaw after all. It remembers who hit it, and a killed bot walks back
+to its killer — waiting for a legal opening rather than taking one.
 
 With the opt-in `Duels` setting, a bot also answers the game's own duel system: it
 accepts a challenge of a player of a comparable level (at most 30 levels apart,
 on the same map, alive and in the world) and now and then challenges one itself.
-It never duels while it is on an errand, in a mini game, at a market shift, in a
-fight or while it carries a grudge. A duel stays a duel: it leaves no grudge
-outside, and a bot never starts one with a party mate.
+It never duels while it is on an errand, in a mini game, at an announced event, at
+a market shift, in a fight or while it carries a grudge. Once the duel runs, it
+fights it: the duel partner becomes its one target, whether it may strike is
+decided by the game's own duel exemption (see above), and the routine is
+suspended for the duration — no shopping trip, no warp to a better map, since
+leaving the arena would cancel the duel. When the partner respawns between the
+rounds, the bot waits instead of chasing the respawn. A duel stays a duel: it
+leaves no grudge outside, and a bot never starts one with a party mate.
 
 Over the day, the presence rotation logs bots in and out: fewest in the early
 morning, most in the evening, and never more than one at a time, so the

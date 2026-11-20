@@ -13,7 +13,9 @@ namespace MUnique.OpenMU.GameLogic.Bots;
 /// marks itself as a misbehaving AI. The game escalates the killer's hero state (see
 /// <c>Player.AfterKilledPlayerAsync</c>) unless the victim is already an outlaw or the kill happened
 /// in active self-defense (duels and rival-guild wars are exempt as well, but bots have neither),
-/// so those two cases are exactly what this rule allows.
+/// so those two cases are exactly what this rule allows. A running duel is the third case: the game
+/// exempts it from the player killer penalty, and a bot takes part in duels when the operator enabled
+/// them (see <see cref="BotDuelHandler"/>).
 /// The bot's grudge memory (<see cref="Offline.OfflinePlayer.RecentAggressor"/>, ~5 minutes, and the
 /// revenge march after a death) is deliberately longer than the game's self-defense window: the
 /// grudge only decides WHOM the bot prioritizes and where it walks; whether it may actually strike
@@ -31,6 +33,20 @@ public static class BotPvpRules
     private static readonly TimeSpan SelfDefenseSafetyMargin = TimeSpan.FromSeconds(3);
 
     /// <summary>
+    /// Determines whether the bot is in a running duel against the given player. The duel must have
+    /// started: during the countdown the game doesn't exempt the kill from the player killer penalty yet.
+    /// </summary>
+    /// <param name="bot">The bot which wants to attack.</param>
+    /// <param name="target">The player it wants to attack.</param>
+    /// <returns><c>true</c> if both players are duelists of the same running duel.</returns>
+    internal static bool IsRunningDuelOpponent(Player bot, Player target)
+        => !ReferenceEquals(bot, target)
+           && bot.DuelRoom is { State: DuelState.DuelStarted } duelRoom
+           && ReferenceEquals(duelRoom, target.DuelRoom)
+           && duelRoom.IsDuelist(bot)
+           && duelRoom.IsDuelist(target);
+
+    /// <summary>
     /// Determines whether the bot may legally attack the given player, i.e. without any risk of
     /// escalating the bot's own <see cref="HeroState"/>.
     /// </summary>
@@ -46,6 +62,14 @@ public static class BotPvpRules
         if (!ReferenceEquals(bot, target)
             && bot.CurrentMiniGame is { AllowPlayerKilling: true, IsEventRunning: true } miniGame
             && ReferenceEquals(target.CurrentMiniGame, miniGame))
+        {
+            return true;
+        }
+
+        // A running duel is a consensual fight: the game doesn't escalate the killer's hero state
+        // (see Player.AfterKilledPlayerAsync) and disables self-defense for its duration
+        // (see SelfDefensePlugIn), so the opponent is the one player a bot may strike without one.
+        if (IsRunningDuelOpponent(bot, target))
         {
             return true;
         }

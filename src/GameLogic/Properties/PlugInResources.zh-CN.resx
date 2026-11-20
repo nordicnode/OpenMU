@@ -1390,6 +1390,12 @@
   <data name="BotRevengePlugIn_Description" xml:space="preserve">
     <value>服务器机器人返回死亡地点，向击杀自己的玩家复仇。</value>
   </data>
+  <data name="BotDuelPlugIn_Name" xml:space="preserve">
+    <value>机器人决斗</value>
+  </data>
+  <data name="BotDuelPlugIn_Description" xml:space="preserve">
+    <value>回应向服务器机器人发送的决斗请求：在机器人配置中启用决斗时接受公平的挑战，其余一律拒绝。</value>
+  </data>
   <data name="BotSkillProgressionPlugIn_Name" xml:space="preserve">
     <value>机器人成长</value>
   </data>

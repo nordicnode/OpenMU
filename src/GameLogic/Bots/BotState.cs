@@ -82,6 +82,11 @@ internal enum BotState
     MiniGame,
 
     /// <summary>
+    /// Inside a duel with a player, where the duel room dictates the pace.
+    /// </summary>
+    Duel,
+
+    /// <summary>
     /// Resetting the character to start the next cycle.
     /// </summary>
     Reset,

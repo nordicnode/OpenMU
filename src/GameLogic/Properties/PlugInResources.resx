@@ -1414,6 +1414,8 @@
   <data name="BotSelfDefensePlugIn_Description" xml:space="preserve"><value>Makes server-side bots fight back when a player attacks them.</value></data>
   <data name="BotRevengePlugIn_Name" xml:space="preserve"><value>Bot revenge</value></data>
   <data name="BotRevengePlugIn_Description" xml:space="preserve"><value>Makes server-side bots return to their death site and take revenge on the player who killed them.</value></data>
+  <data name="BotDuelPlugIn_Name" xml:space="preserve"><value>Bot duels</value></data>
+  <data name="BotDuelPlugIn_Description" xml:space="preserve"><value>Answers duel requests sent to server-side bots: a fair challenge is accepted when duels are enabled in the bot configuration, everything else is declined.</value></data>
   <data name="BotSkillProgressionPlugIn_Name" xml:space="preserve"><value>Bot skill progression</value></data>
   <data name="BotSkillProgressionPlugIn_Description" xml:space="preserve"><value>Invests level-up stat points and teaches server-side bots new class- and level-appropriate skills as they level up.</value></data>
   <data name="BotFeaturePlugIn_Name" xml:space="preserve"><value>Bots</value></data>

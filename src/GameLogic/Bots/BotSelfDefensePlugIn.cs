@@ -14,6 +14,8 @@ using MUnique.OpenMU.PlugIns;
 /// Without this, a bot placidly keeps farming monsters while a player kills it - the most obviously
 /// bot-like behavior an observer can trigger. The actual counter-attack happens in the offline
 /// <see cref="CombatHandler"/>, which prioritizes a recent aggressor over its monster targets.
+/// A duel is a fight both sides agreed to and is fought through <see cref="DuelRoom"/> instead, so it
+/// doesn't count as being attacked.
 /// </summary>
 [PlugIn]
 [Display(Name = nameof(MUnique.OpenMU.GameLogic.Properties.PlugInResources.BotSelfDefensePlugIn_Name), Description = nameof(MUnique.OpenMU.GameLogic.Properties.PlugInResources.BotSelfDefensePlugIn_Description), ResourceType = typeof(MUnique.OpenMU.GameLogic.Properties.PlugInResources))]
@@ -26,6 +28,7 @@ public class BotSelfDefensePlugIn : IAttackableGotHitPlugIn
         if (attackable is OfflinePlayer bot
             && bot.Account?.IsBot == true
             && bot.CurrentMiniGame is null // event fights (Chaos Castle) leave no grudge outside
+            && bot.DuelRoom is null // neither does a duel both sides agreed to
             && attacker is Player aggressor
             && aggressor is not OfflinePlayer
             && !ReferenceEquals(aggressor, attackable))

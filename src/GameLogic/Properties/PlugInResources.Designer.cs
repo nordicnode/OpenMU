@@ -2536,6 +2536,24 @@ namespace MUnique.OpenMU.GameLogic.Properties {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Answers duel requests sent to server-side bots: a fair challenge is accepted when duels are enabled in the bot configuration, everything else is declined..
+        /// </summary>
+        public static string BotDuelPlugIn_Description {
+            get {
+                return ResourceManager.GetString("BotDuelPlugIn_Description", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Bot duels.
+        /// </summary>
+        public static string BotDuelPlugIn_Name {
+            get {
+                return ResourceManager.GetString("BotDuelPlugIn_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Spawns server-side bots which hunt monsters on the maps. Configure the accounts to animate and enable the feature..
         /// </summary>
         public static string BotFeaturePlugIn_Description {
@@ -3456,8 +3474,7 @@ namespace MUnique.OpenMU.GameLogic.Properties {
         /// <summary>
         ///   Looks up a localized string similar to Makes server-side bots return to their death site and take revenge on the player who killed them..
         /// </summary>
-        public static string BotRevengePlugIn_Description {
-            get {
+        public static string BotRevengePlugIn_Description {            get {
                 return ResourceManager.GetString("BotRevengePlugIn_Description", resourceCulture);
             }
         }

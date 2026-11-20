@@ -28,10 +28,10 @@ internal static class BotStateExtensions
 
     /// <summary>
     /// Gets a value indicating whether the state suspends the whole routine instead of continuing it: the
-    /// pace of a mini-game event or the reset which ends the current cycle.
+    /// pace of a mini-game event, a duel with a player, or the reset which ends the current cycle.
     /// </summary>
     /// <param name="state">The state.</param>
     /// <returns><c>true</c>, if the state suspends the routine.</returns>
     internal static bool IsSuspended(this BotState state)
-        => state is BotState.MiniGame or BotState.Reset;
+        => state is BotState.MiniGame or BotState.Duel or BotState.Reset;
 }
