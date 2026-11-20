@@ -209,9 +209,15 @@ public sealed class CombatHandler
     /// Gets the opponent of a running duel, or <c>null</c> when the bot isn't in one. A duel is a fair,
     /// consensual fight, so the bot finishes it instead of farming next to it - the same way it treats
     /// the other participants of a free-for-all event.
+    /// Only a duel which has started counts: a pending request or the countdown is not a fight yet, and
+    /// the partner is no legal target then (see <see cref="BotPvpRules.IsRunningDuelOpponent"/>).
     /// </summary>
     private Player? DuelOpponent
-        => this.IsBot ? BotDuelHandler.GetOpponent(this._player) : null;
+        => this.IsBot
+           && this._player.DuelRoom is { State: DuelState.DuelStarted }
+           && BotDuelHandler.GetOpponent(this._player) is { } opponent
+            ? opponent
+            : null;
 
     /// <summary>
     /// Gets a value indicating whether a bot has an unexpired combo against a valid target.
@@ -805,9 +811,12 @@ public sealed class CombatHandler
 
         // A running duel has exactly one opponent, and that fight has priority over everything else:
         // the players agreed to it, and the game ends the duel when the bot walks off to do something else.
+        // A partner which is dead or out of reach (between the rounds, or respawning at its gate) is
+        // waited for instead of being replaced by the monsters of the arena: farming those could carry
+        // the bot out of the duel.
         if (this.DuelOpponent is { } duelOpponent)
         {
-            this._currentTarget = duelOpponent;
+            this._currentTarget = this.IsTargetStillValid(duelOpponent) ? duelOpponent : null;
             return;
         }
 
@@ -1234,34 +1243,50 @@ public sealed class CombatHandler
 
     /// <summary>
     /// Determines whether a cast of the skill would damage a player who is not a legal PvP target.
-    /// A skill targeted as <see cref="SkillTarget.ExplicitWithImplicitInRange"/> also hits everything
-    /// around its target (see <c>TargetedSkillDefaultPlugin</c>), so a bot which fires it next to a
-    /// bystander becomes an outlaw through the splash, however carefully it picked its target - the
-    /// game's attack check only judges the explicit target (see <see cref="BotPvpRules"/>). The bot
+    /// Two kinds of skills hit more than their explicit target: one targeted as
+    /// <see cref="SkillTarget.ExplicitWithImplicitInRange"/> also hits everything around its target, and a
+    /// caster-centred one (<see cref="SkillTarget.ImplicitAllInRange"/>, <see cref="SkillTarget.ImplicitPlayersInRange"/>)
+    /// hits everything around the bot (see <c>TargetedSkillDefaultPlugin</c>). The game's attack check
+    /// only judges the explicit target, so a bot firing either next to a bystander becomes an outlaw
+    /// through the splash, however carefully it picked its target (see <see cref="BotPvpRules"/>). The bot
     /// leaves such a skill unused while a bystander stands in its reach and falls back to the others.
+    /// Area skills (see <see cref="ExecuteAreaSkillAttackAsync"/>) need no screening: the handler passes
+    /// them the monsters and the legal target only.
     /// </summary>
     /// <param name="skill">The skill to check.</param>
     /// <returns><c>true</c> if the splash would hit a player the bot may not attack.</returns>
     internal bool WouldHitIllegalPlayer(Skill skill)
     {
-        if (!this.IsBot
-            || skill.Target != SkillTarget.ExplicitWithImplicitInRange
-            || skill.ImplicitTargetRange <= 0
-
-            // Without the setting the game only passes monsters to the splash, so no player can be hit.
-            || !this._player.GameContext.Configuration.AreaSkillHitsPlayer
-            || this._currentTarget is not { } target
-            || target.CurrentMap is not { } map)
+        if (!this.IsBot || this._player.CurrentMap is not { } map)
         {
             return false;
         }
 
-        return map.GetAttackablesInRange(target.Position, skill.ImplicitTargetRange)
-            .OfType<Player>()
-            .Any(p => !ReferenceEquals(p, this._player)
-                      && p.IsAlive
-                      && !p.IsAtSafezone()
-                      && !BotPvpRules.IsLegalPvpTarget(this._player, p));
+        Point? splashCenter = skill.Target switch
+        {
+            // The game hands the skills around the target to the splash only with this setting; without
+            // it, a monster target limits them to monsters.
+            SkillTarget.ExplicitWithImplicitInRange when skill.ImplicitTargetRange > 0
+                                                        && this._player.GameContext.Configuration.AreaSkillHitsPlayer
+                                                        && this._currentTarget is { } target
+                                                        && ReferenceEquals(target.CurrentMap, map)
+                => target.Position,
+
+            // Caster-centred: the game passes every attackable in range, players included, regardless
+            // of that setting - so this branch must not check it either.
+            SkillTarget.ImplicitAllInRange or SkillTarget.ImplicitPlayersInRange when skill.ImplicitTargetRange > 0
+                => this._player.Position,
+
+            _ => null,
+        };
+
+        return splashCenter is { } center
+               && map.GetAttackablesInRange(center, skill.ImplicitTargetRange)
+                   .OfType<Player>()
+                   .Any(p => !ReferenceEquals(p, this._player)
+                             && p.IsAlive
+                             && !p.IsAtSafezone()
+                             && !BotPvpRules.IsLegalPvpTarget(this._player, p));
     }
 
     /// <summary>

@@ -16,8 +16,8 @@ using MUnique.OpenMU.PlugIns;
 /// back angry. The return march happens in the <see cref="BotNavigator"/>; the counter-attack in
 /// the offline <see cref="CombatHandler"/>, whose re-armed aggressor memory keeps the killer
 /// prioritized - struck only once the game's own rules make it legal (see <see cref="BotPvpRules"/>).
-/// A death which the game itself arranged - in a mini-game event, or in a duel both sides agreed to
-/// - is no wrong and leaves no grudge.
+/// A death which the game itself arranged - in a mini-game event, or at the hands of the duel partner
+/// in a duel both sides agreed to - is no wrong and leaves no grudge.
 /// </summary>
 [PlugIn]
 [Display(Name = nameof(MUnique.OpenMU.GameLogic.Properties.PlugInResources.BotRevengePlugIn_Name), Description = nameof(MUnique.OpenMU.GameLogic.Properties.PlugInResources.BotRevengePlugIn_Description), ResourceType = typeof(MUnique.OpenMU.GameLogic.Properties.PlugInResources))]
@@ -30,9 +30,12 @@ public class BotRevengePlugIn : IAttackableGotKilledPlugIn
         if (killed is OfflinePlayer bot
             && bot.Account?.IsBot == true
             && bot.CurrentMiniGame is null // a death in an event (Chaos Castle) is part of the game, not a wrong to avenge
-            && bot.DuelRoom is null // and neither is a death in a duel both sides agreed to
             && killer is Player killerPlayer
             && killerPlayer is not OfflinePlayer
+
+            // The same goes for a death at the hands of the duel partner both sides agreed to fight - but
+            // a third party which kills the bot during or after a duel is a killer to remember.
+            && !BotPvpRules.IsRunningDuelOpponent(bot, killerPlayer)
             && !ReferenceEquals(killerPlayer, killed))
         {
             bot.RegisterDeathByPlayer(killerPlayer);

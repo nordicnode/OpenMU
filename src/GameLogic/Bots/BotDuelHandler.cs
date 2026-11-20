@@ -64,7 +64,11 @@ internal static class BotDuelHandler
     {
         if (!CanAccept(bot, requester)
             || bot.DuelRoom is not { State: DuelState.DuelRequested } room
-            || !ReferenceEquals(room.Requester, requester))
+            || !ReferenceEquals(room.Requester, requester)
+
+            // Only a request which was sent to the bot is the bot's to answer; a challenge it started
+            // itself is the other side's turn.
+            || !ReferenceEquals(room.Opponent, bot))
         {
             return false;
         }
@@ -113,7 +117,8 @@ internal static class BotDuelHandler
     /// <param name="allowPendingRequest">
     /// Whether the duel room of a request which is still waiting for the bot's answer counts as free.
     /// A real request reaches the bot with its room already attached (see
-    /// <see cref="DuelActions.HandleDuelRequestAsync"/>), so answering it needs the exception.
+    /// <see cref="DuelActions.HandleDuelRequestAsync"/>), so answering it needs the exception. Only a
+    /// request addressed to the bot counts - a challenge it sent itself still occupies it.
     /// </param>
     /// <returns><c>true</c> if the bot is free.</returns>
     private static bool IsFree(Player bot, bool allowPendingRequest = false)
@@ -123,7 +128,8 @@ internal static class BotDuelHandler
             || !bot.IsAlive
             || bot.CurrentMiniGame is not null
             || bot.CurrentMap is null
-            || (bot.DuelRoom is { } duelRoom && !(allowPendingRequest && duelRoom.State == DuelState.DuelRequested)))
+            || (bot.DuelRoom is { } duelRoom
+                && !(allowPendingRequest && duelRoom.State == DuelState.DuelRequested && ReferenceEquals(duelRoom.Opponent, bot))))
         {
             return false;
         }
@@ -158,7 +164,8 @@ internal static class BotDuelHandler
     {
         var isThePendingRequest = allowPendingRequest
                                   && bot.DuelRoom is { State: DuelState.DuelRequested } pendingRoom
-                                  && ReferenceEquals(pendingRoom, player.DuelRoom);
+                                  && ReferenceEquals(pendingRoom, player.DuelRoom)
+                                  && ReferenceEquals(pendingRoom.Opponent, bot);
         if (player is OfflinePlayer
             || ReferenceEquals(bot, player)
             || player.PlayerState.CurrentState != PlayerState.EnteredWorld

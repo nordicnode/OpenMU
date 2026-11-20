@@ -113,6 +113,64 @@ public class BotDuelHandlerTest
     }
 
     /// <summary>
+    /// A challenge the bot sent itself is the other side's turn to answer - it neither counts as free
+    /// nor as somebody the bot may accept a request from.
+    /// </summary>
+    [Test]
+    public async ValueTask DoesNotAcceptARequestItSentItselfAsync()
+    {
+        var other = await PlayerTestHelper.CreatePlayerAsync(this._gameContext).ConfigureAwait(false);
+        other.IsAlive = true;
+        var room = new DuelRoom(new Mock<MUnique.OpenMU.DataModel.Configuration.DuelArea>().Object, this._bot, other)
+        {
+            State = DuelState.DuelRequested,
+        };
+        this._bot.DuelRoom = room;
+        other.DuelRoom = room;
+
+        Assert.That(BotDuelHandler.CanAccept(this._bot, other), Is.False, "the bot is the requester here");
+        Assert.That(await BotDuelHandler.TryAcceptAsync(this._bot, other).ConfigureAwait(false), Is.False);
+    }
+
+    /// <summary>
+    /// A third party which hits a duelling bot is an ordinary aggressor: the duel only excuses the duel
+    /// partner's hits, not anybody else's.
+    /// </summary>
+    [Test]
+    public async ValueTask ThirdPartyStaysAnAggressorDuringADuelAsync()
+    {
+        this.CreateDuel(DuelState.DuelStarted);
+        var thirdParty = await PlayerTestHelper.CreatePlayerAsync(this._gameContext).ConfigureAwait(false);
+        thirdParty.IsAlive = true;
+        var plugIn = new BotSelfDefensePlugIn();
+
+        plugIn.AttackableGotHit(this._bot, this._player, new HitInfo(1, 0, DamageAttributes.Undefined));
+        Assert.That(this._bot.RecentAggressor, Is.Null, "the duel partner is no aggressor");
+
+        plugIn.AttackableGotHit(this._bot, thirdParty, new HitInfo(1, 0, DamageAttributes.Undefined));
+        Assert.That(this._bot.RecentAggressor, Is.SameAs(thirdParty), "a third party is");
+    }
+
+    /// <summary>
+    /// A death at the hands of a third party in a duel is remembered, even though the duel partner's
+    /// kill is not.
+    /// </summary>
+    [Test]
+    public async ValueTask ThirdPartyKillDuringADuelArmsRevengeAsync()
+    {
+        this.CreateDuel(DuelState.DuelStarted);
+        var thirdParty = await PlayerTestHelper.CreatePlayerAsync(this._gameContext).ConfigureAwait(false);
+        thirdParty.IsAlive = true;
+        var plugIn = new BotRevengePlugIn();
+
+        await plugIn.AttackableGotKilledAsync(this._bot, this._player).ConfigureAwait(false);
+        Assert.That(this._bot.GetRecentDeathCount(this._player), Is.Zero, "the duel partner's kill is no wrong");
+
+        await plugIn.AttackableGotKilledAsync(this._bot, thirdParty).ConfigureAwait(false);
+        Assert.That(this._bot.GetRecentDeathCount(thirdParty), Is.EqualTo(1));
+    }
+
+    /// <summary>
     /// A running duel makes the partner a legal target: the game exempts the kill from the player
     /// killer penalty, so the bot can actually fight the duel it accepted.
     /// </summary>

@@ -574,6 +574,77 @@ public class CombatHandlerTests
         Assert.That(handler.HasPlayerOpponent, Is.True, "the duel partner outranks the monster next to it");
     }
 
+    /// <summary>
+    /// A duel request which the bot hasn't answered yet is no fight: the requester must not replace the
+    /// monster the bot is hunting, or it stops fighting for every request it receives.
+    /// </summary>
+    [Test]
+    public async ValueTask PendingDuelRequestDoesNotStealTheTargetAsync()
+    {
+        var skills = CreateComboSkills();
+        var player = await this.CreateComboBotAsync(skills).ConfigureAwait(false);
+        player.Attributes![Stats.IsSkillComboAvailable] = 1;
+        foreach (var skill in skills)
+        {
+            await player.SkillList!.AddLearnedSkillAsync(skill).ConfigureAwait(false);
+        }
+
+        var monster = await this.CreateMonsterAsync(new Point(101, 100)).ConfigureAwait(false);
+        await player.CurrentMap!.AddAsync(monster).ConfigureAwait(false);
+
+        var requester = await PlayerTestHelper.CreatePlayerAsync(this._gameContext).ConfigureAwait(false);
+        requester.IsAlive = true;
+        requester.Position = new Point(104, 100);
+
+        var room = new DuelRoom(new Mock<DuelArea>().Object, requester, player) { State = DuelState.DuelRequested };
+        player.DuelRoom = room;
+        requester.DuelRoom = room;
+
+        var config = new MuHelperSettings { HuntingRange = 6 };
+        var handler = new CombatHandler(player, config, new MovementHandler(player, config));
+        var combo = player.ComboState!;
+
+        await handler.PerformAttackAsync().ConfigureAwait(false);
+        await Task.Delay(1000).ConfigureAwait(false);
+        await handler.PerformAttackAsync().ConfigureAwait(false);
+
+        Assert.That(combo.CurrentState, Is.Not.EqualTo(combo.InitialState), "the bot goes on hunting its monster");
+    }
+
+    /// <summary>
+    /// A dead duel partner (between the rounds) is waited for, not chased: nothing may be struck through
+    /// its corpse, and the bot must not walk after it either.
+    /// </summary>
+    [Test]
+    public async ValueTask DeadDuelPartnerIsNoTargetAsync()
+    {
+        var skills = CreateComboSkills();
+        var player = await this.CreateComboBotAsync(skills).ConfigureAwait(false);
+        player.Attributes![Stats.IsSkillComboAvailable] = 1;
+        foreach (var skill in skills)
+        {
+            await player.SkillList!.AddLearnedSkillAsync(skill).ConfigureAwait(false);
+        }
+
+        var opponent = await PlayerTestHelper.CreatePlayerAsync(this._gameContext).ConfigureAwait(false);
+        opponent.IsAlive = false;
+        opponent.Position = new Point(104, 100);
+
+        var room = new DuelRoom(new Mock<DuelArea>().Object, opponent, player) { State = DuelState.DuelStarted };
+        player.DuelRoom = room;
+        opponent.DuelRoom = room;
+
+        var config = new MuHelperSettings { HuntingRange = 6 };
+        var handler = new CombatHandler(player, config, new MovementHandler(player, config));
+
+        await handler.PerformAttackAsync().ConfigureAwait(false);
+        await Task.Delay(1000).ConfigureAwait(false);
+        await handler.PerformAttackAsync().ConfigureAwait(false);
+
+        Assert.That(player.IsWalking, Is.False, "the bot waits for the respawn instead of walking after the corpse");
+        Assert.That(handler.HasPlayerOpponent, Is.False);
+    }
+
     /// <summary>Without a duel, the same bot leaves the player alone and hunts the monster.</summary>
     [Test]
     public async ValueTask BotWithoutADuelLeavesAPlayerAloneAsync()
@@ -624,6 +695,40 @@ public class CombatHandlerTests
 
         await handler.ExecuteBotComboAttackAsync(monster, handler.SelectBotComboSkill()!).ConfigureAwait(false);
         Assert.That(combo.CurrentState, Is.EqualTo(combo.InitialState), "the chain completed");
+    }
+
+    /// <summary>
+    /// A caster-centred skill hits everything around the bot, players included - it is left unused
+    /// while a bystander who isn't a legal PvP target stands in that reach, even though no explicit
+    /// target takes part in the decision.
+    /// </summary>
+    [Test]
+    public async ValueTask BotDoesNotSplashAnIllegalBystanderWithACasterCentredSkillAsync()
+    {
+        var skills = CreateComboSkills();
+        skills[2].Target = SkillTarget.ImplicitAllInRange;
+        skills[2].ImplicitTargetRange = 3;
+        var player = await this.CreateComboBotAsync(skills).ConfigureAwait(false);
+        foreach (var skill in skills)
+        {
+            await player.SkillList!.AddLearnedSkillAsync(skill).ConfigureAwait(false);
+        }
+
+        var monster = await this.CreateMonsterAsync(new Point(101, 100)).ConfigureAwait(false);
+        await player.CurrentMap!.AddAsync(monster).ConfigureAwait(false);
+        var config = new MuHelperSettings { HuntingRange = 6 };
+        var handler = new CombatHandler(player, config, new MovementHandler(player, config));
+        await handler.PerformAttackAsync().ConfigureAwait(false);
+        Assert.That(handler.WouldHitIllegalPlayer(skills[2]), Is.False, "nobody else is around the bot");
+
+        // The game's AreaSkillHitsPlayer setting doesn't matter here - the skill hits players anyway.
+        var bystander = await PlayerTestHelper.CreatePlayerAsync(this._gameContext).ConfigureAwait(false);
+        bystander.IsAlive = true;
+        bystander.SelectedCharacter!.PositionX = (byte)(this._origin.X + 2);
+        bystander.SelectedCharacter.PositionY = (byte)(this._origin.Y + 1);
+        await player.CurrentMap!.AddAsync(bystander).ConfigureAwait(false);
+
+        Assert.That(handler.WouldHitIllegalPlayer(skills[2]), Is.True, "the skill would hit the bystander");
     }
 
     /// <summary>

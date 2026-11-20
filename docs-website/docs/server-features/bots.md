@@ -625,10 +625,11 @@ A bot fights back when a player attacks it, but only as far as the game's own
 PvP rules allow: inside the active self-defense window, or against a player
 already flagged as a killer. It can therefore never be provoked into becoming an
 outlaw that players could farm for free. Skills which also hit everything around
-their target are left unused while a player who is not a legal target stands in
-that reach — the game judges only the explicit target, so the splash would make
-the bot an outlaw after all. It remembers who hit it, and a killed bot walks back
-to its killer — waiting for a legal opening rather than taking one.
+their target — or around the bot — are left unused while a player who is not a
+legal target stands in that reach: the game judges only the explicit target, so
+the splash would make the bot an outlaw after all. It remembers who hit it, and a
+killed bot walks back to its killer — waiting for a legal opening rather than
+taking one.
 
 With the opt-in `Duels` setting, a bot also answers the game's own duel system: it
 accepts a challenge of a player of a comparable level (at most 30 levels apart,
@@ -640,7 +641,9 @@ decided by the game's own duel exemption (see above), and the routine is
 suspended for the duration — no shopping trip, no warp to a better map, since
 leaving the arena would cancel the duel. When the partner respawns between the
 rounds, the bot waits instead of chasing the respawn. A duel stays a duel: it
-leaves no grudge outside, and a bot never starts one with a party mate.
+leaves no grudge outside, and a bot never starts one with a party mate. Only the
+partner's hits are part of the duel; a third party which joins the fight is an
+ordinary aggressor, and killing the bot is a wrong it remembers.
 
 Over the day, the presence rotation logs bots in and out: fewest in the early
 morning, most in the evening, and never more than one at a time, so the
