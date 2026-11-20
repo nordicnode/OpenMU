@@ -38,6 +38,14 @@ public class BotChatSettingsTests
         var topicCard = component.FindAll(".card")
             .Single(card => card.QuerySelector("h5")?.TextContent.Contains("Cooldowns per topic", StringComparison.Ordinal) == true);
 
+        // The table starts collapsed once it holds more than ten topics, and the
+        // eleventh topic tipped it over that limit, so expand it first, like an
+        // operator would, before checking its rows. When it holds ten or fewer
+        // topics there is no expand button and the rows are shown right away.
+        topicCard.QuerySelector("button.btn-outline-info")?.Click();
+        topicCard = component.FindAll(".card")
+            .Single(card => card.QuerySelector("h5")?.TextContent.Contains("Cooldowns per topic", StringComparison.Ordinal) == true);
+
         var rows = topicCard.QuerySelectorAll("tbody tr");
         Assert.That(rows.Length, Is.EqualTo(Enum.GetValues<BotChatCategory>().Length));
         Assert.That(topicCard.QuerySelectorAll("form").Length, Is.Zero);
