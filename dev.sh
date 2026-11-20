@@ -12,15 +12,23 @@
 function generate_certificates {
   local password=${1:-}
   if [ -z "$password" ]; then
-    echo "Usage: $0 <certificate-password>" >&2
+    if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+      echo "Usage: ${BASH_SOURCE[0]##*/} <certificate-password>" >&2
+    else
+      echo "Usage: generate_certificates <certificate-password>" >&2
+    fi
+
     return 1
   fi
 
   local sdk_version=${DOTNET_SDK_VERSION:-10.0}
   mkdir -p certificates
 
-  # The password goes through the environment, not the command line, so it
-  # doesn't show up in the process list.
+  # Pass the password through the environment so it stays out of the host's
+  # process list. Inside the throwaway container dotnet dev-certs still takes it
+  # as an argument - it has no way to read it from stdin or a file - so it is
+  # visible to processes in that container, which holds it in the environment
+  # either way.
   if docker run --rm --entrypoint "" \
       -v "$PWD/certificates:/certificates" \
       -e CERTIFICATE_PASSWORD="$password" \
