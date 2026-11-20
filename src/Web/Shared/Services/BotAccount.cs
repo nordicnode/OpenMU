@@ -29,9 +29,10 @@ using MUnique.OpenMU.GameLogic.Bots;
 /// <c>null</c> while the bot never had one.</param>
 /// <param name="LootDecisions">The most recent loot decisions of the bot, newest first - why it kept,
 /// equipped, sold or stored an item - or <c>null</c> while it has none.</param>
+/// <param name="CanResetHealth">Whether the local health reset operation can reach this bot.</param>
 public record BotAccount(
     string LoginName,
-    byte ServerId,
+    int ServerId,
     string? CharacterName,
     DateTime StartedAt,
     string? GuildName = null,
@@ -44,4 +45,5 @@ public record BotAccount(
     double QuarantinedSeconds = 0,
     BotMeetingActivity? Meeting = null,
     BotMeetingOutcome? LastMeeting = null,
-    IReadOnlyList<BotLootDecisionInfo>? LootDecisions = null) : IPartyGroupedAccount;
+    IReadOnlyList<BotLootDecisionInfo>? LootDecisions = null,
+    bool CanResetHealth = true) : IPartyGroupedAccount;

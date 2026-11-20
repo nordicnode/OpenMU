@@ -17,6 +17,43 @@ using MUnique.OpenMU.Persistence;
 public sealed partial class GameServerAdministration(IGameContext context) : IGameServerAdministration
 {
     /// <inheritdoc />
+    public async ValueTask<IReadOnlyList<LiveBotInfo>> GetBotSnapshotAsync(CancellationToken cancellationToken)
+    {
+        var bots = new List<LiveBotInfo>();
+        foreach (var bot in (await context.GetPlayersAsync().ConfigureAwait(false)).OfType<BotPlayer>())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var activity = bot.Activity;
+            var meeting = activity?.Meeting;
+            var outcome = activity?.LastMeeting;
+            var master = bot.Party?.PartyMaster?.Name;
+            bots.Add(new LiveBotInfo(
+                bot.Account?.LoginName,
+                bot.SelectedCharacter?.Name,
+                bot.Level,
+                (ushort)(bot.CurrentMap?.Definition.Number ?? 0),
+                bot.StartTimestamp,
+                bot.GuildStatus?.GuildId,
+                master,
+                master is null ? 0 : bot.Party!.PartyList.Count,
+                activity?.State,
+                activity?.Reason,
+                activity?.TimeInState.TotalSeconds ?? 0,
+                activity?.Summary,
+                activity?.Detail,
+                bot.Health.Faults,
+                bot.Health.LastFault,
+                bot.Health.Restarts,
+                bot.Health.QuarantinedUntilUtc,
+                meeting is null ? null : new(meeting.State, meeting.Place, meeting.Event, meeting.EndsAtUtc),
+                outcome is null ? null : new(outcome.State, outcome.Place, outcome.Event, outcome.Reason),
+                bot.RecentLootDecisions.Select(d => new LiveBotLootDecision(d.Item, d.Action, d.Reason, d.Detail, d.AtUtc)).ToArray()));
+        }
+
+        return bots;
+    }
+
+    /// <inheritdoc />
     public async ValueTask<LivePlayerPage> GetPlayersAsync(ushort? mapNumber, uint? guildId, int offset, int limit, CancellationToken cancellationToken)
     {
         if (offset < 0 || limit is < 1 or > 100)

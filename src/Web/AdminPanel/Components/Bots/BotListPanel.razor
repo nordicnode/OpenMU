@@ -67,7 +67,7 @@
         <td><PartyBadge PartyMaster="@item.PartyMaster" PartySize="@item.PartySize" /></td>
         <td>@item.StartedAt.ToString("yyyy-MM-dd HH:mm:ss") UTC</td>
         <td class="text-end">
-            @if (item.QuarantinedSeconds > 0 || item.Restarts > 0)
+            @if (item.CanResetHealth && (item.QuarantinedSeconds > 0 || item.Restarts > 0))
             {
                 @* Only shown when there is something to forget: a healthy bot has no health to reset. *@
                 <button type="button" class="btn admin-table-action admin-table-icon-action admin-table-action--warning" title="@Resources.BotResetHealthHint" aria-label="@Resources.BotResetHealth" @onclick="() => this.OnResetHealth.InvokeAsync(item)">

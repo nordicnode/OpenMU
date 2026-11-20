@@ -44,18 +44,48 @@ public sealed class BotWriteOperations(IServerProvider servers, AdminOperationEx
                 }
 
                 var cleared = new List<object>();
+                var remoteServers = servers.Servers
+                    .Where(s => s is IGameServerAdministration && s is not IGameServerContextProvider)
+                    .Select(s => s.Id)
+                    .ToArray();
                 foreach (var server in servers.Servers.OfType<IGameServerContextProvider>())
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    var serverId = (byte)((IManageableServer)server).Id;
-                    foreach (var bot in (await server.Context.GetPlayersAsync().ConfigureAwait(false)).OfType<BotPlayer>())
+                    var serverId = ((IManageableServer)server).Id;
+                    var bots = (await server.Context.GetPlayersAsync().ConfigureAwait(false)).OfType<BotPlayer>().ToList();
+                    var resetSlots = new HashSet<byte>();
+                    if (server.Context.FeaturePlugIns?.GetPlugIn<BotFeaturePlugIn>() is { } feature)
+                    {
+                        foreach (var record in feature.ResetHealth(server.Context, account))
+                        {
+                            resetSlots.Add(record.Slot);
+                            var matchingBot = bots.FirstOrDefault(bot => string.Equals(bot.Account?.LoginName, account, StringComparison.OrdinalIgnoreCase)
+                                && bot.SelectedCharacter?.CharacterSlot == record.Slot);
+                            cleared.Add(new
+                            {
+                                serverId,
+                                character = matchingBot?.SelectedCharacter?.Name,
+                                characterSlot = (int?)record.Slot,
+                                restarts = record.Restarts,
+                                faults = record.Faults,
+                                quarantinedSeconds = record.QuarantinedSeconds,
+                            });
+                        }
+                    }
+
+                    foreach (var bot in bots)
                     {
                         if (!string.Equals(bot.Account?.LoginName, account, StringComparison.OrdinalIgnoreCase))
                         {
                             continue;
                         }
 
-                        // Captured before the reset - afterwards there is nothing left to report about it.
+                        if (bot.SelectedCharacter?.CharacterSlot is { } slot && resetSlots.Contains(slot))
+                        {
+                            continue;
+                        }
+
+                        // Directly constructed bots need not belong to the feature's manager.
                         var activity = bot.Activity;
                         var quarantinedSeconds = activity?.QuarantinedUntilUtc is { } until
                             ? (int)Math.Max(0, (until - DateTimeOffset.UtcNow).TotalSeconds)
@@ -64,6 +94,7 @@ public sealed class BotWriteOperations(IServerProvider servers, AdminOperationEx
                         {
                             serverId,
                             character = bot.SelectedCharacter?.Name,
+                            characterSlot = (int?)bot.SelectedCharacter?.CharacterSlot,
                             restarts = activity?.Restarts ?? 0,
                             faults = activity?.Failures ?? 0,
                             quarantinedSeconds,
@@ -75,7 +106,8 @@ public sealed class BotWriteOperations(IServerProvider servers, AdminOperationEx
                 if (cleared.Count == 0)
                 {
                     throw new AdminResourceNotFoundException(
-                        $"No bot is running for the account '{account}'. Use bots_list to find its exact login name.",
+                        $"No local bot health record was found for the account '{account}'. Use bots_list to find an active bot's exact login name."
+                        + (remoteServers.Length > 0 ? " Remote game servers cannot be reset by this operation." : string.Empty),
                         nameof(account));
                 }
 
@@ -83,7 +115,9 @@ public sealed class BotWriteOperations(IServerProvider servers, AdminOperationEx
                 {
                     account,
                     bots = cleared,
-                    summary = $"The failures and quarantines of {cleared.Count} bot(s) of '{account}' are forgotten. A bot which still fails keeps asking for a restart, which the next maintenance pass acts on.",
+                    remoteServersNotChecked = remoteServers,
+                    summary = $"The failures and quarantines of {cleared.Count} local bot(s) of '{account}' are forgotten. A bot which still fails keeps asking for a restart, which the next maintenance pass acts on."
+                        + (remoteServers.Length > 0 ? " Remote game servers were not checked or reset." : string.Empty),
                 });
             },
             cancellationToken);

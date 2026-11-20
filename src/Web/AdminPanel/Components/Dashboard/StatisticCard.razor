@@ -1,4 +1,4 @@
-<section class="card stat-card stat-card--@this.Tone h-100">
+<section class="card stat-card h-100">
     <div class="card-body stat-card__body">
         <span class="stat-card__icon"><span class="oi @this.Icon" aria-hidden="true"></span></span>
         <div class="stat-card__content">
@@ -24,12 +24,6 @@
     /// </summary>
     [Parameter]
     public string Icon { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Gets or sets the color tone of the card, e.g. <c>blue</c> or <c>emerald</c>.
-    /// </summary>
-    [Parameter]
-    public string Tone { get; set; } = "blue";
 
     /// <summary>
     /// Gets or sets the value.

@@ -12,6 +12,7 @@ using MUnique.OpenMU.DataModel.Configuration.Items;
 using MUnique.OpenMU.GameLogic;
 using MUnique.OpenMU.GameLogic.Administration;
 using MUnique.OpenMU.GameLogic.Attributes;
+using MUnique.OpenMU.GameLogic.Bots;
 using MUnique.OpenMU.GameLogic.MiniGames;
 using MUnique.OpenMU.GameLogic.PlugIns.PeriodicTasks;
 using MUnique.OpenMU.Interfaces;
@@ -110,6 +111,25 @@ public sealed class GameServerAdministrationTests
         await this._player.PlayerState.TryAdvanceToAsync(PlayerState.NpcDialogOpened).ConfigureAwait(false);
         Assert.That(await this._administration.GetPlayerAsync("Hero", CancellationToken.None).ConfigureAwait(false), Is.Null);
         Assert.That((await this._administration.SetLevelAsync("Hero", this._player.SelectedCharacter!.Id, 100, false, CancellationToken.None).ConfigureAwait(false)).Succeeded, Is.False);
+    }
+
+    /// <summary>The bot snapshot projects the owning server's live bots and excludes human players.</summary>
+    [Test]
+    public async Task ProjectsLiveBotsAsync()
+    {
+        var bot = new BotPlayer(this._player.GameContext) { Account = new MUnique.OpenMU.DataModel.Entities.Account { LoginName = "bot" } };
+        var context = new Mock<IGameContext>();
+        context.Setup(c => c.GetPlayersAsync()).ReturnsAsync(new List<Player> { this._player, bot });
+        try
+        {
+            var snapshot = await new GameServerAdministration(context.Object).GetBotSnapshotAsync(CancellationToken.None).ConfigureAwait(false);
+            Assert.That(snapshot.Single().Account, Is.EqualTo("bot"));
+            Assert.That(snapshot.Single().LootDecisions, Is.Empty);
+        }
+        finally
+        {
+            await bot.DisposeAsync().ConfigureAwait(false);
+        }
     }
 
     /// <summary>Live administration waits for the same player lock as persistence and packet handlers.</summary>

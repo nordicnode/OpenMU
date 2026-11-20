@@ -29,6 +29,7 @@ public sealed class GameServerAdministrationHttpTests
 
     /// <summary>All privileged routes reject callers which bypass the sidecar.</summary>
     /// <param name="operation">The privileged route.</param>
+    [TestCase("GetBotSnapshotAsync")]
     [TestCase("TeleportAsync")]
     [TestCase("GiveItemAsync")]
     [TestCase("SetLevelAsync")]
@@ -79,6 +80,31 @@ public sealed class GameServerAdministrationHttpTests
         var accepted = configured && supplied == TestToken && !duplicate;
         Assert.That(response.StatusCode, Is.EqualTo(accepted ? HttpStatusCode.OK : HttpStatusCode.Unauthorized));
         live.Verify(s => s.SetLevelAsync("Hero", It.IsAny<Guid>(), 100, false, It.IsAny<CancellationToken>()), accepted ? Times.Once() : Times.Never());
+    }
+
+    /// <summary>The bot snapshot is serialized by the authenticated game-server endpoint.</summary>
+    [Test]
+    public async Task ReturnsAuthenticatedBotSnapshotAsync()
+    {
+        var server = new Mock<IGameServer>();
+        server.SetupGet(s => s.Id).Returns(4);
+        var live = server.As<IGameServerAdministration>();
+        live.Setup(s => s.GetBotSnapshotAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new[]
+        {
+            new LiveBotInfo("bot", "Hero", 42, 3, DateTime.UnixEpoch, null, null, 0, "Idle", "waiting", 800,
+                "Idle", "waiting", 4, "failure", 2, null,
+                new("Waiting", "Devias", null, DateTime.UnixEpoch.AddDays(1)), null,
+                [new("Sword", "keep", "upgrade", null, DateTimeOffset.UnixEpoch)]),
+        });
+        await using var app = await CreateHostAsync(server.Object, TestToken).ConfigureAwait(false);
+        using var http = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
+        http.DefaultRequestHeaders.Add("dapr-api-token", TestToken);
+        using var response = await http.PostAsJsonAsync("/administration/GetBotSnapshotAsync", new GameServerAdministrationRequest { ServerId = 4 }).ConfigureAwait(false);
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var bots = await response.Content.ReadFromJsonAsync<LiveBotInfo[]>().ConfigureAwait(false)
+            ?? throw new InvalidOperationException("The response did not contain a bot snapshot.");
+        Assert.That(bots.Single().Meeting!.Place, Is.EqualTo("Devias"));
+        Assert.That(bots.Single().LootDecisions.Single().Item, Is.EqualTo("Sword"));
     }
 
     /// <summary>Runs the real Dapr process and verifies authenticated service invocation to the live controller.</summary>

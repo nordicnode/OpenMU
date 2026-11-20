@@ -183,6 +183,11 @@
         }
     }
 
+    [SupplyParameterFromQuery(Name = "tab")]
+    private string? InitialTab { get; set; }
+
+    private string? _appliedInitialTab;
+
     private Tab _activeTab = Tab.Players;
 
     private bool _showOfflevel;
@@ -203,12 +208,24 @@
     protected override void OnInitialized()
     {
         base.OnInitialized();
-        // Tabs are only shown when the corresponding feature plugin is active on an in-process game server.
-        // In a distributed deployment the contexts aren't available, so the tabs stay hidden.
-        // An active plugin with no sessions renders as an empty list, so "disabled" (no tab)
-        // stays distinguishable from "enabled but idle" (empty tab).
+        // Offlevel requires a local context; bot status is also available from remote game servers.
+        // An active local feature with no sessions renders as an empty list.
         this._showOfflevel = this.OfflineService.IsOfflevelFeatureAvailable();
         this._showBots = this.BotService.IsBotFeatureAvailable();
+    }
+
+    protected override void OnParametersSet()
+    {
+        base.OnParametersSet();
+        if (this.InitialTab == this._appliedInitialTab)
+        {
+            return;
+        }
+
+        this._appliedInitialTab = this.InitialTab;
+        this._activeTab = string.Equals(this.InitialTab, "bots", StringComparison.OrdinalIgnoreCase) && this._showBots
+            ? Tab.Bots
+            : Tab.Players;
     }
 
     private enum Tab

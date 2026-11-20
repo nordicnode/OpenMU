@@ -87,6 +87,15 @@ public class BotFeaturePlugIn : IFeaturePlugIn, IPeriodicTaskPlugIn, ISupportCus
     public static BotConfiguration? GetConfiguration(IGameContext gameContext)
         => gameContext.FeaturePlugIns.GetPlugIn<BotFeaturePlugIn>()?.Configuration;
 
+    /// <summary>
+    /// Clears the retained health records for an account on the specified game server.
+    /// </summary>
+    /// <param name="gameContext">The owning game context.</param>
+    /// <param name="loginName">The account login name.</param>
+    /// <returns>The character slots and previous health counters.</returns>
+    public IReadOnlyList<(byte Slot, int Restarts, int Faults, int QuarantinedSeconds)> ResetHealth(IGameContext gameContext, string loginName)
+        => this._states.TryGetValue(gameContext, out var state) ? state.Manager.ResetHealth(loginName) : [];
+
     /// <inheritdoc />
     public async ValueTask ExecuteTaskAsync(GameContext gameContext)
     {
@@ -151,6 +160,11 @@ public class BotFeaturePlugIn : IFeaturePlugIn, IPeriodicTaskPlugIn, ISupportCus
     {
         return CreateDefaultConfiguration();
     }
+
+    /// <summary>Gets the manager owned by one game context.</summary>
+    /// <param name="gameContext">The owning game context.</param>
+    /// <returns>The context's bot manager.</returns>
+    internal BotManager ManagerFor(IGameContext gameContext) => this._states.GetOrAdd(gameContext, _ => new ServerState()).Manager;
 
     private static BotConfiguration CreateDefaultConfiguration()
     {

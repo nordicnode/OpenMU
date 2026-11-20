@@ -287,10 +287,16 @@ internal sealed class BotHealthSupervisor
     /// the next maintenance pass acts on that request as if the account were fresh. This is the lever for "I fixed
     /// the cause, let it run again" which otherwise only a server restart would provide.
     /// </summary>
-    internal void Reset()
+    internal void Reset() => this.ResetAndSnapshot();
+
+    /// <summary>Clears the health record and returns the counters atomically.</summary>
+    /// <returns>The restart count, fault count and remaining quarantine in seconds.</returns>
+    internal (int Restarts, int Faults, int QuarantinedSeconds) ResetAndSnapshot()
     {
         lock (this._lock)
         {
+            var remaining = this._quarantinedUntilUtc is { } until ? (until - this._timeProvider.GetUtcNow()).TotalSeconds : 0;
+            var snapshot = (this._restarts, this._faults, (int)Math.Clamp(remaining, 0, int.MaxValue));
             this._consecutiveFaults = 0;
             this._restartStreak = 0;
             this._faults = 0;
@@ -304,6 +310,7 @@ internal sealed class BotHealthSupervisor
             this._quarantineReason = null;
             this._quarantineReported = false;
             this._lastEventUtc = null;
+            return snapshot;
         }
     }
 

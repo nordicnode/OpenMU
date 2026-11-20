@@ -4,6 +4,7 @@
 
 namespace MUnique.OpenMU.Web.Tests.OnlineAccounts;
 
+using System.Threading;
 using Microsoft.Extensions.Caching.Memory;
 using Moq;
 using MUnique.OpenMU.Interfaces;
@@ -74,6 +75,33 @@ public class OnlineAccountServiceTests
 
         Assert.That(await service.GetAsync(0, 20), Is.Empty);
         Assert.That(service.IsBotFeatureAvailable(), Is.False);
+    }
+
+    /// <summary>A remote bot is visible in the table, but the local-only reset action is not offered.</summary>
+    [Test]
+    public async Task BotAccounts_ReadRemoteSnapshotAsync()
+    {
+        var server = new Mock<IManageableServer>();
+        server.SetupGet(s => s.Id).Returns(300);
+        server.As<IGameServerAdministration>().Setup(s => s.GetBotSnapshotAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new[]
+        {
+            new LiveBotInfo("remote", "Hero", 42, 3, DateTime.UnixEpoch, null, null, 0, "Idle", "waiting", 800,
+                "Idle", "waiting", 4, "failure", 2, DateTimeOffset.UtcNow.AddMinutes(2),
+                new("Waiting", "Devias", null, DateTime.UtcNow.AddMinutes(3)), null,
+                [new("Sword", "keep", "upgrade", null, DateTimeOffset.UtcNow)]),
+        });
+        var provider = new Mock<IServerProvider>();
+        provider.SetupGet(p => p.Servers).Returns(new List<IManageableServer> { server.Object });
+        using var cache = new MemoryCache(new MemoryCacheOptions());
+        var service = new BotAccountService(provider.Object, cache);
+
+        Assert.That(service.IsBotFeatureAvailable(), Is.True);
+        var bot = (await service.GetAsync(0, 20).ConfigureAwait(false)).Single();
+        Assert.That(bot.ServerId, Is.EqualTo(300));
+        Assert.That(bot.Meeting?.State, Is.EqualTo("Waiting"));
+        Assert.That(bot.LootDecisions?.Single().Item, Is.EqualTo("Sword"));
+        Assert.That(bot.Restarts, Is.EqualTo(2));
+        Assert.That(bot.CanResetHealth, Is.False);
     }
 
     /// <summary>

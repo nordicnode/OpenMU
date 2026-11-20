@@ -1,10 +1,30 @@
 /* Visual layer of the admin panel.
    Scoped to .admin-app so the map viewer and item editor keep their own styling. */
 .admin-app {
-  --omu-radius: 9px;
-  --omu-radius-lg: 14px;
-  --omu-shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
-  --omu-shadow-md: 0 18px 40px -24px rgba(16, 24, 40, 0.28);
+  --omu-radius: 4px;
+  --omu-radius-lg: 5px;
+  --omu-shadow-sm: none;
+  --omu-shadow-md: 0 8px 24px rgba(0, 0, 0, 0.16);
+  --omu-bg: #f0f2f1;
+  --omu-surface: #f8f9f8;
+  --omu-surface-2: #ffffff;
+  --omu-surface-muted: #f2f4f3;
+  --omu-surface-hover: #e9edeb;
+  --omu-text: #252c2e;
+  --omu-text-muted: #606c70;
+  --omu-text-secondary: #526065;
+  --omu-border: #d4dcda;
+  --omu-link: #476d7d;
+  --omu-accent: #557b89;
+  --omu-accent-rgb: 85, 123, 137;
+  --omu-accent-text: #355f70;
+  --omu-accent-soft: rgba(85, 123, 137, 0.12);
+  --omu-action: #486d7b;
+  --omu-action-hover: #365865;
+  --omu-nav-link: #526065;
+  --omu-status-success: #39785b;
+  --omu-status-error: #ac4949;
+  --omu-status-warning: #8e641f;
   min-height: 100vh;
   background-color: var(--omu-bg);
   color: var(--omu-text);
@@ -12,6 +32,33 @@
   font-size: 0.9375rem;
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
+}
+
+[data-bs-theme=dark] .admin-app {
+  --omu-bg: #141719;
+  --omu-surface: #191d1f;
+  --omu-surface-2: #1c2023;
+  --omu-surface-muted: #202629;
+  --omu-surface-hover: #2a3033;
+  --omu-text: #e5e8e9;
+  --omu-text-muted: #a1abad;
+  --omu-text-secondary: #b2bbbd;
+  --omu-border: #343c3f;
+  --omu-link: #a4c0cb;
+  --omu-accent: #8daab6;
+  --omu-accent-rgb: 141, 170, 182;
+  --omu-accent-text: #c3d7df;
+  --omu-accent-soft: rgba(141, 170, 182, 0.13);
+  --omu-action: #5f7e8a;
+  --omu-action-hover: #73929e;
+  --omu-nav-link: #b2bbbd;
+  --omu-status-success: #8ebba1;
+  --omu-status-error: #d6928e;
+  --omu-status-warning: #d3af75;
+}
+
+.admin-app a:not(.btn):not(.nav-link):not(.dropdown-item):not(.navbar-brand) {
+  color: var(--omu-link);
 }
 
 .admin-app h1,
@@ -68,7 +115,7 @@
   width: 100%;
   max-width: 1600px;
   margin-inline: auto;
-  padding: 1.5rem clamp(1rem, 2.2vw, 2rem) 2.5rem;
+  padding: 1.15rem clamp(1rem, 2.2vw, 2rem) 2rem;
 }
 
 .admin-app .content > h1:first-child,
@@ -144,7 +191,7 @@
 }
 
 .admin-app .card-header {
-  padding: 0.85rem 1.1rem;
+  padding: 0.65rem 0.85rem;
   background-color: transparent;
   border-bottom: 1px solid var(--omu-border);
 }
@@ -156,7 +203,7 @@
 }
 
 .admin-app .card-body {
-  padding: 1.1rem;
+  padding: 0.85rem;
 }
 
 .admin-app .card-footer {
@@ -288,6 +335,23 @@
   font-weight: 600;
 }
 
+/* Desktop navigation */
+
+@media (min-width: 768px) {
+  .admin-app .sidebar > nav {
+    width: 226px;
+    min-width: 226px;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+}
+
+.admin-app .sidebar .nav-link {
+  min-height: 2.15rem;
+  padding-block: 0.45rem;
+  border-radius: var(--omu-radius);
+}
+
 /* The brand row of the sidebar */
 
 .admin-app .top-row {
@@ -351,7 +415,7 @@
 .admin-app .configuration-search-container {
   overflow: hidden;
   border: 1px solid var(--omu-border);
-  border-radius: 10px;
+  border-radius: var(--omu-radius);
   background-color: var(--omu-surface-2);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -433,10 +497,10 @@
   width: 2rem;
   height: 2rem;
   flex: 0 0 2rem;
-  border-radius: 9px;
-  background: linear-gradient(135deg, var(--omu-accent), #7a5cff);
-  box-shadow: 0 5px 12px -5px rgba(var(--omu-accent-rgb), 0.7);
-  color: #ffffff;
+  border: 1px solid var(--omu-border);
+  border-radius: 4px;
+  background: var(--omu-surface-hover);
+  color: var(--omu-text);
   font-size: 0.68rem;
   font-weight: 800;
   letter-spacing: 0.03em;

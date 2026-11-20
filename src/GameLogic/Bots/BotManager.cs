@@ -33,6 +33,13 @@ public sealed class BotManager
     /// </summary>
     private readonly ConcurrentDictionary<string, BotHealthSupervisor> _health = new(StringComparer.OrdinalIgnoreCase);
 
+    private readonly object _healthLock = new();
+
+    private readonly object _spawnLock = new();
+
+    // A null slot resolves to the first character, so it conflicts with every spawn for the account.
+    private readonly Dictionary<string, HashSet<int>> _spawning = new(StringComparer.OrdinalIgnoreCase);
+
     private DateTimeOffset _nextHealthPruneUtc;
 
     /// <summary>
@@ -60,76 +67,23 @@ public sealed class BotManager
             return false;
         }
 
-        var bot = new BotPlayer(gameContext);
-        var added = false;
-        string? key = null;
+        if (!this.TryReserveSpawn(loginName, characterSlot))
+        {
+            return false;
+        }
+
         try
         {
-            // Load the account through the bot's OWN persistence context (no cross-context attach).
-            var account = await bot.PersistenceContext.GetAccountByLoginNameAsync(loginName).ConfigureAwait(false);
-            var character = characterSlot is { } slot
-                ? account?.Characters.FirstOrDefault(c => c.CharacterSlot == slot)
-                : account?.Characters.OrderBy(c => c.CharacterSlot).FirstOrDefault();
-            if (account is null || character is null)
+            if (characterSlot is { } slot && this.IsActive(loginName, slot))
             {
-                bot.Logger.LogWarning("Bot account '{LoginName}' (slot {Slot}) could not be loaded or has no character.", loginName, characterSlot);
-                await bot.DisposeAsync().ConfigureAwait(false);
                 return false;
             }
 
-            key = GetKey(loginName, character.CharacterSlot);
-            if (!this._bots.TryAdd(key, bot))
-            {
-                // Already animating this character.
-                await bot.DisposeAsync().ConfigureAwait(false);
-                return false;
-            }
-
-            added = true;
-
-            // Provide AI settings so the bot actually hunts (a missing config means a single-tile range).
-            bot.MuHelperSettings = new BotMuHelperSettings();
-
-            // The character's health record, not a fresh one: a bot which was restarted a minute ago must be known
-            // as such, so the next restart escalation continues instead of starting over.
-            bot.Health = this.HealthFor(loginName, character.CharacterSlot);
-
-            // The behavior persona and the session seed are derived from the identity, so a bot keeps its
-            // style across restarts and a report can be replayed exactly from the logged seed.
-            var configuration = BotFeaturePlugIn.GetConfiguration(gameContext);
-            bot.Persona = BotPersonaProfile.PickPersona(configuration?.PersonaMix, loginName, character.Name);
-            var seed = BotPersonaProfile.DeriveSeed(loginName, character.Name, configuration?.RandomSeed ?? 0);
-            bot.SessionRandom = new BotSessionRandom(seed);
-            bot.Logger.LogInformation(
-                "Bot {Character} plays as {Persona} (session seed {Seed}).",
-                character.Name,
-                bot.Persona,
-                seed);
-
-            if (!await bot.InitializeAsync(loginName, character.Name).ConfigureAwait(false))
-            {
-                await this.RemoveAndDisposeAsync(key, bot).ConfigureAwait(false);
-                return false;
-            }
-
-            BotSkillProgressionPlugIn.CatchUpPendingProgress(bot);
-
-            bot.Logger.LogDebug("Bot started for account '{LoginName}', character '{Character}'.", loginName, character.Name);
-            return true;
+            return await this.SpawnReservedBotAsync(gameContext, loginName, characterSlot).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        finally
         {
-            bot.Logger.LogError(ex, "Failed to spawn bot for account '{LoginName}' (slot {Slot}).", loginName, characterSlot);
-            if (added && key is not null)
-            {
-                await this.RemoveAndDisposeAsync(key, bot).ConfigureAwait(false);
-            }
-            else
-            {
-                await bot.DisposeAsync().ConfigureAwait(false);
-            }
-
-            return false;
+            this.ReleaseSpawn(loginName, characterSlot);
         }
     }
 
@@ -289,6 +243,33 @@ public sealed class BotManager
     }
 
     /// <summary>
+    /// Clears retained health records for every character of an account, including stopped bots.
+    /// </summary>
+    /// <param name="loginName">The exact account login name.</param>
+    /// <returns>The character slots and health counters before they were cleared.</returns>
+    public IReadOnlyList<(byte Slot, int Restarts, int Faults, int QuarantinedSeconds)> ResetHealth(string loginName)
+    {
+        var cleared = new List<(byte Slot, int Restarts, int Faults, int QuarantinedSeconds)>();
+        lock (this._healthLock)
+        {
+            foreach (var (key, supervisor) in this._health)
+            {
+                var separator = key.LastIndexOf('/');
+                if (separator < 0 || !string.Equals(key[..separator], loginName, StringComparison.OrdinalIgnoreCase)
+                    || !byte.TryParse(key[(separator + 1)..], out var slot))
+                {
+                    continue;
+                }
+
+                var (restarts, faults, quarantinedSeconds) = supervisor.ResetAndSnapshot();
+                cleared.Add((slot, restarts, faults, quarantinedSeconds));
+            }
+        }
+
+        return cleared;
+    }
+
+    /// <summary>
     /// Gets the health supervisor of the given character, creating it on first use and dropping the ones which have
     /// been quiet for <see cref="BotHealthPolicy.ForgetAfter"/>. Without the pruning the map would grow with every
     /// character which ever ran a bot - with the presence rotation that is every bot, all the time.
@@ -298,8 +279,11 @@ public sealed class BotManager
     /// <returns>The character's health supervisor.</returns>
     internal BotHealthSupervisor HealthFor(string loginName, byte characterSlot)
     {
-        this.PruneHealth();
-        return this._health.GetOrAdd(GetKey(loginName, characterSlot), _ => new BotHealthSupervisor());
+        lock (this._healthLock)
+        {
+            this.PruneHealth();
+            return this._health.GetOrAdd(GetKey(loginName, characterSlot), _ => new BotHealthSupervisor());
+        }
     }
 
     private static string GetKey(string loginName, byte slot) => $"{loginName}/{slot}";
@@ -345,6 +329,114 @@ public sealed class BotManager
         }
     }
 
+    private async ValueTask<bool> SpawnReservedBotAsync(IGameContext gameContext, string loginName, byte? characterSlot)
+    {
+        var bot = new BotPlayer(gameContext);
+        var added = false;
+        string? key = null;
+        try
+        {
+            // Load the account through the bot's OWN persistence context (no cross-context attach).
+            var account = await bot.PersistenceContext.GetAccountByLoginNameAsync(loginName).ConfigureAwait(false);
+            var character = characterSlot is { } slot
+                ? account?.Characters.FirstOrDefault(c => c.CharacterSlot == slot)
+                : account?.Characters.OrderBy(c => c.CharacterSlot).FirstOrDefault();
+            if (account is null || character is null)
+            {
+                bot.Logger.LogWarning("Bot account '{LoginName}' (slot {Slot}) could not be loaded or has no character.", loginName, characterSlot);
+                await bot.DisposeAsync().ConfigureAwait(false);
+                return false;
+            }
+
+            key = GetKey(loginName, character.CharacterSlot);
+            if (!this._bots.TryAdd(key, bot))
+            {
+                // Already animating this character.
+                await bot.DisposeAsync().ConfigureAwait(false);
+                return false;
+            }
+
+            added = true;
+
+            // Provide AI settings so the bot actually hunts (a missing config means a single-tile range).
+            bot.MuHelperSettings = new BotMuHelperSettings();
+
+            // The character's health record, not a fresh one: a bot which was restarted a minute ago must be known
+            // as such, so the next restart escalation continues instead of starting over.
+            bot.Health = this.HealthFor(loginName, character.CharacterSlot);
+
+            // The behavior persona and the session seed are derived from the identity, so a bot keeps its
+            // style across restarts and a report can be replayed exactly from the logged seed.
+            var configuration = BotFeaturePlugIn.GetConfiguration(gameContext);
+            bot.Persona = BotPersonaProfile.PickPersona(configuration?.PersonaMix, loginName, character.Name);
+            var seed = BotPersonaProfile.DeriveSeed(loginName, character.Name, configuration?.RandomSeed ?? 0);
+            bot.SessionRandom = new BotSessionRandom(seed);
+            bot.Logger.LogInformation(
+                "Bot {Character} plays as {Persona} (session seed {Seed}).",
+                character.Name,
+                bot.Persona,
+                seed);
+
+            if (!await bot.InitializeAsync(loginName, character.Name).ConfigureAwait(false))
+            {
+                await this.RemoveAndDisposeAsync(key, bot).ConfigureAwait(false);
+                return false;
+            }
+
+            BotSkillProgressionPlugIn.CatchUpPendingProgress(bot);
+
+            bot.Logger.LogDebug("Bot started for account '{LoginName}', character '{Character}'.", loginName, character.Name);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            bot.Logger.LogError(ex, "Failed to spawn bot for account '{LoginName}' (slot {Slot}).", loginName, characterSlot);
+            if (added && key is not null)
+            {
+                await this.RemoveAndDisposeAsync(key, bot).ConfigureAwait(false);
+            }
+            else
+            {
+                await bot.DisposeAsync().ConfigureAwait(false);
+            }
+
+            return false;
+        }
+    }
+
+    private bool TryReserveSpawn(string loginName, byte? slot)
+    {
+        lock (this._spawnLock)
+        {
+            if (!this._spawning.TryGetValue(loginName, out var slots))
+            {
+                this._spawning.Add(loginName, slots = []);
+            }
+
+            var key = slot is { } value ? value : -1;
+            if (slots.Contains(-1) || (key == -1 ? slots.Count > 0 : slots.Contains(key)))
+            {
+                return false;
+            }
+
+            slots.Add(key);
+            return true;
+        }
+    }
+
+    private void ReleaseSpawn(string loginName, byte? slot)
+    {
+        lock (this._spawnLock)
+        {
+            var slots = this._spawning[loginName];
+            slots.Remove(slot is { } value ? value : -1);
+            if (slots.Count == 0)
+            {
+                this._spawning.Remove(loginName);
+            }
+        }
+    }
+
     /// <summary>
     /// Drops the health supervisors which have nothing left to remember, so the per-account map doesn't grow with
     /// every account which ever ran a bot. Runs at most every five minutes, from the spawn path.
@@ -360,7 +452,7 @@ public sealed class BotManager
         this._nextHealthPruneUtc = now + TimeSpan.FromMinutes(5);
         foreach (var (key, supervisor) in this._health)
         {
-            if (supervisor.CanForget())
+            if (!this._bots.ContainsKey(key) && supervisor.CanForget())
             {
                 this._health.TryRemove(key, out _);
             }

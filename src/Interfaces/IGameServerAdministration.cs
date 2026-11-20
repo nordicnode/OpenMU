@@ -10,6 +10,11 @@ using System.Threading;
 /// <remarks>Internal server channel. Public front ends must authorize and audit writes before calling it.</remarks>
 public interface IGameServerAdministration : IGameServerPluginOperations
 {
+    /// <summary>Reads bot status and health from the owning game server.</summary>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>A snapshot bounded by the server's live bot population.</returns>
+    ValueTask<IReadOnlyList<LiveBotInfo>> GetBotSnapshotAsync(CancellationToken cancellationToken);
+
     /// <summary>Reads one best-effort scalar snapshot without waiting for player persistence.</summary>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The connected characters, bounded by the server's player population.</returns>

@@ -18,6 +18,14 @@ using MUnique.OpenMU.Interfaces;
 [ServiceFilter(typeof(DaprAppTokenAuthorizationFilter))]
 public sealed class GameServerAdministrationController(IGameServer server, AdministrationDeliveries deliveries) : ControllerBase
 {
+    /// <summary>Reads live bot status and health.</summary>
+    /// <param name="request">The addressed server.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The live bot snapshot.</returns>
+    [HttpPost(nameof(IGameServerAdministration.GetBotSnapshotAsync))]
+    public ValueTask<IReadOnlyList<LiveBotInfo>> GetBotSnapshotAsync(GameServerAdministrationRequest request, CancellationToken cancellationToken)
+        => this.Resolve(request).GetBotSnapshotAsync(cancellationToken);
+
     /// <summary>Reads one scalar snapshot for a complete player-list query.</summary>
     /// <param name="request">The addressed server.</param>
     /// <param name="cancellationToken">The cancellation token.</param>

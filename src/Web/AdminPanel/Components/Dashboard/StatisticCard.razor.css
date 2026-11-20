@@ -1,25 +1,23 @@
 .stat-card {
-    --stat-tone: var(--omu-accent);
-    --stat-tone-soft: var(--omu-accent-soft);
     overflow: hidden;
 }
 
 .stat-card__body {
     display: flex;
     align-items: flex-start;
-    gap: 0.9rem;
+    gap: 0.7rem;
 }
 
 .stat-card__icon {
     display: grid;
     place-items: center;
-    width: 2.45rem;
-    height: 2.45rem;
-    flex: 0 0 2.45rem;
-    border-radius: 10px;
-    background-color: var(--stat-tone-soft);
-    color: var(--stat-tone);
-    font-size: 1.1rem;
+    width: 1.7rem;
+    height: 1.7rem;
+    flex: 0 0 1.7rem;
+    border: 1px solid var(--omu-border);
+    border-radius: 4px;
+    color: var(--omu-text-secondary);
+    font-size: 0.8rem;
 }
 
 .stat-card__content {
@@ -27,59 +25,24 @@
 }
 
 .stat-card__title {
-    margin: 0 0 0.15rem;
+    margin: 0 0 0.35rem;
     color: var(--omu-text-secondary);
-    font-size: 0.78rem;
+    font-size: 0.77rem;
     font-weight: 600;
     letter-spacing: 0;
 }
 
 .stat-card__value {
-    font-size: 1.65rem;
+    font-size: 1.5rem;
     font-variant-numeric: tabular-nums;
     font-weight: 650;
-    letter-spacing: -0.03em;
-    line-height: 1.15;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
 }
 
 .stat-card__detail {
-    margin-top: 0.25rem;
-    color: var(--omu-text-muted);
-    font-size: 0.78rem;
-}
-
-.stat-card--blue {
-    --stat-tone: #3563f0;
-    --stat-tone-soft: rgba(53, 99, 240, 0.11);
-}
-
-.stat-card--emerald {
-    --stat-tone: #0b9f72;
-    --stat-tone-soft: rgba(16, 185, 129, 0.13);
-}
-
-.stat-card--amber {
-    --stat-tone: #b47409;
-    --stat-tone-soft: rgba(245, 158, 11, 0.15);
-}
-
-.stat-card--violet {
-    --stat-tone: #7c4dd8;
-    --stat-tone-soft: rgba(124, 77, 216, 0.12);
-}
-
-[data-bs-theme=dark] .stat-card--blue {
-    --stat-tone: #9db8ff;
-}
-
-[data-bs-theme=dark] .stat-card--emerald {
-    --stat-tone: #6ee7b7;
-}
-
-[data-bs-theme=dark] .stat-card--amber {
-    --stat-tone: #fcd34d;
-}
-
-[data-bs-theme=dark] .stat-card--violet {
-    --stat-tone: #c4a7ff;
+    margin-top: 0.4rem;
+    color: var(--omu-text-secondary);
+    font-size: 0.75rem;
+    line-height: 1.4;
 }

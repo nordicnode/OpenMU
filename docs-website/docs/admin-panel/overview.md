@@ -85,29 +85,35 @@ example the [server-side AI bots](../server-features/bots.md).
 
 ## Dashboard
 
-The start page shows the state of the server at a glance, as cards:
+The start page puts the state of the server and anything needing attention first:
 
-* **Players online** — the players on the running game servers, and how many
-  can be online on them.
-* **Servers running** — how many of the servers are started. Servers which
-  aren't are highlighted.
-* **Accounts** — the number of accounts, how many were registered in the last
-  7 days and how many are banned. Bot and template accounts are not counted.
-* **Guilds** — the number of guilds and alliances, and the number of characters.
-* **Players online in the last 24 hours** — a chart which is updated every
-  5 minutes. The history is kept in memory, so it starts over when the admin
-  panel is restarted.
-* **Servers** — every server with its player count and state. The page
-  updates itself when a server starts or stops or players log in or out.
-* **Quick actions** — send a [global message](servers.md#global-messages) and
-  links to frequently used pages.
+* **Core services** — whether the configured game and connect servers have
+  started. Optional services, including Discord, appear in the server table
+  without affecting this summary. A bot warning appears when applicable.
+* **Players online** — logged-in players on game servers, including bot and
+  offline sessions, and the capacity of started game servers.
+* **Game servers running** — how many game servers are started, separately
+  from other services.
+* **Bots** — active bots reported by the game servers; the link opens the bot
+  table. Distributed servers use the authenticated administration channel.
+* **Accounts** — accounts, registrations in the last 7 days and bans. Bot and
+  template accounts are not counted.
+* **Guilds** — guilds, alliances and characters.
+* **Servers** — every server's type, load and state. The page updates when a
+  server starts or stops or players log in or out.
+* **Players online in the last 24 hours** — sampled every 5 minutes. The
+  in-memory history starts over when the admin panel restarts; its latest
+  sample time is displayed.
+* **Global message and quick actions** — a separate
+  [broadcast form](servers.md#global-messages) and links to frequent pages.
 
-Administrators additionally see the state of the castle siege,
-the uptime and memory usage of the process, the version, whether the database is
-reachable, and the number of available [configuration updates](configuration-updates.md).
+Administrators additionally see the castle siege, process uptime and memory,
+version, database reachability, and available
+[configuration updates](configuration-updates.md).
 
-The numbers of accounts, guilds and characters are counted when the page is
-opened; reload the page to update them.
+Accounts, guilds, characters, bot count and the bot warning are snapshots. The
+page displays their last load time and a **Refresh** button; system and siege
+information are snapshots taken when the page opens.
 
 ## Leaderboards
 

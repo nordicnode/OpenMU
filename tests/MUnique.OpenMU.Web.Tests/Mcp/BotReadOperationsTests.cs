@@ -86,7 +86,7 @@ public class BotReadOperationsTests
         var report = BotReadOperations.Report([row], 0, 10);
 
         var bot = report["bots"]!.AsArray().Single()!.AsObject();
-        Assert.That(bot["serverId"]!.GetValue<byte>(), Is.EqualTo(1));
+        Assert.That(bot["serverId"]!.GetValue<int>(), Is.EqualTo(1));
         Assert.That(bot["account"]!.GetValue<string>(), Is.EqualTo("bot-01"));
         Assert.That(bot["character"]!.GetValue<string>(), Is.EqualTo("Kain"));
         Assert.That(bot["level"]!.GetValue<int>(), Is.EqualTo(42));
@@ -289,6 +289,33 @@ public class BotReadOperationsTests
 
         Assert.That(report["bots"]!.AsArray(), Is.Empty);
         Assert.That(report["total"]!.GetValue<int>(), Is.EqualTo(0));
+    }
+
+    /// <summary>A remote game server supplies the same details as a local bot, without truncating its id.</summary>
+    [Test]
+    public async Task ReportsRemoteBotSnapshotAsync()
+    {
+        var server = new Mock<IManageableServer>();
+        server.SetupGet(s => s.Id).Returns(300);
+        var remote = server.As<IGameServerAdministration>();
+        remote.Setup(s => s.GetBotSnapshotAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new[]
+        {
+            new LiveBotInfo("remote", "Hero", 42, 3, DateTime.UnixEpoch, null, null, 0, "Idle", "waiting", 800,
+                "Idle", "waiting", 4, "failure", 2, DateTimeOffset.UtcNow.AddMinutes(2),
+                new("Waiting", "Devias", "Blood Castle", DateTime.UtcNow.AddMinutes(3)), null,
+                [new("Sword", "keep", "upgrade", null, DateTimeOffset.UtcNow)]),
+        });
+        var servers = new Mock<IServerProvider>();
+        servers.SetupGet(s => s.Servers).Returns(new List<IManageableServer> { server.Object });
+        var operations = new BotReadOperations(servers.Object, AdminOperationTestServices.CreateExecutor());
+
+        var report = await operations.ListAsync(0, 10, CancellationToken.None).ConfigureAwait(false);
+        var bot = report["bots"]!.AsArray().Single()!;
+        Assert.That(bot["serverId"]!.GetValue<int>(), Is.EqualTo(300));
+        Assert.That(bot["failures"]!.GetValue<int>(), Is.EqualTo(4));
+        Assert.That(bot["meeting"]!["state"]!.GetValue<string>(), Is.EqualTo("Waiting"));
+        Assert.That(bot["lootDecisions"]!.AsArray().Single()!["item"]!.GetValue<string>(), Is.EqualTo("Sword"));
+        Assert.That(report["alarm"]!["stuckBots"]!.GetValue<int>(), Is.EqualTo(1));
     }
 
     /// <summary>

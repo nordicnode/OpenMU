@@ -308,7 +308,7 @@ public sealed class AdminWriteTools
     /// <param name="account">Exact account login name from bots_list.</param>
     /// <returns>The safe operation result.</returns>
     [McpServerTool(Name = "bots_reset_health", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
-    [Description("Forget the failures, restarts and quarantine of an account's bots, so a quarantined bot is allowed to run and to be restarted again. Use it after fixing the cause of a bot which keeps failing (see bots_alarm). Does not start, stop or respawn a bot.")]
+    [Description("Forget the failures, restarts and quarantine of an account's bots on in-process game servers, including stopped bots with retained health records. Remote game servers are not reset. Use after fixing the cause (see bots_alarm). Does not start, stop or respawn a bot.")]
     [Authorize(Roles = "Operator")]
     [ExposesOperation(typeof(BotWriteOperations), nameof(BotWriteOperations.ResetHealthAsync))]
     public static ValueTask<JsonObject> BotsResetHealthAsync(

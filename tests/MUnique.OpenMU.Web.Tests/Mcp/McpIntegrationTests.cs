@@ -204,6 +204,7 @@ public sealed class McpIntegrationTests : System.IDisposable
             var player = new LivePlayerInfo(Guid.NewGuid(), "tester", "Hero", 0, 1, 2, 10, 0, null, false, null);
             live.Setup(s => s.GetPlayerAsync("Hero", It.IsAny<System.Threading.CancellationToken>())).ReturnsAsync(player);
             live.Setup(s => s.GetPlayerSnapshotAsync(It.IsAny<System.Threading.CancellationToken>())).ReturnsAsync(new[] { player });
+            live.Setup(s => s.GetBotSnapshotAsync(It.IsAny<System.Threading.CancellationToken>())).ReturnsAsync(Array.Empty<LiveBotInfo>());
             live.Setup(s => s.GetEventsAsync(It.IsAny<System.Threading.CancellationToken>())).ReturnsAsync(Array.Empty<LiveEventInfo>());
             live.Setup(s => s.GetAdminOperationsAsync(It.IsAny<System.Threading.CancellationToken>())).ReturnsAsync(Array.Empty<AdminPluginOperationInfo>());
             servers.Add(server.Object);

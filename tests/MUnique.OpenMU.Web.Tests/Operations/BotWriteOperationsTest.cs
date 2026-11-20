@@ -55,23 +55,41 @@ public class BotWriteOperationsTest
     public async Task ResetsTheBotsOfTheAccountItWasGivenAsync()
     {
         var bot = CreateBot("Flapper");
-        var operation = CreateOperation(bot);
+        var operation = CreateOperation(300, bot);
 
         var result = await operation.ResetHealthAsync("flapper", CancellationToken.None).ConfigureAwait(false);
 
         Assert.That(result["bots"]!.AsArray(), Has.Count.EqualTo(1));
         Assert.That(result["summary"]!.GetValue<string>(), Does.Contain("forgotten"));
         Assert.That(result["bots"]!.AsArray()[0]!["quarantinedSeconds"]!.GetValue<int>(), Is.Zero);
+        Assert.That(result["bots"]!.AsArray()[0]!["serverId"]!.GetValue<int>(), Is.EqualTo(300));
     }
 
-    private static BotWriteOperations CreateOperation(params BotPlayer[] bots)
+    /// <summary>Remote-only servers cannot be silently reported as reset.</summary>
+    [Test]
+    public void ReportsRemoteServersCannotBeReset()
+    {
+        var server = new Mock<IManageableServer>();
+        server.SetupGet(s => s.Id).Returns(300);
+        server.As<IGameServerAdministration>();
+        var servers = new Mock<IServerProvider>();
+        servers.SetupGet(p => p.Servers).Returns(new List<IManageableServer> { server.Object });
+        var operation = new BotWriteOperations(servers.Object, AdminOperationTestServices.CreateExecutor());
+
+        var exception = Assert.ThrowsAsync<AdminResourceNotFoundException>(async () => await operation.ResetHealthAsync("remote", CancellationToken.None).ConfigureAwait(false));
+        Assert.That(exception!.Message, Does.Contain("Remote game servers cannot be reset"));
+    }
+
+    private static BotWriteOperations CreateOperation(params BotPlayer[] bots) => CreateOperation(0, bots);
+
+    private static BotWriteOperations CreateOperation(int serverId, params BotPlayer[] bots)
     {
         var gameContext = new Mock<IGameServerContext>();
         SetupGameContext(gameContext);
         gameContext.Setup(c => c.GetPlayersAsync()).ReturnsAsync(bots.Cast<Player>().ToList());
 
         var server = new Mock<IManageableServer>();
-        server.SetupGet(s => s.Id).Returns(0);
+        server.SetupGet(s => s.Id).Returns(serverId);
         server.As<IGameServerContextProvider>().SetupGet(p => p.Context).Returns(gameContext.Object);
 
         var servers = new Mock<IServerProvider>();

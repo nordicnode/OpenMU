@@ -4,16 +4,17 @@
 
 namespace MUnique.OpenMU.Web.Shared.Services;
 
+using System.Threading;
 using Microsoft.Extensions.Caching.Memory;
 using MUnique.OpenMU.GameLogic;
+using MUnique.OpenMU.GameLogic.Administration;
 using MUnique.OpenMU.GameLogic.Bots;
 using MUnique.OpenMU.Interfaces;
 using MUnique.OpenMU.Web.AdminPanel.Operations;
 
 /// <summary>
 /// Service for the bot player table on the <c>LoggedIn</c> page.
-/// Bots are connection-less <see cref="BotPlayer"/> instances in the game contexts,
-/// so they are only visible in the all-in-one deployment.
+/// Bots are read from the owning game servers, including through their remote administration channel.
 /// The table is read-only: there is no supported way to stop a single bot from the admin panel.
 /// </summary>
 public class BotAccountService : IDataService<BotAccount>, IBotMarketService
@@ -44,13 +45,13 @@ public class BotAccountService : IDataService<BotAccount>, IBotMarketService
     public string? StuckAlarm { get; private set; }
 
     /// <summary>
-    /// Determines whether the bot feature plugin is active on any in-process game server.
+    /// Determines whether a bot table can be read from any game server.
     /// </summary>
     public bool IsBotFeatureAvailable()
     {
-        return this._serverProvider.Servers
-            .OfType<IGameServerContextProvider>()
-            .Any(s => s.Context.PlugInManager.IsPlugInActive(typeof(BotFeaturePlugIn)));
+        return this._serverProvider.Servers.Any(s => s is IGameServerContextProvider provider
+            ? provider.Context.PlugInManager.IsPlugInActive(typeof(BotFeaturePlugIn))
+            : s is IGameServerAdministration);
     }
 
     /// <inheritdoc />
@@ -127,44 +128,49 @@ public class BotAccountService : IDataService<BotAccount>, IBotMarketService
 
     private async Task<List<BotAccount>> LoadAsync()
     {
-        var rows = new List<(byte ServerId, BotPlayer Player)>();
-        foreach (var server in this._serverProvider.Servers.OfType<IGameServerContextProvider>())
+        var rows = new List<(int ServerId, LiveBotInfo Bot, bool CanReset)>();
+        foreach (var server in this._serverProvider.Servers)
         {
-            var serverId = (byte)((IManageableServer)server).Id;
-            var players = await server.Context.GetPlayersAsync().ConfigureAwait(false);
-            rows.AddRange(players.OfType<BotPlayer>().Select(p => (serverId, p)));
+            var administration = server as IGameServerAdministration
+                ?? (server is IGameServerContextProvider provider ? new GameServerAdministration(provider.Context) : null);
+            if (administration is null)
+            {
+                continue;
+            }
+
+            var bots = await administration.GetBotSnapshotAsync(CancellationToken.None).ConfigureAwait(false);
+            rows.AddRange(bots.Select(bot => (server.Id, bot, server is IGameServerContextProvider)));
         }
 
         var guilds = await GuildNames.ResolveAsync(
                 GuildNames.FindServer(this._serverProvider),
-                rows.Select(r => r.Player.GuildStatus?.GuildId).OfType<uint>())
+                rows.Select(r => r.Bot.GuildId).OfType<uint>())
             .ConfigureAwait(false);
 
         return rows
             .Select(r =>
             {
-                var (partyMaster, partySize) = PartyDisplay.From(r.Player.Party);
-                var guildId = r.Player.GuildStatus?.GuildId;
-                var activity = r.Player.Activity;
-                var quarantinedSeconds = activity?.QuarantinedUntilUtc is { } until
+                var bot = r.Bot;
+                var quarantinedSeconds = bot.QuarantinedUntilUtc is { } until
                     ? Math.Max(0, (until - DateTimeOffset.UtcNow).TotalSeconds)
                     : 0;
                 return new BotAccount(
-                    r.Player.Account?.LoginName ?? string.Empty,
+                    bot.Account ?? string.Empty,
                     r.ServerId,
-                    r.Player.SelectedCharacter?.Name,
-                    r.Player.StartTimestamp,
-                    guildId is { } id ? guilds.GetValueOrDefault(id)?.Name : null,
-                    partyMaster,
-                    partySize,
-                    activity?.Summary,
-                    activity?.Detail,
-                    activity?.TimeInState.TotalSeconds ?? 0,
-                    activity?.Restarts ?? 0,
+                    bot.Character,
+                    bot.StartedAtUtc,
+                    bot.GuildId is { } id ? guilds.GetValueOrDefault(id)?.Name : null,
+                    bot.PartyMaster,
+                    bot.PartySize,
+                    bot.Summary,
+                    bot.Detail,
+                    bot.SecondsInState,
+                    bot.Restarts,
                     quarantinedSeconds,
-                    activity?.Meeting,
-                    activity?.LastMeeting,
-                    r.Player.RecentLootDecisions);
+                    bot.Meeting is { } meeting ? new(meeting.State, meeting.Place, meeting.Event, meeting.EndsAtUtc) : null,
+                    bot.LastMeeting is { } outcome ? new(outcome.State, outcome.Place, outcome.Event, outcome.Reason) : null,
+                    bot.LootDecisions.Select(d => new BotLootDecisionInfo(d.Item, d.Action, d.Reason, d.Detail, d.AtUtc)).ToArray(),
+                    r.CanReset);
             })
             .OrderLongestInState()
             .ToList();

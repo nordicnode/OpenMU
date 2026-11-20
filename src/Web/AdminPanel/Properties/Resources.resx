@@ -2104,6 +2104,23 @@
   <data name="Dashboard" xml:space="preserve">
     <value>Dashboard</value>
   </data>
+  <data name="DashboardGameServers" xml:space="preserve"><value>Game servers running</value></data>
+  <data name="DashboardAllGameServersRunning" xml:space="preserve"><value>All game servers started</value></data>
+  <data name="DashboardCoreServicesNeedAttention" xml:space="preserve"><value>{0} game or connect server(s) not started</value></data>
+  <data name="DashboardNoCoreServices" xml:space="preserve"><value>No game or connect servers configured</value></data>
+  <data name="DashboardNoGameServers" xml:space="preserve"><value>No game servers configured</value></data>
+  <data name="DashboardCoreServicesHealthy" xml:space="preserve"><value>Game and connect servers started</value></data>
+  <data name="DashboardBotSnapshot" xml:space="preserve"><value>Active bots at last refresh</value></data>
+  <data name="DashboardOnlineCountScope" xml:space="preserve"><value>Logged-in players, including bots and offline sessions</value></data>
+  <data name="DashboardSnapshotAt" xml:space="preserve"><value>Account, guild and bot data last refreshed at {0} UTC; system and siege data are from page load.</value></data>
+  <data name="DashboardSnapshotLoading" xml:space="preserve"><value>Loading dashboard snapshot</value></data>
+  <data name="DashboardHistoryScope" xml:space="preserve"><value>In-memory history resets when the admin panel restarts.</value></data>
+  <data name="DashboardLastSample" xml:space="preserve"><value>Last sample: {0} UTC</value></data>
+  <data name="DashboardLatestSample" xml:space="preserve"><value>Latest sample</value></data>
+  <data name="DashboardServiceType" xml:space="preserve"><value>Type</value></data>
+  <data name="DashboardServiceState" xml:space="preserve"><value>State</value></data>
+  <data name="DashboardServiceLoad" xml:space="preserve"><value>Load</value></data>
+  <data name="DashboardBroadcastDescription" xml:space="preserve"><value>Send a message to the selected game server or all running game servers.</value></data>
   <data name="DashboardPlayersOnline" xml:space="preserve">
     <value>Players online</value>
   </data>

@@ -15,6 +15,10 @@ public sealed partial class GameServer : IGameServerAdministration
     private GameServerAdministration Administration => new(this._gameContext);
 
     /// <inheritdoc />
+    public ValueTask<IReadOnlyList<LiveBotInfo>> GetBotSnapshotAsync(CancellationToken cancellationToken)
+        => this.Administration.GetBotSnapshotAsync(cancellationToken);
+
+    /// <inheritdoc />
     public ValueTask<IReadOnlyList<LivePlayerInfo>> GetPlayerSnapshotAsync(CancellationToken cancellationToken)
         => this.Administration.GetPlayerSnapshotAsync(cancellationToken);
 

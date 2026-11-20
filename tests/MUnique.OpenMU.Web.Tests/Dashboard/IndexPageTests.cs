@@ -45,9 +45,49 @@ public class IndexPageTests
         {
             var values = page.FindAll(".stat-card__value").Select(v => v.TextContent.Trim()).ToList();
             Assert.That(values[0], Is.EqualTo(15.ToString("N0")));
-            Assert.That(values[1], Does.StartWith("2").And.EndWith("/ 3"));
+            Assert.That(values[1], Does.StartWith("1").And.EndWith("/ 2"));
             Assert.That(values[2], Is.EqualTo(1234.ToString("N0")));
             Assert.That(values[3], Is.EqualTo(56.ToString("N0")));
+        });
+    }
+
+    /// <summary>
+    /// Optional services remain visible without affecting the core service warning.
+    /// </summary>
+    [Test]
+    public void DoesNotCountStoppedDiscordAsCoreServiceFailure()
+    {
+        using var context = CreateContext(
+            isAdministrator: false,
+            TestServers.Create(ServerType.GameServer, ServerState.Started, 10),
+            TestServers.Create(ServerType.ConnectServer, ServerState.Started, 0),
+            TestServers.Create(ServerType.Discord, ServerState.Stopped, 0));
+
+        var page = context.Render<Index>();
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.That(page.Find(".dashboard-health").TextContent, Does.Contain(Resources.ResourceManager.GetString("DashboardCoreServicesHealthy", Resources.Culture)));
+            Assert.That(page.FindAll(".dashboard-server-table tbody tr"), Has.Count.EqualTo(3));
+            var discord = page.FindAll(".dashboard-server-table tbody tr").Last();
+            Assert.That(discord.TextContent, Does.Contain("Discord"));
+            Assert.That(discord.TextContent, Does.Contain(Resources.DashboardNotAvailable));
+        });
+    }
+
+    /// <summary>
+    /// A failed game server is surfaced in the core service summary.
+    /// </summary>
+    [Test]
+    public void HighlightsUnavailableCoreServices()
+    {
+        using var context = CreateContext(isAdministrator: false);
+        var page = context.Render<Index>();
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.That(page.Find(".dashboard-health").ClassList, Does.Contain("dashboard-health--attention"));
+            Assert.That(page.Find(".dashboard-health").TextContent, Does.Contain("1 game or connect server"));
         });
     }
 
@@ -106,7 +146,7 @@ public class IndexPageTests
         });
     }
 
-    private static BunitContext CreateContext(bool isAdministrator)
+    private static BunitContext CreateContext(bool isAdministrator, params IManageableServer[] servers)
     {
         var context = new BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
@@ -117,10 +157,12 @@ public class IndexPageTests
             authorization.SetPolicies(AdminPolicies.Administrator);
         }
 
-        var serverProvider = TestServers.CreateProvider(
+        var serverProvider = TestServers.CreateProvider(servers.Length > 0 ? servers :
+        [
             TestServers.Create(ServerType.GameServer, ServerState.Started, 10),
             TestServers.Create(ServerType.GameServer, ServerState.Stopped, 5),
-            TestServers.Create(ServerType.ConnectServer, ServerState.Started, 30));
+            TestServers.Create(ServerType.ConnectServer, ServerState.Started, 30),
+        ]);
 
         var playerContext = new Mock<IPlayerContext>();
         playerContext.Setup(c => c.GetAccountStatisticsAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
