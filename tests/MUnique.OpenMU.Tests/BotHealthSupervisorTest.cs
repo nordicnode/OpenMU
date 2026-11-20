@@ -61,12 +61,15 @@ public class BotHealthSupervisorTest
 
         for (var i = 0; i < 100; i++)
         {
-            Assert.That(supervisor.RecordFault(new OperationCanceledException()), Is.False);
+            Assert.That(supervisor.RecordFault(new OperationCanceledException(), out var shouldLog), Is.False);
+            Assert.That(shouldLog, Is.False, $"cancellation #{i + 1} asked for an error line");
         }
 
+        Assert.That(supervisor.RecordFault(new ObjectDisposedException("player"), out var disposedShouldLog), Is.False);
+        Assert.That(disposedShouldLog, Is.False);
         Assert.That(supervisor.Faults, Is.Zero);
         Assert.That(supervisor.ConsecutiveFaults, Is.Zero);
-        Assert.That(supervisor.IgnoredTicks, Is.EqualTo(100));
+        Assert.That(supervisor.IgnoredTicks, Is.EqualTo(101));
     }
 
     /// <summary>

@@ -175,8 +175,10 @@ internal sealed class BotHealthSupervisor
             this._lastEventUtc = this._timeProvider.GetUtcNow();
             if (kind == BotFaultKind.Stopped)
             {
+                // A tick interrupted by the shutdown is expected, so it is neither counted nor logged - even
+                // when no fault preceded it, where the quiet-log rule would otherwise ask for an error line.
                 this._ignoredTicks++;
-                shouldLog = BotHealthPolicy.ShouldLogFaultAtError(this._consecutiveFaults);
+                shouldLog = false;
                 return false;
             }
 
