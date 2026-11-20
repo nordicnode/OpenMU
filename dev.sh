@@ -8,6 +8,14 @@
 #   source ./dev.sh && generate_certificates <certificate-password>
 #
 # DOTNET_SDK_VERSION can override the SDK image tag (default: 10.0).
+# The certificate is always written under the repository, regardless of the caller's directory.
+
+# Do not change shell options in a shell which sources this file.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  set -euo pipefail
+fi
+
+_OPENMU_DEV_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 function generate_certificates {
   local password=${1:-}
@@ -22,19 +30,26 @@ function generate_certificates {
   fi
 
   local sdk_version=${DOTNET_SDK_VERSION:-10.0}
-  mkdir -p certificates
+  if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+    echo "Docker must be installed and running to generate the certificate." >&2
+    return 1
+  fi
+
+  mkdir -p "$_OPENMU_DEV_SCRIPT_DIR/certificates"
 
   # Pass the password through the environment so it stays out of the host's
   # process list. Inside the throwaway container dotnet dev-certs still takes it
   # as an argument - it has no way to read it from stdin or a file - so it is
   # visible to processes in that container, which holds it in the environment
   # either way.
-  if docker run --rm --entrypoint "" \
-      -v "$PWD/certificates:/certificates" \
-      -e CERTIFICATE_PASSWORD="$password" \
-      "mcr.microsoft.com/dotnet/sdk:$sdk_version" \
-      sh -c 'dotnet dev-certs https --clean && dotnet dev-certs https -ep /certificates/aspnetapp.pfx -p "$CERTIFICATE_PASSWORD"'; then
+  if (
     export CERTIFICATE_PASSWORD="$password"
+    docker run --rm --entrypoint "" \
+      -v "$_OPENMU_DEV_SCRIPT_DIR/certificates:/certificates" \
+      -e CERTIFICATE_PASSWORD \
+      "mcr.microsoft.com/dotnet/sdk:$sdk_version" \
+      sh -c 'dotnet dev-certs https --clean && dotnet dev-certs https -ep /certificates/aspnetapp.pfx -p "$CERTIFICATE_PASSWORD"'
+  ); then
     echo "success"
   else
     echo "failed to generate the certificate" >&2

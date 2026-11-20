@@ -1,4 +1,4 @@
-name: Bot tests
+name: Tests
 
 on:
   push:
@@ -13,8 +13,8 @@ env:
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
 
 jobs:
-  bot-tests:
-    name: Build and run bot tests
+  tests:
+    name: Build and run solution tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -39,8 +39,8 @@ jobs:
 
       # ci=true skips the local source generators and verifies that the committed
       # generated files match their definitions (see docs/CODING_RULES.md).
-      - name: Build the bot test project
-        run: dotnet build tests/MUnique.OpenMU.Tests/MUnique.OpenMU.Tests.csproj -c Release -p:ci=true
+      - name: Build the solution
+        run: dotnet build src/MUnique.OpenMU.sln -c Release -p:ci=true
 
-      - name: Run the bot tests
-        run: dotnet test tests/MUnique.OpenMU.Tests/MUnique.OpenMU.Tests.csproj -c Release --no-build --filter "FullyQualifiedName~Bot"
+      - name: Run the solution tests
+        run: dotnet test src/MUnique.OpenMU.sln -c Release -p:ci=true --no-build
