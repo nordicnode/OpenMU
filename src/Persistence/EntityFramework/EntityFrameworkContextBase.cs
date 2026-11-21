@@ -7,6 +7,7 @@ namespace MUnique.OpenMU.Persistence.EntityFramework;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Data;
+using System.Linq.Expressions;
 using System.Reflection;
 using System.Threading;
 using Microsoft.EntityFrameworkCore;
@@ -41,6 +42,9 @@ internal class EntityFrameworkContextBase : IContext, IConfigurationEditContext
     private static readonly ConcurrentDictionary<IEntityType, IProperty?> PropertyToParentByEntityType = new();
 
     private static readonly ConcurrentDictionary<Type, PropertyInfo[]> AggregatePropertiesByType = new();
+
+    /// <summary>The open generic reference-count query used by <see cref="IsReferencedByPersistedDataAsync"/>.</summary>
+    private static readonly MethodInfo CountReferenceMethod = typeof(EntityFrameworkContextBase).GetMethod(nameof(CountReferenceRowsAsync), BindingFlags.Static | BindingFlags.NonPublic)!;
 
     private readonly bool _isOwner;
     private readonly IConfigurationChangeListener? _changeListener;
@@ -247,6 +251,41 @@ internal class EntityFrameworkContextBase : IContext, IConfigurationEditContext
     }
 
     /// <inheritdoc/>
+    public async ValueTask<bool> IsReferencedByPersistedDataAsync(object item, CancellationToken cancellationToken = default)
+    {
+        if (item is not IIdentifiable identifiable)
+        {
+            return false;
+        }
+
+        using var gate = await this._lock.LockAsync(cancellationToken).ConfigureAwait(false);
+        var itemType = item.GetType();
+        foreach (var entityType in this.Context.Model.GetEntityTypes())
+        {
+            if (entityType.IsOwned() || entityType.IsMappedToJson() || entityType.HasSharedClrType || entityType.GetTableName() is null)
+            {
+                continue;
+            }
+
+            foreach (var foreignKey in entityType.GetForeignKeys())
+            {
+                // A reference is stored in a single foreign key column for every configuration relationship.
+                if (foreignKey.Properties.Count != 1 || !foreignKey.PrincipalEntityType.ClrType.IsAssignableFrom(itemType))
+                {
+                    continue;
+                }
+
+                if (await this.HasReferenceAsync(entityType, foreignKey.Properties[0], identifiable, cancellationToken).ConfigureAwait(false))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <inheritdoc/>
     public async Task<T?> GetByIdAsync<T>(Guid id, CancellationToken cancellationToken)
         where T : class
     {
@@ -444,6 +483,35 @@ internal class EntityFrameworkContextBase : IContext, IConfigurationEditContext
         return false;
     }
 
+    /// <summary>Counts the rows of one entity type which point to the given identifier.</summary>
+    /// <typeparam name="TEntity">The referencing entity type.</typeparam>
+    /// <typeparam name="TKey">The foreign key type, <see cref="Guid"/> or its nullable form.</typeparam>
+    /// <param name="context">The database context.</param>
+    /// <param name="propertyName">The foreign key property name.</param>
+    /// <param name="referenceId">The referenced identifier.</param>
+    /// <param name="excludedId">An identifier to exclude, used for self-referencing tables.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns><c>true</c>, if at least one row references the identifier.</returns>
+    private static async ValueTask<bool> CountReferenceRowsAsync<TEntity, TKey>(DbContext context, string propertyName, Guid referenceId, Guid? excludedId, CancellationToken cancellationToken)
+        where TEntity : class
+    {
+        var parameter = Expression.Parameter(typeof(TEntity), "entity");
+        Expression body = Expression.Equal(
+            Expression.Call(typeof(EF), nameof(EF.Property), [typeof(TKey)], parameter, Expression.Constant(propertyName)),
+            Expression.Convert(Expression.Constant(referenceId), typeof(TKey)));
+        if (excludedId is { } ownId && typeof(IIdentifiable).IsAssignableFrom(typeof(TEntity)))
+        {
+            body = Expression.AndAlso(
+                body,
+                Expression.NotEqual(
+                    Expression.Call(typeof(EF), nameof(EF.Property), [typeof(Guid)], parameter, Expression.Constant(nameof(IIdentifiable.Id))),
+                    Expression.Constant(ownId)));
+        }
+
+        var predicate = Expression.Lambda<Func<TEntity, bool>>(body, parameter);
+        return await context.Set<TEntity>().AnyAsync(predicate, cancellationToken).ConfigureAwait(false);
+    }
+
     private async ValueTask<bool> SaveChangesCoreAsync(CancellationToken cancellationToken)
     {
         using var l = await this._lock.LockAsync(cancellationToken).ConfigureAwait(false);
@@ -524,6 +592,28 @@ internal class EntityFrameworkContextBase : IContext, IConfigurationEditContext
 
             return;
         }
+    }
+
+    /// <summary>
+    /// Determines whether a single-column foreign key of an entity table references the item.
+    /// </summary>
+    /// <param name="entityType">The entity type which may reference the item.</param>
+    /// <param name="foreignKeyProperty">The foreign key column.</param>
+    /// <param name="item">The item which is about to be deleted.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns><c>true</c>, if a row of the entity type references the item.</returns>
+    private async ValueTask<bool> HasReferenceAsync(IEntityType entityType, IProperty foreignKeyProperty, IIdentifiable item, CancellationToken cancellationToken)
+    {
+        var keyType = foreignKeyProperty.ClrType;
+        if (keyType != typeof(Guid) && keyType != typeof(Guid?))
+        {
+            return false;
+        }
+
+        // The row of the item itself is not a reference (self-referencing configuration, like a map's safezone).
+        var excludedId = entityType.ClrType.IsInstanceOfType(item) ? item.Id : (Guid?)null;
+        var query = CountReferenceMethod.MakeGenericMethod(entityType.ClrType, keyType);
+        return await ((ValueTask<bool>)query.Invoke(null, [this.Context, foreignKeyProperty.Name, item.Id, excludedId, cancellationToken])!).ConfigureAwait(false);
     }
 
     private void AttachWithoutParentInternal(object item)

@@ -59,10 +59,37 @@ public sealed class CharacterWriteOperations(IPersistenceContextProvider persist
     public ValueTask<JsonObject> AddItemAsync(string characterName, Guid itemId, byte level, bool vault, bool apply, string? confirmationToken, CancellationToken cancellationToken)
         => this.ChangeAsync(characterName, "{}", itemId, level, vault, apply, confirmationToken, cancellationToken);
 
+    /// <summary>
+    /// Reverts the audited field values of a previous <c>characters_update</c>, refusing the reversal when the
+    /// character no longer matches what that change left behind.
+    /// </summary>
+    /// <param name="entry">The successful audit entry to reverse.</param>
+    /// <param name="apply">Whether to apply the reversal.</param>
+    /// <param name="confirmationToken">The reversal preview token.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The preview or applied reversal.</returns>
+    internal ValueTask<JsonObject> RevertAsync(AdminAuditEntry entry, bool apply, string? confirmationToken, CancellationToken cancellationToken)
+    {
+        var change = JsonNode.Parse(entry.ResultJson)?["change"] as JsonObject;
+        var recorded = JsonNode.Parse(entry.ArgumentsJson);
+        var characterName = (recorded?["arguments"] ?? recorded)?["characterName"]?.GetValue<string>();
+        if (change is not { } reversible || reversible["kind"]?.GetValue<string>() != "character" || change?["before"] is not JsonObject || change["after"]?["requestedValues"] is not JsonObject)
+        {
+            throw new AdminOperationException("This audit entry has no complete reversible character diff. Only field updates of a character can be reverted.");
+        }
+
+        if (string.IsNullOrEmpty(characterName))
+        {
+            throw new AdminOperationException("The audit entry does not name the changed character. Revert refused.");
+        }
+
+        return this.ChangeAsync(characterName, "{}", null, 0, false, apply, confirmationToken, cancellationToken, "audit_revert", reversible);
+    }
+
     private static JsonObject Snapshot(Character character) => new()
     {
         ["id"] = character.Id.ToString(),
-        ["stats"] = JsonSerializer.SerializeToNode(character.Attributes.OrderBy(a => a.Definition.Id).Select(a => new { id = a.Definition.Id, a.Value })),
+        ["stats"] = JsonSerializer.SerializeToNode(character.Attributes.OrderBy(a => a.Definition.Id).Select(a => new { id = a.Definition.Id, value = a.Value })),
         ["money"] = character.Inventory?.Money, ["mapId"] = character.CurrentMap?.GetId().ToString(),
         ["x"] = character.PositionX, ["y"] = character.PositionY,
     };
@@ -97,7 +124,83 @@ public sealed class CharacterWriteOperations(IPersistenceContextProvider persist
         }
     }
 
-    private async ValueTask<JsonObject> ChangeAsync(string characterName, string patch, Guid? itemId, byte level, bool vault, bool apply, string? token, CancellationToken cancellationToken)
+    private static void ApplyFieldToSnapshot(JsonObject snapshot, string field, JsonNode? value, GameConfiguration config)
+    {
+        if (EditableStats.TryGetValue(field, out var definition))
+        {
+            var stat = (snapshot["stats"] as JsonArray)?.FirstOrDefault(s => s?["id"]?.GetValue<Guid>() == definition.Id)
+                ?? throw new AdminOperationException("The recorded character state is incomplete. Revert refused.");
+            stat["value"] = value!.GetValue<int>();
+        }
+        else if (field == "mapNumber")
+        {
+            var map = config.Maps.SingleOrDefault(m => m.Number == value!.GetValue<int>())
+                ?? throw new AdminOperationException("The recorded map no longer exists. Revert refused.");
+            snapshot["mapId"] = map.GetId().ToString();
+        }
+        else
+        {
+            snapshot[field] = value!.DeepClone();
+        }
+    }
+
+    private static (JsonObject RevertPatch, JsonObject ExpectedState) BuildRevert(JsonObject auditChange, GameConfiguration config)
+    {
+        var before = auditChange["before"]!.AsObject();
+        var requested = auditChange["after"]!["requestedValues"]!.AsObject();
+        var revert = new JsonObject();
+        if (before["stats"] is JsonArray stats)
+        {
+            foreach (var (field, definition) in EditableStats)
+            {
+                if (stats.FirstOrDefault(s => s?["id"]?.GetValue<Guid>() == definition.Id) is { } stat)
+                {
+                    revert[field] = (int)(stat["value"] ?? stat["Value"])!.GetValue<float>();
+                }
+            }
+        }
+
+        if (!revert.ContainsKey("level"))
+        {
+            throw new AdminOperationException("The recorded character state is incomplete. Revert refused.");
+        }
+
+        foreach (var field in new[] { "money", "x", "y" })
+        {
+            if (before[field] is { } value)
+            {
+                revert[field] = value.GetValue<int>();
+            }
+            else if (requested.ContainsKey(field))
+            {
+                throw new AdminOperationException($"The recorded character had no {field}, which cannot be restored. Revert refused.");
+            }
+        }
+
+        if (before["mapId"]?.GetValue<string>() is { } mapIdText)
+        {
+            if (!Guid.TryParse(mapIdText, out var mapId) || config.Maps.FirstOrDefault(m => m.GetId() == mapId) is not { } map)
+            {
+                throw new AdminOperationException("The recorded map no longer exists. Revert refused.");
+            }
+
+            revert["mapNumber"] = map.Number;
+        }
+        else if (requested.ContainsKey("mapNumber"))
+        {
+            throw new AdminOperationException("The recorded character had no map, which cannot be restored. Revert refused.");
+        }
+
+        var expected = before.DeepClone().AsObject();
+        foreach (var (field, value) in requested)
+        {
+            ApplyFieldToSnapshot(expected, field, value, config);
+        }
+
+        return (revert, expected);
+    }
+
+    private async ValueTask<JsonObject> ChangeAsync(string characterName, string patch, Guid? itemId, byte level, bool vault, bool apply, string? token, CancellationToken cancellationToken, string operation = "", JsonObject? revertFrom = null)
     {
         var actor = await AdminChangeExecution.RequireAsync(executor, settings, AdminRoles.Operator, cancellationToken).ConfigureAwait(false);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -139,6 +242,15 @@ public sealed class CharacterWriteOperations(IPersistenceContextProvider persist
             before["accountState"] = account.State.ToString();
             before["characterStatus"] = character.CharacterStatus.ToString();
             var changes = ConfigurationPatch.Parse(patch);
+            if (revertFrom is not null)
+            {
+                (changes, var expectedState) = BuildRevert(revertFrom, config);
+                if (!JsonNode.DeepEquals(before, expectedState))
+                {
+                    throw new AdminOperationException("The character changed after the recorded change. Revert refused; inspect the current character state.");
+                }
+            }
+
             ValidateStats(changes, character, config);
             var after = before.DeepClone().AsObject();
             ItemStorage? storage = null;
@@ -185,15 +297,15 @@ public sealed class CharacterWriteOperations(IPersistenceContextProvider persist
                 after["requestedValues"] = changes.DeepClone();
             }
 
-            var operation = itemId is null ? "characters_update" : "characters_add_item";
+            var operationName = string.IsNullOrEmpty(operation) ? itemId is null ? "characters_update" : "characters_add_item" : operation;
             result = await AdminChangeExecution.RunAsync(
                 executor,
                 confirmations,
                 actor,
                 AdminRoles.Operator,
-                operation,
-                new { characterName, patch, itemId, level, vault },
-                new JsonObject { ["before"] = before, ["after"] = after },
+                operationName,
+                new { characterName, patch = revertFrom is null ? (object)patch : revertFrom, itemId, level, vault },
+                new JsonObject { ["kind"] = "character", ["before"] = before, ["after"] = after },
                 apply,
                 token,
                 async () =>

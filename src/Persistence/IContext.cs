@@ -155,4 +155,18 @@ public interface IContext : IDisposable
     ///   <c>true</c> if the specified type is supported; otherwise, <c>false</c>.
     /// </returns>
     bool IsSupporting(Type type);
+
+    /// <summary>
+    /// Determines whether persisted data outside the object's own aggregate still references it.
+    /// </summary>
+    /// <remarks>
+    /// Administrative deletes use this to refuse a change which the store would reject through a foreign key
+    /// constraint, such as deleting an item definition which a character still carries. Providers without
+    /// referential constraints, like the in-memory persistence, have nothing to check and keep the default.
+    /// </remarks>
+    /// <param name="item">The object which is about to be deleted.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns><c>true</c>, if other persisted rows reference the object.</returns>
+    ValueTask<bool> IsReferencedByPersistedDataAsync(object item, CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(false);
 }

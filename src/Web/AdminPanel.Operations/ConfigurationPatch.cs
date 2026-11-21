@@ -221,7 +221,7 @@ internal static class ConfigurationPatch
         {
             if (IsReferenceCollection(property))
             {
-                var collection = property.GetValue(item) ?? throw new AdminOperationException("The reference collection is not initialized.");
+                var collection = ReferenceCollection(item, property);
                 property.PropertyType.GetMethod("Clear")!.Invoke(collection, null);
                 foreach (var reference in (List<object>)value!)
                 {
@@ -241,6 +241,26 @@ internal static class ConfigurationPatch
         && property.PropertyType.GetGenericTypeDefinition() == typeof(ICollection<>)
         && !property.IsDefined(typeof(MUnique.OpenMU.DataModel.Composition.MemberOfAggregateAttribute))
         && IsReference(property.PropertyType.GetGenericArguments()[0]);
+
+    /// <summary>Gets the reference collection of a detached candidate, creating it when the persistence provider left it unset.</summary>
+    /// <param name="item">The object which receives the collection.</param>
+    /// <param name="property">The reference collection property.</param>
+    /// <returns>The initialized collection.</returns>
+    private static object ReferenceCollection(object item, PropertyInfo property)
+    {
+        if (property.GetValue(item) is { } initialized)
+        {
+            return initialized;
+        }
+
+        // Entities created by Activator.CreateInstance have no persistence provider to initialize the navigation
+        // collection, and the model declares the setter as protected.
+        var setter = property.GetSetMethod(nonPublic: true)
+            ?? throw new AdminOperationException("The reference collection is not initialized.");
+        var collection = Activator.CreateInstance(typeof(List<>).MakeGenericType(property.PropertyType.GetGenericArguments()[0]))!;
+        setter.Invoke(item, [collection]);
+        return collection;
+    }
 
     private static bool IsReference(Type type) => GameConfigurationHelper.Enumerables.ContainsKey(type) && type != typeof(PlugInConfiguration);
 }

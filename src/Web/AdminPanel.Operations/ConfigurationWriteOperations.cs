@@ -25,7 +25,8 @@ using MUnique.OpenMU.Persistence.AdminAuth;
 /// <param name="settings">The write safety policy.</param>
 /// <param name="audit">The durable history.</param>
 /// <param name="plugins">The shared plugin change service.</param>
-public sealed class ConfigurationWriteOperations(IPersistenceContextProvider persistence, IDataSource<GameConfiguration> configurations, AdminOperationExecutor executor, AdminChangeConfirmation confirmations, AdminWriteSettings settings, IAdminAuditRepository audit, PluginWriteOperations plugins)
+/// <param name="characters">The shared offline character change service, used to revert character updates.</param>
+public sealed class ConfigurationWriteOperations(IPersistenceContextProvider persistence, IDataSource<GameConfiguration> configurations, AdminOperationExecutor executor, AdminChangeConfirmation confirmations, AdminWriteSettings settings, IAdminAuditRepository audit, PluginWriteOperations plugins, CharacterWriteOperations characters)
 {
     /// <summary>Merge-patches scalar fields or explicit references of one configuration object.</summary>
     /// <param name="type">The configuration type.</param>
@@ -76,12 +77,17 @@ public sealed class ConfigurationWriteOperations(IPersistenceContextProvider per
     {
         await AdminChangeExecution.RequireAsync(executor, settings, AdminRoles.Administrator, cancellationToken).ConfigureAwait(false);
         var entry = await audit.GetAsync(auditId, cancellationToken).ConfigureAwait(false);
-        if (entry is not { Outcome: "Succeeded" } || entry.Operation is not ("config_update" or "config_create" or "config_delete" or "plugins_set_active" or "plugins_update_configuration" or "rates_set" or "drops_update" or "spawns_update" or "audit_revert"))
+        if (entry is not { Outcome: "Succeeded" } || entry.Operation is not ("config_update" or "config_create" or "config_delete" or "characters_update" or "plugins_set_active" or "plugins_update_configuration" or "rates_set" or "drops_update" or "spawns_update" or "audit_revert"))
         {
             throw new AdminOperationException("Only successful configuration changes can be reverted. Operational actions cannot be reverted.");
         }
 
         var change = JsonNode.Parse(entry.ResultJson)?["change"] as JsonObject;
+        if (entry.Operation == "characters_update" || change?["kind"]?.GetValue<string>() == "character")
+        {
+            return await characters.RevertAsync(entry, apply, confirmationToken, cancellationToken).ConfigureAwait(false);
+        }
+
         if (change?["kind"]?.GetValue<string>() == "moneyRate")
         {
             return await this.UpdateMoneyRateAsync(change["before"]!.GetValue<float>(), apply, confirmationToken, cancellationToken, change["after"]!.GetValue<float>(), auditId, change["stateIdentity"]?.GetValue<string>()).ConfigureAwait(false);
@@ -198,7 +204,12 @@ public sealed class ConfigurationWriteOperations(IPersistenceContextProvider per
         foreach (var (property, value) in values.Where(p => p.Value is not null && !ConfigurationPatch.IsScalar(p.Key.PropertyType)))
         {
             var type = ConfigurationPatch.IsReferenceCollection(property) ? property.PropertyType.GetGenericArguments()[0] : property.PropertyType;
-            var allowed = GameConfigurationHelper.Enumerables[type](config).Cast<object>().Select(o => o.GetId()).ToHashSet();
+            if (!GameConfigurationHelper.Enumerables.TryGetValue(type, out var enumerate))
+            {
+                throw new AdminOperationException("A reference is not a configuration type of the active configuration.", AdminOperationErrorKind.InvalidInput);
+            }
+
+            var allowed = enumerate(config).Cast<object>().Select(o => o.GetId()).ToHashSet();
             var references = value is List<object> list ? list : [value!];
             if (references.Any(o => !allowed.Contains(o.GetId())))
             {
@@ -251,20 +262,20 @@ public sealed class ConfigurationWriteOperations(IPersistenceContextProvider per
         var candidate = Activator.CreateInstance(type) ?? throw new AdminOperationException("This configuration type cannot be constructed.");
         if (item is not null)
         {
-            foreach (var property in type.GetProperties().Where(p => p.CanRead && p.SetMethod?.IsPublic == true && p.GetIndexParameters().Length == 0))
+            foreach (var property in type.GetProperties().Where(p => p.CanRead && p.SetMethod?.IsPublic == true && p.GetIndexParameters().Length == 0 && !IsCollection(p.PropertyType)))
             {
                 property.SetValue(candidate, property.GetValue(item));
             }
         }
 
-        foreach (var (property, value) in values.Where(v => !ConfigurationPatch.IsReferenceCollection(v.Key)))
-        {
-            property.SetValue(candidate, value);
-        }
-
+        // Collections are never copied from the live object, so applying the proposed values only touches the
+        // detached candidate - and validation sees them, instead of an empty placeholder collection.
+        ConfigurationPatch.Apply(candidate, values);
         ConfigurationPatch.Validate(candidate);
         return candidate;
     }
+
+    private static bool IsCollection(Type type) => type != typeof(string) && type != typeof(byte[]) && typeof(IEnumerable).IsAssignableFrom(type);
 
     private static object Find(GameConfiguration config, Type type, Guid id)
         => GameConfigurationHelper.Enumerables[type](config).Cast<object>().FirstOrDefault(o => o.GetId() == id)
@@ -283,7 +294,7 @@ public sealed class ConfigurationWriteOperations(IPersistenceContextProvider per
         return (property, childType);
     }
 
-    private static void CheckDeletion(GameConfiguration config, object item, object parent, PropertyInfo owningCollection, Type type)
+    private static async ValueTask CheckDeletionAsync(GameConfiguration config, object item, object parent, PropertyInfo owningCollection, Type type, IContext context, CancellationToken cancellationToken)
     {
         if (type.GetConstructor(Type.EmptyTypes) is null)
         {
@@ -319,6 +330,14 @@ public sealed class ConfigurationWriteOperations(IPersistenceContextProvider per
                     }
                 }
             }
+        }
+
+        // The configuration object graph is not the only reference holder: characters, inventories, vaults and
+        // other persisted data store foreign keys to it. Checking them during the preview keeps the apply from
+        // failing on a constraint after the operator confirmed it.
+        if (await context.IsReferencedByPersistedDataAsync(item, cancellationToken).ConfigureAwait(false))
+        {
+            throw new AdminOperationException("The object is still referenced by persisted player or guild data. Remove those references before deleting it.");
         }
     }
 
@@ -388,7 +407,7 @@ public sealed class ConfigurationWriteOperations(IPersistenceContextProvider per
 
         if (mode == "delete")
         {
-            CheckDeletion(config, item!, parent!, collectionProperty!, type);
+            await CheckDeletionAsync(config, item!, parent!, collectionProperty!, type, context, cancellationToken).ConfigureAwait(false);
         }
 
         var change = new JsonObject
