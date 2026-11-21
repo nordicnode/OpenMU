@@ -135,9 +135,10 @@ internal static class BotCombatSpacing
         {
             (ux, uy),
 
-            // The escapes are rotated by 90 degrees from the direct one, so they keep its length - which
-            // is more than one tile for a diagonal threat: (1, 1) becomes (0, 2). Scaling them back to a
-            // length of one keeps every candidate `step` tiles away, instead of up to twice that.
+            // The two escapes are the direct direction rotated by 45 degrees, so they point between
+            // "straight away" and "sideways" - and they are sqrt(2) times as long. Scaling each by its
+            // larger component keeps every candidate `step` tiles away, instead of up to twice that for
+            // a diagonal threat ((1, 1) becomes (0, 2)).
             ScaleToUnit(ux - uy, uy + ux),
             ScaleToUnit(ux + uy, uy - ux),
         };

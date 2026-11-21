@@ -1447,14 +1447,30 @@ public sealed class CombatHandler
             return;
         }
 
-        this._nextRetreatUtc = now + BotCombatSpacing.KiteCooldown;
         if (teleports)
         {
-            this._nextTeleportUtc = now + TeleportCooldown;
-            await new WizardTeleportAction().TryTeleportWithSkillAsync(this._player, point.Value).ConfigureAwait(false);
-            return;
+            if (await new WizardTeleportAction().TryTeleportWithSkillAsync(this._player, point.Value).ConfigureAwait(false))
+            {
+                this._nextRetreatUtc = now + BotCombatSpacing.KiteCooldown;
+                this._nextTeleportUtc = now + TeleportCooldown;
+                return;
+            }
+
+            // The game refused the blink after all - stunned, frozen or restricted by a plugin. Nothing
+            // is spent then, so the bot walks instead; that needs a walkable way, which the teleport
+            // destination didn't have to have.
+            point = BotCombatSpacing.FindRetreatPoint(
+                map,
+                this._player.Position,
+                target.Position,
+                BotCombatSpacing.RetreatDistance);
+            if (point is null)
+            {
+                return;
+            }
         }
 
+        this._nextRetreatUtc = now + BotCombatSpacing.KiteCooldown;
         await this._movementHandler.WalkToPositionAsync(point.Value).ConfigureAwait(false);
     }
 

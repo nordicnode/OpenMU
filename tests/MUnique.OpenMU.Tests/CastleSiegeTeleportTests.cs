@@ -132,10 +132,11 @@ public class CastleSiegeTeleportTests
         await AddTeleportSkillAsync(player, TeleportSkillId).ConfigureAwait(false);
         var manaBefore = player.Attributes![Stats.CurrentMana];
 
-        await new WizardTeleportAction().TryTeleportWithSkillAsync(player, new Point(92, (byte)targetY)).ConfigureAwait(false);
+        var teleported = await new WizardTeleportAction().TryTeleportWithSkillAsync(player, new Point(92, (byte)targetY)).ConfigureAwait(false);
 
         Assert.Multiple(() =>
         {
+            Assert.That(teleported, Is.EqualTo(!isPrevented), "the action reports whether it started the teleport");
             Assert.That(player.Attributes[Stats.CurrentMana], isPrevented ? Is.EqualTo(manaBefore) : Is.EqualTo(manaBefore - ManaCost));
             Mock.Get(player.ViewPlugIns.GetPlugIn<ITeleportPlugIn>()!)
                 .Verify(p => p.ShowTeleportedAsync(), isPrevented ? Times.Once() : Times.Never());

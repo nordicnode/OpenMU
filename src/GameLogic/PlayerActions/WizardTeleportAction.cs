@@ -31,7 +31,8 @@ public class WizardTeleportAction
     /// </summary>
     /// <param name="player">The player.</param>
     /// <param name="target">The target.</param>
-    public async ValueTask TryTeleportWithSkillAsync(Player player, Point target)
+    /// <returns><c>true</c> if the teleport was started; <c>false</c> if the game refused it.</returns>
+    public async ValueTask<bool> TryTeleportWithSkillAsync(Player player, Point target)
     {
         if (!player.IsAtSafezone()
             && player.IsActive()
@@ -45,11 +46,11 @@ public class WizardTeleportAction
             && await player.TryConsumeForSkillAsync(skillEntry).ConfigureAwait(false))
         {
             _ = Task.Run(() => player.TeleportAsync(target, skill));
+            return true;
         }
-        else
-        {
-            await player.InvokeViewPlugInAsync<ITeleportPlugIn>(p => p.ShowTeleportedAsync()).ConfigureAwait(false);
-        }
+
+        await player.InvokeViewPlugInAsync<ITeleportPlugIn>(p => p.ShowTeleportedAsync()).ConfigureAwait(false);
+        return false;
     }
 
     /// <summary>

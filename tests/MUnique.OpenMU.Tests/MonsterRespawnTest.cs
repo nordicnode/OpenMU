@@ -36,18 +36,34 @@ public class MonsterRespawnTest
         await monster.ReflectDamageAsync(killer, 1_000_000).ConfigureAwait(false);
         Assert.That(monster.IsAlive, Is.False);
 
-        // The respawn sets the monster alive before it adds it back to the map's area of interest, and
-        // the dead monster is only removed from it asynchronously - so neither the flag nor the map
-        // says on its own that it is back; wait for both.
+        // The respawn sets the monster alive before it re-adds it to the map's area of interest, and the
+        // dead entry is removed after that - so a single look can catch the state in between. The
+        // respawn only counts once both hold on two reads in a row.
         var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (!(monster.IsAlive && monster.CurrentMap.GetNpcsInRange(SpawnPoint, 1).Contains(monster))
-               && DateTime.UtcNow < deadline)
+        IList<NonPlayerCharacter> inRange;
+        while (true)
         {
+            inRange = monster.CurrentMap.GetNpcsInRange(SpawnPoint, 1);
+            if (monster.IsAlive && inRange.Contains(monster))
+            {
+                await Task.Delay(200).ConfigureAwait(false);
+                inRange = monster.CurrentMap.GetNpcsInRange(SpawnPoint, 1);
+                if (monster.IsAlive && inRange.Contains(monster))
+                {
+                    break;
+                }
+            }
+
+            if (DateTime.UtcNow > deadline)
+            {
+                Assert.Fail("the killed monster did not respawn on its map in time");
+            }
+
             await Task.Delay(50).ConfigureAwait(false);
         }
 
         Assert.That(monster.IsAlive, Is.True);
-        Assert.That(monster.CurrentMap.GetNpcsInRange(SpawnPoint, 1), Does.Contain(monster));
+        Assert.That(inRange, Does.Contain(monster));
     }
 
     /// <summary>
