@@ -360,6 +360,35 @@ public sealed class ConfigurationChangeIntegrationTests
         Assert.That(character.Inventory.Money, Is.EqualTo(100));
     }
 
+    /// <summary>A character update is reversible through the audit entry it recorded.</summary>
+    [Test]
+    public async Task RevertsACharacterUpdateAsync()
+    {
+        var login = Mock.Get(this._host.App.Services.GetRequiredService<ILoginServer>());
+        login.Setup(l => l.TryReserveAccountAsync("tester", It.IsAny<int>())).ReturnsAsync(true);
+        using var context = this._persistence.CreateNewPlayerContext(this._config);
+        var account = await context.GetAccountByLoginNameAsync("tester").ConfigureAwait(false);
+        var character = account!.Characters.Single();
+        this._config.MaximumInventoryMoney = 100000;
+        character.Inventory = context.CreateNew<ItemStorage>();
+        var levelDefinition = context.CreateNew<AttributeDefinition>(Stats.Level.Id, "Level", string.Empty);
+        levelDefinition.MaximumValue = 400;
+        this._config.MaximumLevel = 400;
+        character.Attributes.Add(context.CreateNew<StatAttribute>(levelDefinition, 10f));
+        await context.SaveChangesAsync().ConfigureAwait(false);
+
+        var args = new Dictionary<string, object?> { ["characterName"] = "Hero", ["patch"] = "{\"money\":100}" };
+        Confirm(args, await this.CallAsync("characters_update", args).ConfigureAwait(false));
+        await this.CallAsync("characters_update", args).ConfigureAwait(false);
+        Assert.That(character.Inventory.Money, Is.EqualTo(100));
+
+        var entry = (await this._audit.ReadAsync(0, 100).ConfigureAwait(false)).Items.Single(e => e.Operation == "characters_update");
+        var revert = new Dictionary<string, object?> { ["auditId"] = entry.Id };
+        Confirm(revert, await this.CallAsync("audit_revert", revert).ConfigureAwait(false));
+        await this.CallAsync("audit_revert", revert).ConfigureAwait(false);
+        Assert.That(character.Inventory.Money, Is.Zero);
+    }
+
     /// <summary>Drop edits can add one item and deletion refuses another object's reference.</summary>
     [Test]
     public async Task DropReferencesAreValidatedAsync()

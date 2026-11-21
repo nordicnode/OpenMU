@@ -244,6 +244,49 @@ public sealed class McpOperationsIntegrationTests
         var result = await client.CallToolAsync("server_start", new Dictionary<string, object?> { ["serverId"] = 9, ["serverType"] = "GameServer" }).ConfigureAwait(false);
         Assert.That(result.IsError, Is.True);
         Assert.That(JsonSerializer.Serialize(result), Does.Not.Contain("private-database-details"));
+        Assert.That(result.Meta?["openmu/errorKind"]?.GetValue<string>(), Is.EqualTo("Uncertain"));
+    }
+
+    /// <summary>A stale offline view is not enough: the write must hold a login reservation.</summary>
+    [Test]
+    public async Task AccountWritesRequireALoginReservationAsync()
+    {
+        var login = Mock.Get(this._host.App.Services.GetRequiredService<ILoginServer>());
+        login.Setup(l => l.GetSnapshotAsync()).ReturnsAsync(new Dictionary<string, byte>());
+        login.Setup(l => l.TryReserveAccountAsync(It.IsAny<string>(), It.IsAny<int>())).ReturnsAsync(false);
+        await using var client = await this.AdminAsync().ConfigureAwait(false);
+        var result = await client.CallToolAsync("accounts_set_state", new Dictionary<string, object?> { ["loginName"] = "tester", ["state"] = "Banned", ["reason"] = "Testing safety" }).ConfigureAwait(false);
+        Assert.That(result.IsError, Is.True);
+        Assert.That(result.Content.OfType<TextContentBlock>().Single().Text, Does.Contain("online, reserved"));
+        Assert.That((await this._audit.ReadAsync(0, 100).ConfigureAwait(false)).Items.Any(entry => entry.Operation == "accounts_set_state" && entry.Outcome == "Failed"), Is.True);
+    }
+
+    /// <summary>A completed write releases its reservation, so the account can log in afterwards.</summary>
+    [Test]
+    public async Task AccountWritesReleaseTheirReservationAsync()
+    {
+        var login = Mock.Get(this._host.App.Services.GetRequiredService<ILoginServer>());
+        await using var client = await this.AdminAsync().ConfigureAwait(false);
+        var created = await client.CallToolAsync("accounts_create", new Dictionary<string, object?> { ["loginName"] = "resvuser", ["password"] = "private-pass" }).ConfigureAwait(false);
+        Assert.That(created.IsError, Is.Not.True);
+        var result = await client.CallToolAsync("accounts_set_state", new Dictionary<string, object?> { ["loginName"] = "resvuser", ["state"] = "Banned", ["reason"] = "Testing safety" }).ConfigureAwait(false);
+        Assert.That(result.IsError, Is.Not.True);
+        login.Verify(l => l.TryReserveAccountAsync("resvuser", It.IsAny<int>()), Times.Once);
+        login.Verify(l => l.ReleaseAccountReservationAsync("resvuser", It.IsAny<int>()), Times.Once);
+    }
+
+    /// <summary>A reservation which cannot be released is reported as an uncertain outcome.</summary>
+    [Test]
+    public async Task UnreleasedReservationsReportAnUncertainOutcomeAsync()
+    {
+        var login = Mock.Get(this._host.App.Services.GetRequiredService<ILoginServer>());
+        login.Setup(l => l.ReleaseAccountReservationAsync(It.IsAny<string>(), It.IsAny<int>())).Returns(ValueTask.FromException(new InvalidOperationException("login state unavailable")));
+        await using var client = await this.AdminAsync().ConfigureAwait(false);
+        var created = await client.CallToolAsync("accounts_create", new Dictionary<string, object?> { ["loginName"] = "stuckusr", ["password"] = "private-pass" }).ConfigureAwait(false);
+        Assert.That(created.IsError, Is.Not.True);
+        var result = await client.CallToolAsync("accounts_set_state", new Dictionary<string, object?> { ["loginName"] = "stuckusr", ["state"] = "Banned", ["reason"] = "Testing safety" }).ConfigureAwait(false);
+        Assert.That(result.IsError, Is.True);
+        Assert.That(result.Meta?["openmu/errorKind"]?.GetValue<string>(), Is.EqualTo("Uncertain"));
     }
 
     private ValueTask<McpClient> AdminAsync() => this._host.ConnectAsync("omu_mcp-admin-test");

@@ -37,7 +37,9 @@ public sealed class AccountAdministrationApiTests : System.IDisposable
         await this._host.SetUpAsync().ConfigureAwait(false);
         this._http = new HttpClient(new HttpClientHandler { UseProxy = false }) { BaseAddress = new Uri(this._host.App.Urls.Single()) };
         this._audit = (InMemoryAdminAuditRepository)this._host.App.Services.GetRequiredService<IAdminAuditRepository>();
-        Mock.Get(this._host.App.Services.GetRequiredService<ILoginServer>()).Setup(l => l.GetSnapshotAsync()).ReturnsAsync(new Dictionary<string, byte>());
+        var login = Mock.Get(this._host.App.Services.GetRequiredService<ILoginServer>());
+        login.Setup(l => l.GetSnapshotAsync()).ReturnsAsync(new Dictionary<string, byte>());
+        login.Setup(l => l.TryReserveAccountAsync(It.IsAny<string>(), It.IsAny<int>())).ReturnsAsync(true);
         this._http.DefaultRequestHeaders.Add("X-Api-Key", "omu_mcp-admin-test");
     }
 

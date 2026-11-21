@@ -11,6 +11,8 @@ using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using MUnique.OpenMU.DataModel.Configuration;
+using MUnique.OpenMU.DataModel.Entities;
+using MUnique.OpenMU.Interfaces;
 using MUnique.OpenMU.Persistence;
 using MUnique.OpenMU.Persistence.EntityFramework;
 using MUnique.OpenMU.PlugIns;
@@ -27,14 +29,7 @@ public sealed class ConfigurationPostgreSqlTests
     [Test]
     public async Task AppliedConfigurationIsImmediatelyReadableAsync()
     {
-        var connection = Environment.GetEnvironmentVariable("OPENMU_TEST_MCP_POSTGRES");
-        Assert.That(connection, Is.Not.Null.And.Not.Empty, "Set OPENMU_TEST_MCP_POSTGRES to an empty disposable database.");
-        ConnectionConfigurator.Initialize(new DatabaseSettings(connection!));
-        await using (var schema = new EntityDataContext())
-        {
-            await schema.GetService<IRelationalDatabaseCreator>().CreateTablesAsync().ConfigureAwait(false);
-        }
-
+        await PrepareDatabaseAsync().ConfigureAwait(false);
         var provider = new PersistenceContextProvider(NullLoggerFactory.Instance, null);
         Guid id;
         using (var setup = provider.CreateNewContext())
@@ -52,7 +47,8 @@ public sealed class ConfigurationPostgreSqlTests
         var confirmations = new AdminChangeConfirmation(TimeProvider.System);
         var settings = new AdminWriteSettings { ReadOnly = false };
         var plugins = new PluginWriteOperations(provider, source, new PlugInManager([], NullLoggerFactory.Instance, null, null), executor, confirmations, settings);
-        var writes = new ConfigurationWriteOperations(provider, source, executor, confirmations, settings, audit, plugins);
+        var characters = new CharacterWriteOperations(provider, source, Mock.Of<ILoginServer>(), executor, confirmations, settings);
+        var writes = new ConfigurationWriteOperations(provider, source, executor, confirmations, settings, audit, plugins, characters);
         var reads = new ConfigurationReadOperations(source, Mock.Of<IAdminReadModel>(), provider);
         var tasks = new ConfigurationTaskOperations(source, writes, executor, provider);
         var preview = await writes.UpdateAsync("GameConfiguration", id, "{\"ExperienceRate\":6}", false, null, default).ConfigureAwait(false);
@@ -89,6 +85,82 @@ public sealed class ConfigurationPostgreSqlTests
         b.ExperienceRate = 14;
         await first.SaveChangesAsync().ConfigureAwait(false);
         Assert.ThrowsAsync<PersistenceConflictException>(async () => await second.SaveChangesAsync().ConfigureAwait(false));
+    }
+
+    /// <summary>A configuration object which a persisted character references is not deleted, not even in preview.</summary>
+    [Test]
+    public async Task RefusesDeletingObjectsReferencedByPersistedDataAsync()
+    {
+        await PrepareDatabaseAsync().ConfigureAwait(false);
+        var provider = new PersistenceContextProvider(NullLoggerFactory.Instance, null);
+        Guid configurationId;
+        Guid mapId;
+        Guid characterClassId;
+        using (var setup = provider.CreateNewContext())
+        {
+            var config = setup.CreateNew<GameConfiguration>();
+            var map = setup.CreateNew<GameMapDefinition>();
+            map.Number = 7;
+            config.Maps.Add(map);
+            var homeMap = setup.CreateNew<GameMapDefinition>();
+            homeMap.Number = 8;
+            config.Maps.Add(homeMap);
+            var characterClass = setup.CreateNew<CharacterClass>();
+            characterClass.Number = 1;
+            characterClass.Name = "Test Class";
+            characterClass.HomeMap = homeMap;
+            config.CharacterClasses.Add(characterClass);
+            configurationId = config.GetId();
+            mapId = map.GetId();
+            characterClassId = characterClass.GetId();
+            await setup.SaveChangesAsync().ConfigureAwait(false);
+        }
+
+        using IDataSource<GameConfiguration> source = new GameConfigurationDataSource(NullLogger<GameConfigurationDataSource>.Instance, provider);
+        var configuration = await source.GetOwnerAsync().ConfigureAwait(false);
+        using (var player = provider.CreateNewPlayerContext(configuration))
+        {
+            var map = (await player.GetByIdAsync<GameMapDefinition>(mapId).ConfigureAwait(false))!;
+            var account = player.CreateNew<Account>();
+            account.LoginName = "referring";
+            account.PasswordHash = "hash";
+            var character = player.CreateNew<Character>();
+            character.Name = "Referrer";
+            character.CurrentMap = map;
+            character.CharacterClass = await player.GetByIdAsync<CharacterClass>(characterClassId).ConfigureAwait(false);
+            character.CreateDate = DateTime.UtcNow;
+            character.KeyConfiguration = new byte[30];
+            account.Characters.Add(character);
+            await player.SaveChangesAsync().ConfigureAwait(false);
+        }
+
+        var audit = new InMemoryAdminAuditRepository();
+        var confirmations = new AdminChangeConfirmation(TimeProvider.System);
+        var settings = new AdminWriteSettings { ReadOnly = false };
+        var executor = AdminOperationTestServices.CreateExecutor(audit: audit);
+        var plugins = new PluginWriteOperations(provider, source, new PlugInManager([], NullLoggerFactory.Instance, null, null), executor, confirmations, settings);
+        var characters = new CharacterWriteOperations(provider, source, Mock.Of<ILoginServer>(), executor, confirmations, settings);
+        var writes = new ConfigurationWriteOperations(provider, source, executor, confirmations, settings, audit, plugins, characters);
+        var exception = Assert.ThrowsAsync<AdminOperationException>(async () => await writes.DeleteAsync("GameConfiguration", configurationId, "Maps", mapId, false, null, default).ConfigureAwait(false));
+        Assert.That(exception!.Message, Does.Contain("persisted player"));
+        using var verify = provider.CreateNewContext();
+        Assert.That(await verify.GetByIdAsync<GameMapDefinition>(mapId).ConfigureAwait(false), Is.Not.Null);
+    }
+
+    private static async ValueTask PrepareDatabaseAsync()
+    {
+        var connection = Environment.GetEnvironmentVariable("OPENMU_TEST_MCP_POSTGRES");
+        Assert.That(connection, Is.Not.Null.And.Not.Empty, "Set OPENMU_TEST_MCP_POSTGRES to an empty disposable database, with 'User Id=' and 'Password=' entries and trailing semicolons.");
+        if (!ConnectionConfigurator.IsInitialized)
+        {
+            ConnectionConfigurator.Initialize(new DatabaseSettings(connection!));
+        }
+
+        await using var schema = new EntityDataContext();
+        var creator = schema.GetService<IRelationalDatabaseCreator>();
+        await schema.Database.EnsureDeletedAsync().ConfigureAwait(false);
+        await creator.CreateAsync().ConfigureAwait(false);
+        await creator.CreateTablesAsync().ConfigureAwait(false);
     }
 
     private sealed class DatabaseSettings(string connection) : IDatabaseConnectionSettingProvider

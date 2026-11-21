@@ -30,6 +30,7 @@ public sealed class GameServerAdministrationHttpTests
     /// <summary>All privileged routes reject callers which bypass the sidecar.</summary>
     /// <param name="operation">The privileged route.</param>
     [TestCase("GetBotSnapshotAsync")]
+    [TestCase("ResetBotHealthAsync")]
     [TestCase("TeleportAsync")]
     [TestCase("GiveItemAsync")]
     [TestCase("SetLevelAsync")]
@@ -105,6 +106,30 @@ public sealed class GameServerAdministrationHttpTests
             ?? throw new InvalidOperationException("The response did not contain a bot snapshot.");
         Assert.That(bots.Single().Meeting!.Place, Is.EqualTo("Devias"));
         Assert.That(bots.Single().LootDecisions.Single().Item, Is.EqualTo("Sword"));
+    }
+
+    /// <summary>The bot health reset is delivered once, even when the request is retried with the same identifier.</summary>
+    [Test]
+    public async Task ResetsBotHealthOncePerDeliveryAsync()
+    {
+        var server = new Mock<IGameServer>();
+        server.SetupGet(s => s.Id).Returns(4);
+        var live = server.As<IGameServerAdministration>();
+        live.Setup(s => s.ResetBotHealthAsync("bot-account", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new LiveBotHealthReset("Bot-Hero", 2, 3, 1, 240)]);
+        await using var app = await CreateHostAsync(server.Object, TestToken).ConfigureAwait(false);
+        using var http = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
+        http.DefaultRequestHeaders.Add("dapr-api-token", TestToken);
+        var request = new GameServerAdministrationRequest { ServerId = 4, Account = "bot-account", RequestId = Guid.NewGuid() };
+        using var first = await http.PostAsJsonAsync("/administration/ResetBotHealthAsync", request).ConfigureAwait(false);
+        using var retry = await http.PostAsJsonAsync("/administration/ResetBotHealthAsync", request).ConfigureAwait(false);
+        Assert.That(first.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        Assert.That(retry.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var resets = await first.Content.ReadFromJsonAsync<LiveBotHealthReset[]>().ConfigureAwait(false)
+            ?? throw new InvalidOperationException("The response did not contain the bot health reset.");
+        Assert.That(resets.Single().Character, Is.EqualTo("Bot-Hero"));
+        Assert.That(resets.Single().QuarantinedSeconds, Is.EqualTo(240));
+        live.Verify(s => s.ResetBotHealthAsync("bot-account", It.IsAny<CancellationToken>()), Times.Once);
     }
 
     /// <summary>Runs the real Dapr process and verifies authenticated service invocation to the live controller.</summary>

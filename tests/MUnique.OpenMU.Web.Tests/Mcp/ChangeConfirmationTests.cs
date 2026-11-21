@@ -5,6 +5,7 @@
 namespace MUnique.OpenMU.Web.Tests.Mcp;
 
 using System.Text.Json.Nodes;
+using Microsoft.AspNetCore.DataProtection;
 using MUnique.OpenMU.Persistence.AdminAuth;
 using MUnique.OpenMU.Web.AdminPanel.Auth;
 using MUnique.OpenMU.Web.AdminPanel.Operations;
@@ -13,9 +14,9 @@ using MUnique.OpenMU.Web.AdminPanel.Operations;
 [TestFixture]
 public sealed class ChangeConfirmationTests
 {
-    /// <summary>Expiry and process replacement require a fresh preview.</summary>
+    /// <summary>Expiry requires a fresh preview.</summary>
     [Test]
-    public void ExpiredAndRestartedConfirmationsAreRefused()
+    public void ExpiredConfirmationsAreRefused()
     {
         var clock = new MutableClock();
         var confirmations = new AdminChangeConfirmation(clock);
@@ -23,9 +24,45 @@ public sealed class ChangeConfirmationTests
         var change = new JsonObject { ["before"] = 1, ["after"] = 2 };
         var preview = confirmations.Preview(actor, "config_update", new { id = 1 }, change);
         var token = preview["confirmationToken"]!.GetValue<string>();
-        Assert.Throws<AdminOperationException>(() => new AdminChangeConfirmation(clock).Consume(actor, "config_update", new { id = 1 }, change, token));
         clock.Now = clock.Now.AddMinutes(6);
         Assert.Throws<AdminOperationException>(() => confirmations.Consume(actor, "config_update", new { id = 1 }, change, token));
+    }
+
+    /// <summary>A preview survives a host restart when the data protection key ring is persisted.</summary>
+    [Test]
+    public void RestartedHostWithTheSameKeyRingAcceptsConfirmations()
+    {
+        var provider = new EphemeralDataProtectionProvider();
+        var actor = new AdminActor("key", "admin", "mcp", [AdminRoles.Administrator]);
+        var change = new JsonObject { ["before"] = 1, ["after"] = 2 };
+        var beforeRestart = new AdminChangeConfirmation(TimeProvider.System, provider);
+        var token = beforeRestart.Preview(actor, "config_update", new { id = 1 }, change)["confirmationToken"]!.GetValue<string>();
+
+        var afterRestart = new AdminChangeConfirmation(TimeProvider.System, provider);
+        Assert.DoesNotThrow(() => afterRestart.Consume(actor, "config_update", new { id = 1 }, change, token));
+    }
+
+    /// <summary>A host without the issuing key ring refuses the token instead of trusting its payload.</summary>
+    [Test]
+    public void HostWithoutTheKeyRingRefusesConfirmations()
+    {
+        var actor = new AdminActor("key", "admin", "mcp", [AdminRoles.Administrator]);
+        var change = new JsonObject { ["before"] = 1, ["after"] = 2 };
+        var issuing = new AdminChangeConfirmation(TimeProvider.System, new EphemeralDataProtectionProvider());
+        var token = issuing.Preview(actor, "config_update", new { id = 1 }, change)["confirmationToken"]!.GetValue<string>();
+        var other = new AdminChangeConfirmation(TimeProvider.System, new EphemeralDataProtectionProvider());
+        Assert.Throws<AdminOperationException>(() => other.Consume(actor, "config_update", new { id = 1 }, change, token));
+    }
+
+    /// <summary>A forged or truncated token is refused.</summary>
+    [Test]
+    public void MalformedConfirmationsAreRefused()
+    {
+        var confirmations = new AdminChangeConfirmation(TimeProvider.System);
+        var actor = new AdminActor("key", "admin", "mcp", [AdminRoles.Administrator]);
+        Assert.Throws<AdminOperationException>(() => confirmations.Consume(actor, "config_update", new { id = 1 }, new JsonObject(), "not-a-token"));
+        Assert.Throws<AdminOperationException>(() => confirmations.Consume(actor, "config_update", new { id = 1 }, new JsonObject(), Convert.ToBase64String([1, 2, 3, 4])));
+        Assert.Throws<AdminOperationException>(() => confirmations.Consume(actor, "config_update", new { id = 1 }, new JsonObject(), string.Empty));
     }
 
     /// <summary>Even simultaneous matching applies can consume a token only once.</summary>
@@ -63,26 +100,19 @@ public sealed class ChangeConfirmationTests
     public void ToolGroupsFailClosed(string groups, string tool, bool allowed)
         => Assert.That(AdminToolGroups.Allows(groups, tool), Is.EqualTo(allowed));
 
-    /// <summary>A caller cannot exhaust another caller's preview capacity, even concurrently.</summary>
+    /// <summary>Issuing previews keeps no state, so earlier tokens stay valid and each token is unique.</summary>
     [Test]
-    public async Task PreviewCapacityIsIsolatedPerCallerAsync()
+    public void PreviewIssuingKeepsEarlierTokensUsable()
     {
         var confirmations = new AdminChangeConfirmation(TimeProvider.System);
         var actor = new AdminActor("busy-key", "admin", "mcp", [AdminRoles.Administrator]);
-        var issued = await Task.WhenAll(Enumerable.Range(0, 100).Select(_ => Task.Run(() =>
-        {
-            try
-            {
-                confirmations.Preview(actor, "config_update", new { id = 1 }, new JsonObject());
-                return true;
-            }
-            catch (AdminOperationException)
-            {
-                return false;
-            }
-        }))).ConfigureAwait(false);
-        Assert.That(issued.Count(i => i), Is.EqualTo(64));
-        Assert.DoesNotThrow(() => confirmations.Preview(actor with { Id = "other-key" }, "config_update", new { id = 1 }, new JsonObject()));
+        var change = new JsonObject();
+        var first = confirmations.Preview(actor, "config_update", new { id = 1 }, change)["confirmationToken"]!.GetValue<string>();
+        var tokens = Enumerable.Range(0, 100)
+            .Select(_ => confirmations.Preview(actor, "config_update", new { id = 1 }, change)["confirmationToken"]!.GetValue<string>())
+            .ToList();
+        Assert.That(tokens.Distinct(StringComparer.Ordinal).Count(), Is.EqualTo(tokens.Count));
+        Assert.DoesNotThrow(() => confirmations.Consume(actor, "config_update", new { id = 1 }, change, first));
     }
 
     private sealed class MutableClock : TimeProvider

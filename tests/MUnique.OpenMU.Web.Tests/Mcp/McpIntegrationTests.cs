@@ -9,10 +9,12 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -119,7 +121,11 @@ public sealed class McpIntegrationTests : System.IDisposable
         builder.Services.AddSingleton(configurations.Object);
         builder.Services.AddSingleton<IPersistenceContextProvider>(persistence);
         var login = new Mock<ILoginServer>();
-        login.Setup(l => l.GetSnapshotAsync()).ReturnsAsync(new Dictionary<string, byte> { ["tester"] = 4 });
+        var onlineAccounts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "tester" };
+        login.Setup(l => l.GetSnapshotAsync()).ReturnsAsync(() => onlineAccounts.ToDictionary(account => account, _ => (byte)4));
+        login.Setup(l => l.TryReserveAccountAsync(It.IsAny<string>(), It.IsAny<int>()))
+            .ReturnsAsync((string accountName, int _) => !onlineAccounts.Contains(accountName));
+        login.Setup(l => l.ReleaseAccountReservationAsync(It.IsAny<string>(), It.IsAny<int>())).Returns(ValueTask.CompletedTask);
         builder.Services.AddSingleton(login.Object);
         builder.Services.AddSingleton(Mock.Of<IGuildServer>());
         var servers = new Mock<IServerProvider>();
@@ -488,6 +494,41 @@ public sealed class McpIntegrationTests : System.IDisposable
     {
         yield return item;
         throw new InvalidOperationException("secret-config-edit-detail");
+    }
+
+    /// <summary>Anonymous callers are partitioned by address instead of sharing one bucket.</summary>
+    [Test]
+    public void AnonymousCallersPartitionByAddress()
+    {
+        var first = new DefaultHttpContext();
+        first.Connection.RemoteIpAddress = IPAddress.Parse("192.0.2.31");
+        var second = new DefaultHttpContext();
+        second.Connection.RemoteIpAddress = IPAddress.Parse("192.0.2.32");
+
+        Assert.That(AdminMcpExtensions.GetRateLimitPartitionKey(first), Is.EqualTo("192.0.2.31"));
+        Assert.That(AdminMcpExtensions.GetRateLimitPartitionKey(second), Is.EqualTo("192.0.2.32"));
+    }
+
+    /// <summary>An identified API client keeps its own bucket instead of sharing the address bucket.</summary>
+    [Test]
+    public void ApiClientsPartitionByClientId()
+    {
+        var context = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ApiKeyAuthenticationDefaults.ClientIdClaimType, "client-42")], "test")),
+        };
+        context.Connection.RemoteIpAddress = IPAddress.Parse("192.0.2.31");
+
+        Assert.That(AdminMcpExtensions.GetRateLimitPartitionKey(context), Is.EqualTo("client-42"));
+    }
+
+    /// <summary>A request without an address or client identifier still gets a stable bucket.</summary>
+    [Test]
+    public void UnidentifiedCallersFallBackToTheAuthenticatedName()
+    {
+        var context = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Name, "admin")], "test")) };
+        Assert.That(AdminMcpExtensions.GetRateLimitPartitionKey(context), Is.EqualTo("admin"));
+        Assert.That(AdminMcpExtensions.GetRateLimitPartitionKey(new DefaultHttpContext()), Is.EqualTo("unknown"));
     }
 
     private async ValueTask<HttpStatusCode> PingAsync(string key)
