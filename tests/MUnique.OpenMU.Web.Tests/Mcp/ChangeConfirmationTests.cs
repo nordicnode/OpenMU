@@ -80,6 +80,32 @@ public sealed class ChangeConfirmationTests
         Assert.Throws<AdminOperationException>(() => confirmations.Consume(actor, "characters_add_item", new { characterName = "Hero" }, laterChange, token));
     }
 
+    /// <summary>Distinct confirmations can be consumed concurrently without losing any of them.</summary>
+    [Test]
+    public async Task ConcurrentConsumesAllSucceedAsync()
+    {
+        var confirmations = new AdminChangeConfirmation(TimeProvider.System);
+        var actor = new AdminActor("key", "admin", "mcp", [AdminRoles.Administrator]);
+        var change = new JsonObject { ["before"] = 1, ["after"] = 2 };
+        var tokens = Enumerable.Range(0, 32)
+            .Select(id => (Id: id, Token: confirmations.Preview(actor, "config_update", new { id }, change)["confirmationToken"]!.GetValue<string>()))
+            .ToList();
+        var results = await Task.WhenAll(tokens.Select(t => Task.Run(() =>
+        {
+            try
+            {
+                confirmations.Consume(actor, "config_update", new { id = t.Id }, change, t.Token);
+                return true;
+            }
+            catch (AdminOperationException)
+            {
+                return false;
+            }
+        }))).ConfigureAwait(false);
+
+        Assert.That(results, Is.All.True);
+    }
+
     /// <summary>Even simultaneous matching applies can consume a token only once.</summary>
     [Test]
     public async Task ConfirmationIsAtomicallySingleUseAsync()

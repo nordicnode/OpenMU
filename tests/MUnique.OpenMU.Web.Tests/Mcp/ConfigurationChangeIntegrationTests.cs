@@ -447,6 +447,9 @@ public sealed class ConfigurationChangeIntegrationTests
         Confirm(revert, await this.CallAsync("audit_revert", revert).ConfigureAwait(false));
         await this.CallAsync("audit_revert", revert).ConfigureAwait(false);
         Assert.That(character.Inventory.Money, Is.Zero);
+
+        // The legacy stat value is normalized, not lost: it still restores the recorded level.
+        Assert.That(character.Attributes.Single().Value, Is.EqualTo(10f));
     }
 
     /// <summary>Drop edits can add one item and deletion refuses another object's reference.</summary>

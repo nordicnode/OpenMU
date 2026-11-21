@@ -100,12 +100,24 @@ public class BotWriteOperationsTest
     /// An account whose bots could not be checked anywhere is not reported as having no bots, and the caller is
     /// told to retry instead of looking for another name.
     /// </summary>
-    [Test]
-    public void ReportsIncompleteChecksAsUnavailable()
+    /// <param name="reachableServerReturnsBot">Whether the reachable server knows the account.</param>
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task ReportsIncompleteChecksAsUnavailableAsync(bool reachableServerReturnsBot)
     {
-        var plain = new Mock<IGameServer>();
-        plain.SetupGet(s => s.Id).Returns(302);
-        var operation = CreateOperation(plain.Object);
+        var reachable = Server(301, reachableServerReturnsBot ? [new LiveBotHealthReset("Flapper", 1, 0, 0, 0)] : []);
+        var unreachable = Server(302, []);
+        unreachable.Setup(s => s.ResetBotHealthAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ThrowsAsync(new InvalidOperationException("dapr sidecar unavailable"));
+        var operation = CreateOperation(reachable.Object, unreachable.Object);
+
+        if (reachableServerReturnsBot)
+        {
+            // Something was cleared, so the answer is a success which names the server which could not be checked.
+            var result = await operation.ResetHealthAsync("flapper", CancellationToken.None).ConfigureAwait(false);
+            Assert.That(result["serversNotChecked"]!.AsArray().Select(serverId => serverId!.GetValue<int>()), Is.EquivalentTo(new[] { 302 }));
+            Assert.That(result["summary"]!.GetValue<string>(), Does.Contain("not checked: 302"));
+            return;
+        }
 
         var exception = Assert.ThrowsAsync<AdminOperationException>(async () => await operation.ResetHealthAsync("flapper", CancellationToken.None).ConfigureAwait(false));
 
