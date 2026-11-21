@@ -186,7 +186,7 @@ public class NetworkAnalyzerPageTests
         Assert.That(grid.Packets[1].PacketData, Is.EqualTo("C1 04 F1 02"), "The newest packet comes last.");
         Assert.That(grid.AutoScroll, Is.True, "The traffic is followed by default.");
 
-        component.Find("button[title*='newest packet']").Click();
+        StopFollowing(component);
 
         Assert.That(component.FindComponent<PacketGrid>().Instance.AutoScroll, Is.False);
     }
@@ -205,7 +205,7 @@ public class NetworkAnalyzerPageTests
 
         var component = context.Render<NetworkAnalyzer>();
         component.Find(".list-group-item").Click();
-        component.Find("button[title*='newest packet']").Click(); // stop following
+        StopFollowing(component);
 
         var capture = (LiveCapturedConnection)service.GetRunningCapture(connection.Id)!;
         var renderCount = component.RenderCount;
@@ -215,7 +215,7 @@ public class NetworkAnalyzerPageTests
         Assert.That(component.FindComponent<PacketGrid>().Instance.Packets, Is.Empty, "A view which doesn't follow should not take the new packet.");
         Assert.That(component.RenderCount, Is.EqualTo(renderCount), "Such a view should not be rendered again, it would just flicker.");
 
-        component.Find("button[title*='newest packet']").Click(); // follow again
+        StartFollowing(component);
         component.WaitForState(
             () => component.FindComponent<PacketGrid>().Instance.Packets.Count == 1,
             TimeSpan.FromSeconds(10));
@@ -266,7 +266,7 @@ public class NetworkAnalyzerPageTests
 
         var component = context.Render<NetworkAnalyzer>();
         component.Find(".list-group-item").Click();
-        component.Find("button[title*='newest packet']").Click(); // stop following
+        StopFollowing(component);
         Assert.That(component.FindComponent<PacketGrid>().Instance.AutoScroll, Is.False);
 
         component.FindAll("button").First(button => button.TextContent.Contains("Clear")).Click();
@@ -416,6 +416,42 @@ public class NetworkAnalyzerPageTests
         var component = context.Render<NetworkAnalyzer>();
 
         Assert.That(component.Markup, Does.Not.Contain("Archived sessions"));
+    }
+
+    /// <summary>
+    /// Stops the page from following new packets by clicking its toggle. The page refreshes the packet
+    /// list on a timer, so the button which was found in one render can be replaced before the click
+    /// arrives - the click is then silently lost. It is repeated while the page still follows.
+    /// </summary>
+    /// <param name="component">The rendered page.</param>
+    private static void StopFollowing(IRenderedComponent<NetworkAnalyzer> component)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (component.FindComponent<PacketGrid>().Instance.AutoScroll)
+        {
+            component.Find("button[title*='newest packet']").Click();
+            if (DateTime.UtcNow > deadline)
+            {
+                Assert.Fail("The page kept following new packets although the toggle was clicked.");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Lets the page follow new packets again, with the same repetition as <see cref="StopFollowing"/>.
+    /// </summary>
+    /// <param name="component">The rendered page.</param>
+    private static void StartFollowing(IRenderedComponent<NetworkAnalyzer> component)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!component.FindComponent<PacketGrid>().Instance.AutoScroll)
+        {
+            component.Find("button[title*='newest packet']").Click();
+            if (DateTime.UtcNow > deadline)
+            {
+                Assert.Fail("The page didn't follow new packets again although the toggle was clicked.");
+            }
+        }
     }
 
     private static BunitContext CreateContext(
