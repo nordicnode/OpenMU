@@ -28,7 +28,7 @@ public static class GameMasterActions
             return new(false, "The live character is unavailable. Refresh players_list.");
         }
 
-        if (level < 1 || level > maximum)
+        if (level < (master ? 0 : 1) || level > maximum)
         {
             return new(false, "The level is outside the configured range.");
         }

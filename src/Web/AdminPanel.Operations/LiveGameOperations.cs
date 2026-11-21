@@ -4,6 +4,7 @@
 
 namespace MUnique.OpenMU.Web.AdminPanel.Operations;
 
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -24,6 +25,16 @@ using MUnique.OpenMU.Persistence.AdminAuth;
 /// <param name="settings">The MCP write policy.</param>
 public sealed class LiveGameOperations(IServerProvider servers, IPersistenceContextProvider persistence, IDataSource<GameConfiguration> configurations, ILoginServer login, AdminOperationExecutor executor, AdminChangeConfirmation confirmations, AdminWriteSettings settings)
 {
+    /// <summary>The number of walk maps kept for destination validation before the cache starts over.</summary>
+    private const int MaximumCachedWalkMaps = 128;
+
+    /// <summary>
+    /// Walk maps of configured maps, keyed by map identifier. Building a <see cref="GameMapTerrain"/> allocates
+    /// several 256x256 grids, so validating a teleport destination must not rebuild it for every request. An
+    /// entry is dropped when the configuration hands out new terrain data, which a reload does.
+    /// </summary>
+    private static readonly ConcurrentDictionary<Guid, (byte[]? TerrainData, bool[,] WalkMap)> WalkMaps = new();
+
     /// <summary>Reads a character's live state through its owning server.</summary>
     /// <param name="characterName">The exact character name.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
@@ -51,7 +62,7 @@ public sealed class LiveGameOperations(IServerProvider servers, IPersistenceCont
         await AdminChangeExecution.RequireAsync(executor, settings, AdminRoles.Operator, cancellationToken).ConfigureAwait(false);
         var configuration = await configurations.GetOwnerAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
         var map = configuration.Maps.SingleOrDefault(m => m.Number == mapNumber);
-        if (map is null || !new GameMapTerrain(map).WalkMap[x, y])
+        if (map is null || !GetWalkMap(map)[x, y])
         {
             throw new ArgumentException("The destination is unknown or blocked in the configured terrain.", nameof(mapNumber));
         }
@@ -93,7 +104,7 @@ public sealed class LiveGameOperations(IServerProvider servers, IPersistenceCont
     {
         await AdminChangeExecution.RequireAsync(executor, settings, AdminRoles.Operator, cancellationToken).ConfigureAwait(false);
         var configuration = await configurations.GetOwnerAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
-        if (level < 1 || level > (master ? configuration.MaximumMasterLevel : configuration.MaximumLevel))
+        if (level < (master ? 0 : 1) || level > (master ? configuration.MaximumMasterLevel : configuration.MaximumLevel))
         {
             throw new ArgumentOutOfRangeException(nameof(level), "The level is outside the configured range.");
         }
@@ -142,6 +153,23 @@ public sealed class LiveGameOperations(IServerProvider servers, IPersistenceCont
             ["after"] = JsonSerializer.SerializeToNode(new { serverId, eventType, restart, removesExistingParticipants = restart }),
         };
         return await AdminChangeExecution.RunAsync(executor, confirmations, actor, AdminRoles.Operator, "events_start", arguments, change, apply, confirmationToken, () => ExecuteLiveAsync(() => server.StartEventAsync(eventType, restart, expected, cancellationToken)), cancellationToken).ConfigureAwait(false);
+    }
+
+    private static bool[,] GetWalkMap(GameMapDefinition map)
+    {
+        if (WalkMaps.TryGetValue(map.GetId(), out var cached) && ReferenceEquals(cached.TerrainData, map.TerrainData))
+        {
+            return cached.WalkMap;
+        }
+
+        if (WalkMaps.Count >= MaximumCachedWalkMaps)
+        {
+            WalkMaps.Clear();
+        }
+
+        var walkMap = new GameMapTerrain(map).WalkMap;
+        WalkMaps[map.GetId()] = (map.TerrainData, walkMap);
+        return walkMap;
     }
 
     private static async ValueTask ExecuteLiveAsync(Func<ValueTask<GameServerAdminResult>> action)
