@@ -267,15 +267,19 @@ internal class EntityFrameworkContextBase : IContext, IConfigurationEditContext
                 continue;
             }
 
-            foreach (var foreignKey in entityType.GetForeignKeys())
+            // A cascading foreign key points into the item's own aggregate: the store removes those rows with it,
+            // so they are not a reason to keep the item. Only external rows block a delete.
+            var orphans = entityType.GetForeignKeys()
+                .Where(foreignKey => foreignKey.Properties.Count == 1
+                    && foreignKey.DeleteBehavior is not (DeleteBehavior.Cascade or DeleteBehavior.ClientCascade)
+                    && foreignKey.PrincipalEntityType.ClrType.IsAssignableFrom(itemType))
+                .GroupBy(foreignKey => foreignKey.Properties[0].ClrType)
+                .ToList();
+            foreach (var keyGroup in orphans)
             {
-                // A reference is stored in a single foreign key column for every configuration relationship.
-                if (foreignKey.Properties.Count != 1 || !foreignKey.PrincipalEntityType.ClrType.IsAssignableFrom(itemType))
-                {
-                    continue;
-                }
-
-                if (await this.HasReferenceAsync(entityType, foreignKey.Properties[0], identifiable, cancellationToken).ConfigureAwait(false))
+                // One query per referencing table and key type, instead of one per foreign key.
+                var properties = keyGroup.Select(foreignKey => foreignKey.Properties[0].Name).ToList();
+                if (await this.HasReferenceAsync(entityType, properties, keyGroup.Key, identifiable, cancellationToken).ConfigureAwait(false))
                 {
                     return true;
                 }
@@ -487,18 +491,29 @@ internal class EntityFrameworkContextBase : IContext, IConfigurationEditContext
     /// <typeparam name="TEntity">The referencing entity type.</typeparam>
     /// <typeparam name="TKey">The foreign key type, <see cref="Guid"/> or its nullable form.</typeparam>
     /// <param name="context">The database context.</param>
-    /// <param name="propertyName">The foreign key property name.</param>
+    /// <param name="propertyNames">The foreign key property names of the entity type.</param>
     /// <param name="referenceId">The referenced identifier.</param>
     /// <param name="excludedId">An identifier to exclude, used for self-referencing tables.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns><c>true</c>, if at least one row references the identifier.</returns>
-    private static async ValueTask<bool> CountReferenceRowsAsync<TEntity, TKey>(DbContext context, string propertyName, Guid referenceId, Guid? excludedId, CancellationToken cancellationToken)
+    private static async ValueTask<bool> CountReferenceRowsAsync<TEntity, TKey>(DbContext context, IReadOnlyList<string> propertyNames, Guid referenceId, Guid? excludedId, CancellationToken cancellationToken)
         where TEntity : class
     {
         var parameter = Expression.Parameter(typeof(TEntity), "entity");
-        Expression body = Expression.Equal(
-            Expression.Call(typeof(EF), nameof(EF.Property), [typeof(TKey)], parameter, Expression.Constant(propertyName)),
-            Expression.Convert(Expression.Constant(referenceId), typeof(TKey)));
+        Expression? body = null;
+        foreach (var propertyName in propertyNames)
+        {
+            var matches = Expression.Equal(
+                Expression.Call(typeof(EF), nameof(EF.Property), [typeof(TKey)], parameter, Expression.Constant(propertyName)),
+                Expression.Convert(Expression.Constant(referenceId), typeof(TKey)));
+            body = body is null ? matches : Expression.OrElse(body, matches);
+        }
+
+        if (body is null)
+        {
+            return false;
+        }
+
         if (excludedId is { } ownId && typeof(IIdentifiable).IsAssignableFrom(typeof(TEntity)))
         {
             body = Expression.AndAlso(
@@ -598,13 +613,13 @@ internal class EntityFrameworkContextBase : IContext, IConfigurationEditContext
     /// Determines whether a single-column foreign key of an entity table references the item.
     /// </summary>
     /// <param name="entityType">The entity type which may reference the item.</param>
-    /// <param name="foreignKeyProperty">The foreign key column.</param>
+    /// <param name="foreignKeyProperties">The foreign key columns of the entity type which point at the item type.</param>
+    /// <param name="keyType">The key type of those columns.</param>
     /// <param name="item">The item which is about to be deleted.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns><c>true</c>, if a row of the entity type references the item.</returns>
-    private async ValueTask<bool> HasReferenceAsync(IEntityType entityType, IProperty foreignKeyProperty, IIdentifiable item, CancellationToken cancellationToken)
+    private async ValueTask<bool> HasReferenceAsync(IEntityType entityType, IReadOnlyList<string> foreignKeyProperties, Type keyType, IIdentifiable item, CancellationToken cancellationToken)
     {
-        var keyType = foreignKeyProperty.ClrType;
         if (keyType != typeof(Guid) && keyType != typeof(Guid?))
         {
             return false;
@@ -613,7 +628,7 @@ internal class EntityFrameworkContextBase : IContext, IConfigurationEditContext
         // The row of the item itself is not a reference (self-referencing configuration, like a map's safezone).
         var excludedId = entityType.ClrType.IsInstanceOfType(item) ? item.Id : (Guid?)null;
         var query = CountReferenceMethod.MakeGenericMethod(entityType.ClrType, keyType);
-        return await ((ValueTask<bool>)query.Invoke(null, [this.Context, foreignKeyProperty.Name, item.Id, excludedId, cancellationToken])!).ConfigureAwait(false);
+        return await ((ValueTask<bool>)query.Invoke(null, [this.Context, foreignKeyProperties, item.Id, excludedId, cancellationToken])!).ConfigureAwait(false);
     }
 
     private void AttachWithoutParentInternal(object item)
