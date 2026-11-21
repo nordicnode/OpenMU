@@ -135,12 +135,23 @@ internal static class BotQuestHandler
             var state = player.GetQuestState(comboQuest.Group);
             if (state?.ActiveQuest is { } active)
             {
-                var activeQuest = chain.FirstOrDefault(quest => quest.Number == active.Number);
-                return activeQuest is null ? null : new QuestGoal(giver, activeQuest);
+                // An active quest which is not part of this chain isn't a reason to stop looking: a
+                // later entry (another giver, or a longer chain of the same group) may contain it.
+                if (chain.FirstOrDefault(quest => quest.Number == active.Number) is { } activeQuest)
+                {
+                    return new QuestGoal(giver, activeQuest);
+                }
+
+                continue;
             }
 
-            var next = chain.FirstOrDefault(quest => (state?.LastFinishedQuest?.Number ?? -1) < quest.Number);
-            return next is null ? null : new QuestGoal(giver, next);
+            if (chain.FirstOrDefault(quest => (state?.LastFinishedQuest?.Number ?? -1) < quest.Number) is { } next)
+            {
+                return new QuestGoal(giver, next);
+            }
+
+            // This chain is complete; the next one may still have something to do.
+            continue;
         }
 
         return null;
@@ -520,13 +531,33 @@ internal static class BotQuestHandler
     }
 
     private static Point? FindLiveNpcPosition(GameMap map, MonsterDefinition giver)
-        => map.GetNpcsInRange(new Point(128, 128), 256)
-            .FirstOrDefault(npc => Equals(npc.Definition, giver))
-            ?.Position;
+        => FindLiveNpc(map, giver, near: null)?.Position;
 
-    private static NonPlayerCharacter? FindLiveNpc(GameMap map, MonsterDefinition giver, Point near)
-        => map.GetNpcsInRange(near, 4)
+    /// <summary>
+    /// Finds the live quest giver on the map. A giver which wanders (Marlon changes towns) may have
+    /// left the remembered spot since it was resolved, so a miss around <paramref name="near"/> falls
+    /// back to the whole map instead of failing the hand-in until the next check.
+    /// </summary>
+    /// <param name="map">The map.</param>
+    /// <param name="giver">The quest giver definition.</param>
+    /// <param name="near">The remembered position, or <c>null</c> to search the whole map.</param>
+    /// <returns>The live NPC, or <c>null</c> if it is not spawned on the map.</returns>
+    private static NonPlayerCharacter? FindLiveNpc(GameMap map, MonsterDefinition giver, Point? near)
+    {
+        if (near is { } position)
+        {
+            var local = map.GetNpcsInRange(position, 4)
+                .FirstOrDefault(npc => Equals(npc.Definition, giver));
+            if (local is not null)
+            {
+                return local;
+            }
+        }
+
+        // The whole map, for the case that the giver walked away from the remembered spot.
+        return map.GetNpcsInRange(new Point(128, 128), 256)
             .FirstOrDefault(npc => Equals(npc.Definition, giver));
+    }
 
     /// <summary>
     /// What a bot has to hunt for an active quest.

@@ -11,6 +11,7 @@ using MUnique.OpenMU.DataModel.Configuration.Items;
 using MUnique.OpenMU.DataModel.Entities;
 using MUnique.OpenMU.GameLogic;
 using MUnique.OpenMU.GameLogic.Attributes;
+using MUnique.OpenMU.GameLogic.Bots;
 using MUnique.OpenMU.GameLogic.MuHelper;
 using MUnique.OpenMU.GameLogic.Offline;
 using MUnique.OpenMU.GameLogic.PlayerActions.ItemConsumeActions;
@@ -149,6 +150,56 @@ public class HealingHandlerTests
         await handler.PerformBotShieldRecoveryAsync(opponent).ConfigureAwait(false);
 
         Assert.That(potion.Durability, Is.EqualTo(consumed ? 1 : 2));
+    }
+
+    /// <summary>
+    /// Health, shield and mana potions share the player's potion cooldown, so the order in which a bot
+    /// asks for them decides which one is drunk. In a player fight the shield comes before mana - a
+    /// bot at full health with a low mana bar used to spend every tick's potion on mana and never
+    /// refill the shield which soaks the incoming damage.
+    /// </summary>
+    [Test]
+    public async ValueTask ShieldPotionComesBeforeManaInAPlayerFightAsync()
+    {
+        var gameContext = GameContextTestHelper.CreateGameContext(
+        [
+            new PlugInConfiguration { TypeId = typeof(LargeShieldPotionConsumeHandlerPlugIn).GUID, IsActive = true },
+            new PlugInConfiguration { TypeId = typeof(LargeManaPotionConsumeHandler).GUID, IsActive = true },
+        ]);
+        var bot = await PlayerTestHelper.CreateOfflineLevelingPlayerAsync(gameContext).ConfigureAwait(false);
+        bot.Account!.IsBot = true;
+        bot.IsAlive = true;
+        await bot.PlayerState.TryAdvanceToAsync(PlayerState.EnteredWorld).ConfigureAwait(false);
+        bot.Attributes![Stats.CurrentHealth] = bot.Attributes[Stats.MaximumHealth];
+        bot.Attributes[Stats.CurrentShield] = 0;
+        bot.Attributes[Stats.CurrentMana] = 0;
+
+        var shieldPotion = CreatePotion(ItemConstants.LargeShieldPotion);
+        var manaPotion = CreatePotion(ItemConstants.LargeManaPotion);
+        await bot.Inventory!.AddItemAsync((byte)(InventoryConstants.FirstEquippableItemSlotIndex + 12), shieldPotion).ConfigureAwait(false);
+        await bot.Inventory.AddItemAsync((byte)(InventoryConstants.FirstEquippableItemSlotIndex + 13), manaPotion).ConfigureAwait(false);
+
+        var handler = new HealingHandler(bot, new BotMuHelperSettings());
+
+        await handler.PerformBotRecoveryAsync(hasPlayerOpponent: true).ConfigureAwait(false);
+
+        Assert.That(shieldPotion.Durability, Is.EqualTo(1), "the shield potion is drunk first");
+        Assert.That(manaPotion.Durability, Is.EqualTo(2), "the shared potion cooldown keeps the mana potion for the next tick");
+    }
+
+    private static Persistence.BasicModel.Item CreatePotion(ItemIdentifier identifier)
+    {
+        return new Persistence.BasicModel.Item
+        {
+            Definition = new Persistence.BasicModel.ItemDefinition
+            {
+                Group = identifier.Group,
+                Number = identifier.Number!.Value,
+                Width = 1,
+                Height = 1,
+            },
+            Durability = 2,
+        };
     }
 
     private async ValueTask<OfflinePlayer> CreateOfflinePlayerAsync()

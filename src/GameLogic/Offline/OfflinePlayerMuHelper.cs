@@ -209,14 +209,12 @@ public sealed class OfflinePlayerMuHelper : AsyncDisposable
             {
                 if (this._combatHandler.HasActiveBotCombo)
                 {
-                    await this._healingHandler.PerformBotComboRecoveryAsync().ConfigureAwait(false);
+                    await this._healingHandler.PerformBotComboRecoveryAsync(this._combatHandler.HasPlayerOpponent).ConfigureAwait(false);
                 }
                 else
                 {
-                    await this._healingHandler.PerformHealthRecoveryAsync().ConfigureAwait(false);
+                    await this._healingHandler.PerformBotRecoveryAsync(this._combatHandler.HasPlayerOpponent).ConfigureAwait(false);
                 }
-
-                await this._healingHandler.PerformBotShieldRecoveryAsync(this._combatHandler.HasPlayerOpponent).ConfigureAwait(false);
             }
 
             return;
@@ -225,8 +223,7 @@ public sealed class OfflinePlayerMuHelper : AsyncDisposable
         // Preserve an active bot combo across helper actions; potions do not cast another skill.
         if (this._combatHandler.HasActiveBotCombo)
         {
-            await this._healingHandler.PerformBotComboRecoveryAsync().ConfigureAwait(false);
-            await this._healingHandler.PerformBotShieldRecoveryAsync(this._combatHandler.HasPlayerOpponent).ConfigureAwait(false);
+            await this._healingHandler.PerformBotComboRecoveryAsync(this._combatHandler.HasPlayerOpponent).ConfigureAwait(false);
             if (!this._player.IsWalking)
             {
                 await this._combatHandler.PerformAttackAsync().ConfigureAwait(false);
@@ -241,8 +238,17 @@ public sealed class OfflinePlayerMuHelper : AsyncDisposable
             return;
         }
 
-        await this._healingHandler.PerformHealthRecoveryAsync().ConfigureAwait(false);
-        await this._healingHandler.PerformBotShieldRecoveryAsync(this._combatHandler.HasPlayerOpponent).ConfigureAwait(false);
+        if (this._player.Account?.IsBot == true)
+        {
+            // Health, shield, mana - the potions share one cooldown, so the order matters (see
+            // HealingHandler.PerformBotRecoveryAsync).
+            await this._healingHandler.PerformBotRecoveryAsync(this._combatHandler.HasPlayerOpponent).ConfigureAwait(false);
+        }
+        else
+        {
+            await this._healingHandler.PerformHealthRecoveryAsync().ConfigureAwait(false);
+        }
+
         await this._combatHandler.PerformDrainLifeRecoveryAsync().ConfigureAwait(false);
         if (!this._combatHandler.ShouldDeferLoot)
         {

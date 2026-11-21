@@ -1417,12 +1417,6 @@ public sealed class CombatHandler
             return;
         }
 
-        var point = BotCombatSpacing.FindRetreatPoint(map, this._player.Position, target.Position, BotCombatSpacing.RetreatDistance);
-        if (point is null)
-        {
-            return;
-        }
-
         if (this._player.IsWalking)
         {
             // The running step already moves the bot; the cooldown must not be spent on it, or the
@@ -1431,13 +1425,28 @@ public sealed class CombatHandler
         }
 
         var now = DateTime.UtcNow;
-        this._nextRetreatUtc = now + BotCombatSpacing.KiteCooldown;
 
         // A blink breaks the enemy's combo lock; walking away from a melee rusher who sticks to the
         // bot would not. It costs mana, so it is used for close threats only, not for every retreat.
-        if (now >= this._nextTeleportUtc
-            && target.IsInRange(this._player.Position, 2)
-            && BotCombatSpacing.CanTeleportAway(this._player))
+        var teleports = now >= this._nextTeleportUtc
+                        && target.IsInRange(this._player.Position, 2)
+                        && BotCombatSpacing.CanTeleportAway(this._player);
+
+        // A teleport doesn't need a walkable way - blinking over the wall or pillar which blocks the
+        // retreat is exactly what it is for. The destination still has to be free, of course.
+        var point = BotCombatSpacing.FindRetreatPoint(
+            map,
+            this._player.Position,
+            target.Position,
+            BotCombatSpacing.RetreatDistance,
+            requiresWalkablePath: !teleports);
+        if (point is null)
+        {
+            return;
+        }
+
+        this._nextRetreatUtc = now + BotCombatSpacing.KiteCooldown;
+        if (teleports)
         {
             this._nextTeleportUtc = now + TeleportCooldown;
             await new WizardTeleportAction().TryTeleportWithSkillAsync(this._player, point.Value).ConfigureAwait(false);

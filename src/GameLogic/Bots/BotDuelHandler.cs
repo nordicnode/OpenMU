@@ -110,7 +110,8 @@ internal static class BotDuelHandler
     }
 
     /// <summary>
-    /// Determines whether the bot can start a duel at all: in the world, alive, and not busy with an
+    /// Determines whether the bot can start a duel at all: in the world, alive, not standing in a
+    /// safezone (like the target, which <see cref="IsFairOpponent"/> checks), and not busy with an
     /// errand, an event, a market shift or a grudge.
     /// </summary>
     /// <param name="bot">The bot.</param>
@@ -126,6 +127,7 @@ internal static class BotDuelHandler
         if (bot.Account?.IsBot != true
             || bot.PlayerState.CurrentState != PlayerState.EnteredWorld
             || !bot.IsAlive
+            || bot.IsAtSafezone()
             || bot.CurrentMiniGame is not null
             || bot.CurrentMap is null
             || (bot.DuelRoom is { } duelRoom

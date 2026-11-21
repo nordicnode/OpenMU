@@ -82,19 +82,45 @@ public sealed class HealingHandler
         await this.PerformSelfHealingAsync().ConfigureAwait(false);
 
         await this.PerformPartyHealingAsync().ConfigureAwait(false);
+
+        await this.PerformManaRecoveryAsync().ConfigureAwait(false);
     }
 
     /// <summary>
-    /// Uses potions during a bot's combo without casting a healing skill that interrupts it.
+    /// Performs the recovery of a bot in a normal tick: health, then shield, then mana.
     /// </summary>
-    internal async ValueTask PerformBotComboRecoveryAsync()
+    /// <param name="hasPlayerOpponent">Whether a legal player opponent is currently engaged.</param>
+    /// <remarks>
+    /// All recover potions share <see cref="Player.PotionCooldownUntil"/>, so the order decides which
+    /// one is actually drunk. Health keeps the bot alive and comes first, the shield soaks 90% of the
+    /// damage of a player fight, and mana only comes last - otherwise a bot with a low mana bar drinks
+    /// a mana potion on every tick and never refills its shield.
+    /// </remarks>
+    internal async ValueTask PerformBotRecoveryAsync(bool hasPlayerOpponent)
     {
         if (this._config is null || this._player.Attributes is null)
         {
             return;
         }
 
-        // Health comes first, but it must not block mana recovery: a chain which stopped because the
+        await this.PerformSelfHealingAsync().ConfigureAwait(false);
+        await this.PerformPartyHealingAsync().ConfigureAwait(false);
+        await this.PerformBotShieldRecoveryAsync(hasPlayerOpponent).ConfigureAwait(false);
+        await this.PerformManaRecoveryAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Uses potions during a bot's combo without casting a healing skill that interrupts it.
+    /// </summary>
+    /// <param name="hasPlayerOpponent">Whether a legal player opponent is currently engaged.</param>
+    internal async ValueTask PerformBotComboRecoveryAsync(bool hasPlayerOpponent)
+    {
+        if (this._config is null || this._player.Attributes is null)
+        {
+            return;
+        }
+
+        // Health comes first, but it must not block the other potions: a chain which stopped because the
         // mana bar ran dry has to be able to continue while the bot is still hurt - and a bot whose
         // healing potions are used up drinks a mana potion instead of doing nothing at all.
         if (this._config.UseHealPotion
@@ -104,15 +130,12 @@ public sealed class HealingHandler
             return;
         }
 
-        if (this._config.UseManaPotion && this.IsManaBelowThreshold())
-        {
-            await this.UsePotionAsync(ManaPotionPriority).ConfigureAwait(false);
-        }
+        await this.PerformBotShieldRecoveryAsync(hasPlayerOpponent).ConfigureAwait(false);
+        await this.PerformManaRecoveryAsync().ConfigureAwait(false);
     }
 
     /// <summary>
     /// Uses an existing shield potion if the bot is in a player fight and its shield is low.
-    /// HP and mana recovery run first and the normal potion cooldown applies to both.
     /// </summary>
     /// <param name="hasPlayerOpponent">Whether a legal player opponent is currently engaged.</param>
     internal async ValueTask PerformBotShieldRecoveryAsync(bool hasPlayerOpponent)
@@ -127,6 +150,18 @@ public sealed class HealingHandler
         }
 
         await this.UsePotionAsync(ShieldPotionPriority).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Drinks a mana potion when the mana bar ran low. Runs after the health and shield potions, which
+    /// share the same potion cooldown.
+    /// </summary>
+    private async ValueTask PerformManaRecoveryAsync()
+    {
+        if (this._config?.UseManaPotion == true && this.IsManaBelowThreshold())
+        {
+            await this.UsePotionAsync(ManaPotionPriority).ConfigureAwait(false);
+        }
     }
 
     private async ValueTask PerformSelfHealingAsync()
@@ -145,16 +180,9 @@ public sealed class HealingHandler
         }
 
         if (this._config!.UseHealPotion
-            && this.IsHealthBelowThreshold(this._player, this._config.PotionThresholdPercent)
-            && await this.UseHealthPotionAsync().ConfigureAwait(false))
+            && this.IsHealthBelowThreshold(this._player, this._config.PotionThresholdPercent))
         {
-            return;
-        }
-
-        // Out of healing potions: mana recovery still happens instead of the bot standing idle.
-        if (this._config.UseManaPotion && this.IsManaBelowThreshold())
-        {
-            await this.UsePotionAsync(ManaPotionPriority).ConfigureAwait(false);
+            await this.UseHealthPotionAsync().ConfigureAwait(false);
         }
     }
 

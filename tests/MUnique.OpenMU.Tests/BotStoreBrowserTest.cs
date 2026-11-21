@@ -38,15 +38,37 @@ public class BotStoreBrowserTest
     {
         var expensiveSeller = await this.CreateSellerAsync(price: 5_000).ConfigureAwait(false);
         var cheapSeller = await this.CreateSellerAsync(price: 1_000).ConfigureAwait(false);
+        Player[] sellers = [expensiveSeller, cheapSeller];
 
-        var offer = BotStoreBrowser.SelectOffer(this._bot, [expensiveSeller, cheapSeller], budget: 2_000);
+        var offer = await BotStoreBrowser.SelectOfferAsync(this._bot, sellers, budget: 2_000).ConfigureAwait(false);
 
         Assert.That(offer, Is.Not.Null);
         Assert.That(offer!.Value.Seller, Is.SameAs(cheapSeller));
         Assert.That(offer.Value.Price, Is.EqualTo(1_000));
 
-        Assert.That(BotStoreBrowser.SelectOffer(this._bot, [expensiveSeller, cheapSeller], budget: 500), Is.Null);
-        Assert.That(BotStoreBrowser.SelectOffer(this._bot, [], budget: 2_000), Is.Null);
+        Assert.That(await BotStoreBrowser.SelectOfferAsync(this._bot, sellers, budget: 500).ConfigureAwait(false), Is.Null);
+        Assert.That(await BotStoreBrowser.SelectOfferAsync(this._bot, [], budget: 2_000).ConfigureAwait(false), Is.Null);
+    }
+
+    /// <summary>
+    /// An offer which was already tried and lost the race - the item is gone, re-priced or the payment
+    /// was refused - is not picked again, so the bot falls through to its next best offer.
+    /// </summary>
+    [Test]
+    public async ValueTask SkipsTheOfferWhichWasAlreadyTriedAsync()
+    {
+        var cheapSeller = await this.CreateSellerAsync(price: 1_000).ConfigureAwait(false);
+        var expensiveSeller = await this.CreateSellerAsync(price: 2_000).ConfigureAwait(false);
+        Player[] sellers = [cheapSeller, expensiveSeller];
+
+        var tried = new HashSet<(Player Seller, byte Slot)>
+        {
+            (cheapSeller, InventoryConstants.FirstStoreItemSlotIndex),
+        };
+        var offer = await BotStoreBrowser.SelectOfferAsync(this._bot, sellers, budget: 5_000, tried).ConfigureAwait(false);
+
+        Assert.That(offer, Is.Not.Null);
+        Assert.That(offer!.Value.Seller, Is.SameAs(expensiveSeller), "the next best offer is bought instead");
     }
 
     /// <summary>
@@ -65,7 +87,7 @@ public class BotStoreBrowserTest
         Assert.That(await store.AddItemAsync(InventoryConstants.FirstStoreItemSlotIndex, jewelPriced).ConfigureAwait(false), Is.True);
         Assert.That(await store.AddItemAsync((byte)(InventoryConstants.FirstStoreItemSlotIndex + 2), unpriced).ConfigureAwait(false), Is.True);
 
-        Assert.That(BotStoreBrowser.SelectOffer(this._bot, [seller], budget: 10_000), Is.Null);
+        Assert.That(await BotStoreBrowser.SelectOfferAsync(this._bot, [seller], budget: 10_000).ConfigureAwait(false), Is.Null);
     }
 
     /// <summary>
@@ -79,7 +101,7 @@ public class BotStoreBrowserTest
         var slot = (byte)(InventoryConstants.FirstStoreItemSlotIndex + 4);
         Assert.That(await seller.ShopStorage!.AddItemAsync(slot, jewel).ConfigureAwait(false), Is.True);
 
-        var offer = BotStoreBrowser.SelectOffer(this._bot, [seller], budget: 700);
+        var offer = await BotStoreBrowser.SelectOfferAsync(this._bot, [seller], budget: 700).ConfigureAwait(false);
 
         Assert.That(offer, Is.Not.Null);
         Assert.That(offer!.Value.Seller, Is.SameAs(seller));

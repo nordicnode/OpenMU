@@ -53,11 +53,13 @@ internal static class BotCombatSpacing
     /// Gets a value indicating whether the bot's class can blink away with the wizard teleport.
     /// </summary>
     /// <param name="player">The bot.</param>
-    /// <returns><c>true</c> for a Soul Master and its evolutions which know the teleport skill.</returns>
+    /// <returns><c>true</c> when the character knows the teleport skill.</returns>
+    /// <remarks>
+    /// The skill list decides, not the class number: the soul master line is the usual owner, but the
+    /// old configurations give the skill to the dark wizard itself.
+    /// </remarks>
     internal static bool CanTeleportAway(Player player)
-        => player.SelectedCharacter?.CharacterClass?.Number is BotClassNumbers.SoulMasterNumber
-                or BotClassNumbers.GrandMasterNumber
-           && player.SkillList?.GetSkill(TeleportSkillNumber) is not null;
+        => player.SkillList?.GetSkill(TeleportSkillNumber) is not null;
 
     /// <summary>
     /// Determines whether the bot should give ground: it outranges the target, the target is a real
@@ -100,17 +102,20 @@ internal static class BotCombatSpacing
 
     /// <summary>
     /// Finds a walkable tile away from the threat, up to the given distance. It first tries straight
-    /// away from the threat and then the two diagonal escapes, because a wall or a river often blocks
-    /// exactly one direction. A point only counts when the whole way to it is walkable: a free tile
-    /// behind a wall is no escape, because the way around the obstacle would lead the ranged bot right
-    /// back past the melee opponent which already stands on top of it.
+    /// away from the threat and then the two perpendicular escapes, because a wall or a river often
+    /// blocks exactly one direction. A point only counts when the whole way to it is walkable: a free
+    /// tile behind a wall is no escape for a walking bot, because the way around the obstacle would
+    /// lead it right back past the melee opponent which already stands on top of it. A teleport does
+    /// not need that way, so it passes <paramref name="requiresWalkablePath"/> as <c>false</c> and can
+    /// blink over the obstacle.
     /// </summary>
     /// <param name="map">The map.</param>
     /// <param name="from">The bot's position.</param>
     /// <param name="threat">The position of the threat.</param>
     /// <param name="distance">How far to step away at most.</param>
+    /// <param name="requiresWalkablePath">Whether every tile on the way has to be walkable, too.</param>
     /// <returns>The retreat point, or <c>null</c> if no walkable tile is free.</returns>
-    internal static Point? FindRetreatPoint(GameMap map, Point from, Point threat, int distance)
+    internal static Point? FindRetreatPoint(GameMap map, Point from, Point threat, int distance, bool requiresWalkablePath = true)
     {
         var dx = from.X - threat.X;
         var dy = from.Y - threat.Y;
@@ -126,8 +131,12 @@ internal static class BotCombatSpacing
         var candidates = new (double X, double Y)[]
         {
             (ux, uy),
-            (ux - uy, uy + ux),
-            (ux + uy, uy - ux),
+
+            // The escapes are perpendicular to the direct one and therefore keep its length, which is
+            // more than one tile for a diagonal threat - (1, 1) becomes (0, 2). Scaling them back to a
+            // length of one keeps every candidate `step` tiles away, instead of up to twice that.
+            ScaleToUnit(ux - uy, uy + ux),
+            ScaleToUnit(ux + uy, uy - ux),
         };
 
         for (var step = distance; step >= 1; step--)
@@ -144,7 +153,7 @@ internal static class BotCombatSpacing
                 var point = new Point((byte)x, (byte)y);
                 if (map.Terrain.WalkMap[x, y]
                     && !map.Terrain.SafezoneMap[x, y]
-                    && IsWayClear(map, from, point))
+                    && (!requiresWalkablePath || IsWayClear(map, from, point)))
                 {
                     return point;
                 }
@@ -200,4 +209,10 @@ internal static class BotCombatSpacing
 
     private static float GetShare(float current, float maximum)
         => maximum > 0 ? Math.Clamp(current / maximum, 0f, 1f) : 0f;
+
+    private static (double X, double Y) ScaleToUnit(double x, double y)
+    {
+        var length = Math.Max(Math.Abs(x), Math.Abs(y));
+        return length > 0 ? (x / length, y / length) : (0, 0);
+    }
 }

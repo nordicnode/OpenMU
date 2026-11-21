@@ -86,6 +86,24 @@ public class BotDuelHandlerTest
     }
 
     /// <summary>
+    /// A duel is not started from inside a town safezone: the target check already refuses a target
+    /// which stands in one, and the bot itself has no business picking a fight between the merchants
+    /// either.
+    /// </summary>
+    [Test]
+    public void DoesNotDuelFromInsideASafezone()
+    {
+        var map = this._bot.CurrentMap!;
+        Assert.That(this._bot.IsAtSafezone(), Is.False, "the fixture places the bot outside a safezone");
+        Assert.That(this._player.IsAtSafezone(), Is.False);
+        Assert.That(BotDuelHandler.CanAccept(this._bot, this._player), Is.True);
+
+        map.Terrain.SafezoneMap[this._bot.Position.X, this._bot.Position.Y] = true;
+
+        Assert.That(BotDuelHandler.CanAccept(this._bot, this._player), Is.False, "a bot in a safezone keeps out of duels");
+    }
+
+    /// <summary>
     /// A real request reaches the bot with the duel room already attached
     /// (see <c>DuelActions.HandleDuelRequestAsync</c>) - the pending request itself must not count as
     /// "busy with a duel", or the bot would never answer one.

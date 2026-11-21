@@ -28,6 +28,13 @@ internal static class BotStoreBrowser
     /// <summary>How often a bot waiting at its stall looks around for offers.</summary>
     internal static readonly TimeSpan BrowseInterval = TimeSpan.FromSeconds(45);
 
+    /// <summary>
+    /// How many offers a bot tries in one browse. A store can change between looking and buying - the
+    /// item is taken, re-priced or the payment is refused - so a bot which loses the race tries its
+    /// next best offer instead of waiting for the next browse interval.
+    /// </summary>
+    private const int MaxPurchaseAttempts = 3;
+
     /// <summary>The jewels a bot is always happy to find in a player store.</summary>
     private static readonly ItemIdentifier[] WantedJewels =
     [
@@ -71,27 +78,34 @@ internal static class BotStoreBrowser
             .OfType<Player>()
             .Where(player => !ReferenceEquals(player, bot) && player is not OfflinePlayer && (player.ShopStorage?.StoreOpen ?? false))
             .ToList();
-        if (SelectOffer(bot, sellers, budget) is not { } offer)
-        {
-            return false;
-        }
 
-        var moneyBefore = bot.Money;
-        await BuyAction.BuyItemAsync(bot, offer.Seller, offer.Slot).ConfigureAwait(false);
-        if (bot.Money >= moneyBefore)
+        var attempted = new HashSet<(Player Seller, byte Slot)>();
+        for (var attempt = 0; attempt < MaxPurchaseAttempts; attempt++)
         {
+            if (await SelectOfferAsync(bot, sellers, budget, attempted).ConfigureAwait(false) is not { } offer)
+            {
+                return false;
+            }
+
+            var moneyBefore = bot.Money;
+            await BuyAction.BuyItemAsync(bot, offer.Seller, offer.Slot).ConfigureAwait(false);
+            if (bot.Money < moneyBefore)
+            {
+                bot.Logger.LogDebug(
+                    "Bot '{Name}' bought '{Item}' from the store of '{Seller}' for {Price} zen.",
+                    bot.Name,
+                    offer.Item,
+                    offer.Seller.Name,
+                    moneyBefore - bot.Money);
+                return true;
+            }
+
             // The store re-reads its price under its own lock, so the offer may have been taken, priced
             // up or left unpaid in the meantime. Only a purchase which actually cost money is reported.
-            return false;
+            attempted.Add((offer.Seller, offer.Slot));
         }
 
-        bot.Logger.LogDebug(
-            "Bot '{Name}' bought '{Item}' from the store of '{Seller}' for {Price} zen.",
-            bot.Name,
-            offer.Item,
-            offer.Seller.Name,
-            moneyBefore - bot.Money);
-        return true;
+        return false;
     }
 
     /// <summary>
@@ -103,8 +117,17 @@ internal static class BotStoreBrowser
     /// <param name="bot">The bot.</param>
     /// <param name="sellers">The players with an open store.</param>
     /// <param name="budget">The Zen available.</param>
+    /// <param name="excluded">Offers which were already tried and failed, or <c>null</c>.</param>
     /// <returns>The offer to buy, or <c>null</c>.</returns>
-    internal static (Player Seller, byte Slot, Item Item, int Price)? SelectOffer(Player bot, IReadOnlyCollection<Player> sellers, long budget)
+    /// <remarks>
+    /// The goods of every store are read under its <see cref="IShopStorage.StoreLock"/>: the seller may
+    /// move, add or re-price an item at any moment, and enumerating the live collection would throw.
+    /// </remarks>
+    internal static async ValueTask<(Player Seller, byte Slot, Item Item, int Price)?> SelectOfferAsync(
+        Player bot,
+        IEnumerable<Player> sellers,
+        long budget,
+        ISet<(Player Seller, byte Slot)>? excluded = null)
     {
         (Player Seller, byte Slot, Item Item, int Price, int Score)? best = null;
         foreach (var seller in sellers)
@@ -114,11 +137,18 @@ internal static class BotStoreBrowser
                 continue;
             }
 
-            foreach (var item in store.Items)
+            List<Item> items;
+            using (await store.StoreLock.LockAsync().ConfigureAwait(false))
             {
-                if (item.GetStorePrice() is not { Kind: ShopPriceKind.Zen, Amount: > 0 } price
+                items = store.Items.ToList();
+            }
+
+            foreach (var item in items)
+            {
+                if (excluded?.Contains((seller, item.ItemSlot)) == true
+                    || item.GetStorePrice() is not { Kind: ShopPriceKind.Zen, Amount: > 0 } price
                     || price.Amount > budget
-                    || item.Definition is not { } definition)
+                    || item.Definition is null)
                 {
                     continue;
                 }

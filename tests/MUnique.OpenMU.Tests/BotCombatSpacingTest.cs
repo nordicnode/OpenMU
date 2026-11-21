@@ -6,6 +6,9 @@ namespace MUnique.OpenMU.Tests;
 
 using Moq;
 using MUnique.OpenMU.AttributeSystem;
+using MUnique.OpenMU.DataModel;
+using MUnique.OpenMU.DataModel.Configuration;
+using MUnique.OpenMU.DataModel.Configuration.Items;
 using MUnique.OpenMU.GameLogic;
 using MUnique.OpenMU.GameLogic.Attributes;
 using MUnique.OpenMU.GameLogic.Bots;
@@ -119,6 +122,79 @@ public class BotCombatSpacingTest
     }
 
     /// <summary>
+    /// Every retreat candidate is at most the requested distance away - also the perpendicular escapes
+    /// of a diagonal threat, which are longer than one tile before they are scaled back.
+    /// </summary>
+    [Test]
+    public async ValueTask KeepsTheRetreatDistanceOfThePerpendicularEscapeAsync()
+    {
+        var bot = await PlayerTestHelper.CreateOfflineLevelingPlayerAsync(this._gameContext).ConfigureAwait(false);
+        var map = bot.CurrentMap!;
+        var from = new Point(100, 100);
+        var threat = new Point(97, 97);
+
+        // A wall on the straight diagonal escape leaves the perpendicular ones, which are two tiles long
+        // per tile of the direct direction: unscaled they would jump twice the requested distance.
+        var walkMap = map.Terrain.WalkMap;
+        for (var offset = 1; offset <= 4; offset++)
+        {
+            walkMap[from.X + offset, from.Y + offset] = false;
+        }
+
+        var point = BotCombatSpacing.FindRetreatPoint(map, from, threat, 4);
+
+        Assert.That(point, Is.Not.Null);
+        var distance = Math.Max(Math.Abs(point!.Value.X - from.X), Math.Abs(point.Value.Y - from.Y));
+        Assert.That(distance, Is.EqualTo(4), "the escape is not twice as far as the requested distance");
+    }
+
+    /// <summary>
+    /// A walking bot needs a walkable way to its retreat point, but a teleport does not: it may blink
+    /// over the wall or pillar which blocks the direct escape.
+    /// </summary>
+    [Test]
+    public async ValueTask BlindsOverAnObstacleWhenTheWayIsBlockedAsync()
+    {
+        var bot = await PlayerTestHelper.CreateOfflineLevelingPlayerAsync(this._gameContext).ConfigureAwait(false);
+        var map = bot.CurrentMap!;
+        var from = new Point(100, 100);
+        var threat = new Point(97, 100);
+
+        // A wall right behind the bot; the tile behind it is free.
+        var walkMap = map.Terrain.WalkMap;
+        for (var x = 101; x <= 103; x++)
+        {
+            walkMap[x, 100] = false;
+        }
+
+        var walking = BotCombatSpacing.FindRetreatPoint(map, from, threat, 4, requiresWalkablePath: true);
+        Assert.That(walking, Is.Not.Null);
+        Assert.That(walking!.Value, Is.Not.EqualTo(new Point(104, 100)), "the wall blocks the direct escape");
+
+        var teleporting = BotCombatSpacing.FindRetreatPoint(map, from, threat, 4, requiresWalkablePath: false);
+        Assert.That(teleporting, Is.Not.Null);
+        Assert.That(teleporting!.Value, Is.EqualTo(new Point(104, 100)), "the blink lands behind the wall");
+    }
+
+    /// <summary>
+    /// The teleport retreat follows the learned skill, not a hard-coded class number: the old
+    /// configurations teach it to the dark wizard itself.
+    /// </summary>
+    [Test]
+    public async ValueTask OnlyTeleportsWhenTheSkillIsKnownAsync()
+    {
+        var bot = await PlayerTestHelper.CreateOfflineLevelingPlayerAsync(this._gameContext).ConfigureAwait(false);
+        bot.SelectedCharacter!.CharacterClass!.Number = BotClassNumbers.DarkWizardNumber;
+
+        Assert.That(BotCombatSpacing.IsRangedClass(bot), Is.True, "a dark wizard fights from a distance");
+        Assert.That(BotCombatSpacing.CanTeleportAway(bot), Is.False, "without the skill there is nothing to blink with");
+
+        await bot.SkillList!.AddLearnedSkillAsync(new TestSkill { Number = (short)BotCombatSpacing.TeleportSkillNumber }).ConfigureAwait(false);
+
+        Assert.That(BotCombatSpacing.CanTeleportAway(bot), Is.True, "a dark wizard who learned teleport may use it");
+    }
+
+    /// <summary>
     /// Inside a free-for-all event a target with a broken shield is worth more than one with a full
     /// shield, and a low health bar breaks a tie of equally depleted shields.
     /// </summary>
@@ -155,4 +231,16 @@ public class BotCombatSpacingTest
 
     private static void SetValue(Player player, AttributeDefinition attribute, float value)
         => player.Attributes![attribute] = value;
+
+    private sealed class TestSkill : Skill
+    {
+        public TestSkill()
+        {
+            this.Requirements = new List<AttributeRequirement>();
+            this.ConsumeRequirements = new List<AttributeRequirement>();
+            this.Range = 6;
+            this.SkillType = SkillType.Other;
+            this.DamageType = DamageType.Wizardry;
+        }
+    }
 }

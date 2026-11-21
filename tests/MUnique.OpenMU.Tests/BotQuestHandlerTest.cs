@@ -73,6 +73,41 @@ public class BotQuestHandlerTest
     }
 
     /// <summary>
+    /// A chain which ends at one giver does not end the search: when another giver continues the group
+    /// with higher quest numbers, the bot runs that one instead of believing the combo chain is done.
+    /// </summary>
+    [Test]
+    public void ContinuesTheChainAtAnotherGiver()
+    {
+        var secondGiver = this.AddSecondGiver();
+        this.SetQuestState(new BasicModel.CharacterQuestState { Group = QuestGroup, LastFinishedQuest = this._darkStone });
+
+        var goal = BotQuestHandler.GetComboQuestGoal(this._player);
+
+        Assert.That(goal, Is.Not.Null, "the end of one giver's chain is not the end of the combo chain");
+        Assert.That(goal!.Giver, Is.SameAs(secondGiver));
+        Assert.That(goal.Quest.Number, Is.EqualTo(3), "the next unfinished quest of the group is picked");
+    }
+
+    /// <summary>
+    /// An active quest which belongs to another giver's part of the group is still the bot's active
+    /// quest - it finishes that one instead of reporting that it has nothing to do.
+    /// </summary>
+    [Test]
+    public void KeepsTheActiveQuestOfAnotherGiver()
+    {
+        var secondGiver = this.AddSecondGiver();
+        var active = secondGiver.Quests.First(quest => quest.Number == 3);
+        this.SetQuestState(new BasicModel.CharacterQuestState { Group = QuestGroup, ActiveQuest = active });
+
+        var goal = BotQuestHandler.GetComboQuestGoal(this._player);
+
+        Assert.That(goal, Is.Not.Null);
+        Assert.That(goal!.Giver, Is.SameAs(secondGiver));
+        Assert.That(goal.Quest, Is.SameAs(active));
+    }
+
+    /// <summary>
     /// A bot which already has the combo - for example because a game master granted it - does not run the
     /// chain. The same holds for a server whose giver offers no combo quest at all.
     /// </summary>
@@ -229,6 +264,15 @@ public class BotQuestHandlerTest
         }
 
         return quest;
+    }
+
+    private BasicModel.MonsterDefinition AddSecondGiver()
+    {
+        var giver = new BasicModel.MonsterDefinition { Number = 230, NpcWindow = NpcWindow.LegacyQuest };
+        giver.Quests.Add(this.CreateQuest(3, rewardsCombo: false));
+        giver.Quests.Add(this.CreateQuest(4, rewardsCombo: true));
+        this._gameContext.Configuration.Monsters.Add(giver);
+        return giver;
     }
 
     private void SetQuestState(CharacterQuestState state)
