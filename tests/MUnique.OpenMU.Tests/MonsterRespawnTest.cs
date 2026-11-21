@@ -36,8 +36,12 @@ public class MonsterRespawnTest
         await monster.ReflectDamageAsync(killer, 1_000_000).ConfigureAwait(false);
         Assert.That(monster.IsAlive, Is.False);
 
+        // The respawn sets the monster alive before it adds it back to the map's area of interest, and
+        // the dead monster is only removed from it asynchronously - so neither the flag nor the map
+        // says on its own that it is back; wait for both.
         var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (!monster.IsAlive && DateTime.UtcNow < deadline)
+        while (!(monster.IsAlive && monster.CurrentMap.GetNpcsInRange(SpawnPoint, 1).Contains(monster))
+               && DateTime.UtcNow < deadline)
         {
             await Task.Delay(50).ConfigureAwait(false);
         }

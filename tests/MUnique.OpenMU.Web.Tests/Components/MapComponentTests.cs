@@ -50,6 +50,7 @@ public class MapComponentTests
     {
         var creation = new TaskCompletionSource<IMapController>(TaskCreationOptions.RunContinuationsAsynchronously);
         var controllerDisposed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var mapRequested = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var controller = new Mock<IMapController>();
         controller.Setup(c => c.DisposeAsync()).Returns(() =>
         {
@@ -59,16 +60,23 @@ public class MapComponentTests
         var factory = new Mock<IMapFactory>();
         factory.Setup(f => f.GetMapContainerIdentifier(It.IsAny<int>(), It.IsAny<Guid>())).Returns("map_0");
         factory.Setup(f => f.CreateMapAsync(It.IsAny<IObservableGameServer>(), It.IsAny<Guid>()))
-            .Returns(() => new ValueTask<IMapController>(creation.Task));
+            .Returns(() =>
+            {
+                mapRequested.TrySetResult();
+                return new ValueTask<IMapController>(creation.Task);
+            });
         this._context.Services.AddSingleton(factory.Object);
 
-        var component = this._context.Render<MapComponent>(parameters => parameters
+        this._context.Render<MapComponent>(parameters => parameters
             .Add(p => p.Server, new Mock<IObservableGameServer>().Object)
             .Add(p => p.MapId, Guid.NewGuid()));
 
-        // The component creates the map lazily, when the live map asks for it after its first render -
-        // so the call may still be on its way here, especially on a loaded machine.
-        component.WaitForAssertion(() => factory.Verify(f => f.CreateMapAsync(It.IsAny<IObservableGameServer>(), It.IsAny<Guid>()), Times.Once));
+        // The component creates the map lazily, when the live map asks for it after its first render.
+        // Wait for that request itself instead of for a render which may carry it: the creation task
+        // completes in the background, so there is no further render to retry an assertion on - which
+        // made this test depend on the speed of the machine.
+        Assert.That(await Task.WhenAny(mapRequested.Task, Task.Delay(Timeout)).ConfigureAwait(false), Is.SameAs(mapRequested.Task), "the component requests its map");
+        factory.Verify(f => f.CreateMapAsync(It.IsAny<IObservableGameServer>(), It.IsAny<Guid>()), Times.Once);
 
         await this._context.DisposeComponentsAsync().ConfigureAwait(false);
         creation.SetResult(controller.Object);
