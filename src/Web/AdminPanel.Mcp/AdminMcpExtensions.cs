@@ -74,7 +74,7 @@ public static class AdminMcpExtensions
                 return ValueTask.CompletedTask;
             };
             rateLimiter.AddPolicy(RateLimitPolicy, context => RateLimitPartition.GetFixedWindowLimiter(
-                context.User.FindFirst(ApiKeyAuthenticationDefaults.ClientIdClaimType)?.Value ?? "anonymous",
+                GetRateLimitPartitionKey(context),
                 _ => new FixedWindowRateLimiterOptions { PermitLimit = options.RequestsPerMinute, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
         });
         var server = services.AddMcpServer()
@@ -113,12 +113,14 @@ public static class AdminMcpExtensions
                 {
                     var kind = ex.InnerException is AdminOperationException operationError ? operationError.Kind
                         : ex.InnerException is ConfigurationReadConflictException ? AdminOperationErrorKind.Conflict : AdminOperationErrorKind.InvalidInput;
-                    return new CallToolResult
-                    {
-                        IsError = true,
-                        Content = [new TextContentBlock { Text = $"An error occurred invoking '{name}': {ex.Message}" }],
-                        Meta = new JsonObject { ["openmu/errorKind"] = kind.ToString() },
-                    };
+                    return ErrorResult(name, ex, kind);
+                }
+                catch (McpException ex) when (ex.InnerException is not null)
+                {
+                    // Failed database calls and unexpected failures are wrapped by AdminToolExecution; they keep
+                    // their curated message but still get a machine-readable kind for the calling agent.
+                    var kind = PersistenceFailures.IsRejectedSave(ex.InnerException) ? AdminOperationErrorKind.Conflict : AdminOperationErrorKind.Uncertain;
+                    return ErrorResult(name, ex, kind);
                 }
             });
         });
@@ -181,4 +183,27 @@ public static class AdminMcpExtensions
         app.MapMcp("/mcp").RequireAuthorization(AdminPolicies.McpAccess).RequireRateLimiting(RateLimitPolicy);
         return app;
     }
+
+    /// <summary>
+    /// Returns the rate-limit partition of a request: the API client when its key identified one, otherwise the
+    /// caller's address, and only then the authenticated principal.
+    /// </summary>
+    /// <remarks>
+    /// Grouping every request without a client identifier into a single bucket would let one anonymous caller
+    /// exhaust the budget of every other anonymous caller, so the address is the fallback.
+    /// </remarks>
+    /// <param name="context">The request context.</param>
+    /// <returns>The partition key of the caller.</returns>
+    internal static string GetRateLimitPartitionKey(HttpContext context)
+        => context.User.FindFirst(ApiKeyAuthenticationDefaults.ClientIdClaimType)?.Value
+           ?? context.Connection.RemoteIpAddress?.ToString()
+           ?? context.User.Identity?.Name
+           ?? "unknown";
+
+    private static CallToolResult ErrorResult(string toolName, McpException exception, AdminOperationErrorKind kind) => new()
+    {
+        IsError = true,
+        Content = [new TextContentBlock { Text = $"An error occurred invoking '{toolName}': {exception.Message}" }],
+        Meta = new JsonObject { ["openmu/errorKind"] = kind.ToString() },
+    };
 }
