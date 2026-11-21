@@ -8,20 +8,64 @@ using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Microsoft.AspNetCore.DataProtection;
 using Nito.AsyncEx;
 
-/// <summary>Owns bounded, short-lived confirmations and serializes administrative configuration writes.</summary>
-/// <remarks>Confirmations are local to this admin host. Restarts or routing to another replica require a new preview.</remarks>
+/// <summary>Issues and verifies short-lived, single-use confirmations for previewed administrative changes.</summary>
+/// <remarks>
+/// <para>
+/// A confirmation is a protected, self-contained token: the caller-bound digest of the operation, arguments and
+/// complete change, its expiry and a nonce are serialized and encrypted with the host's data protection key ring.
+/// Nothing is kept in a process-local dictionary, so a preview issued before a restart - or on another replica
+/// which shares the key ring - can still be confirmed. Without a shared key ring a token from another instance is
+/// refused, exactly as before.
+/// </para>
+/// <para>
+/// Replay protection is per process: a consumed nonce is remembered until it expires. A token replayed on another
+/// instance is still bound to the recorded state, so a second apply of a state-changing operation fails its digest
+/// or its state check; only a genuinely idempotent operation could repeat without a visible effect.
+/// </para>
+/// </remarks>
 public sealed class AdminChangeConfirmation
 {
-    private readonly ConcurrentDictionary<string, Confirmation> _pending = new(StringComparer.Ordinal);
+    /// <summary>The upper bound of remembered nonces; a safety valve, not a usage limit.</summary>
+    private const int MaximumRetainedConsumptions = 4096;
+
+    private const string ProtectorPurpose = "MUnique.OpenMU.AdminPanel.ChangeConfirmations";
+
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _consumed = new(StringComparer.Ordinal);
+    private readonly IDataProtector _protector;
     private readonly TimeProvider _time;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="AdminChangeConfirmation"/> class with an ephemeral key.
+    /// Tokens of this instance are only valid for this instance; use the constructor which takes the host's
+    /// data protection provider to share them across restarts and replicas.
+    /// </summary>
+    /// <param name="time">The clock, overridable for expiry tests.</param>
+    public AdminChangeConfirmation(TimeProvider time)
+        : this(time, new EphemeralDataProtectionProvider())
+    {
+    }
 
     /// <summary>Initializes a new instance of the <see cref="AdminChangeConfirmation"/> class.</summary>
     /// <param name="time">The clock, overridable for expiry tests.</param>
-    public AdminChangeConfirmation(TimeProvider time) => this._time = time;
+    /// <param name="dataProtectionProvider">
+    /// The host's data protection provider. Its persisted key ring makes confirmations survive a restart and be
+    /// accepted by other replicas which share it.
+    /// </param>
+    public AdminChangeConfirmation(TimeProvider time, IDataProtectionProvider dataProtectionProvider)
+    {
+        this._time = time;
+        this._protector = dataProtectionProvider.CreateProtector(ProtectorPurpose);
+    }
 
     /// <summary>Gets the configuration write gate. Acquire before loading state and hold through audit completion.</summary>
+    /// <remarks>
+    /// The gate serializes writes of this process. Across processes the durable boundaries keep the invariants:
+    /// configuration edits run in a serializable transaction, offline character edits hold a login reservation,
+    /// and live actions are validated by the owning game server.
+    /// </remarks>
     internal AsyncLock Gate { get; } = new();
 
     /// <summary>Issues a single-use preview bound to the caller, operation, arguments and complete relevant state.</summary>
@@ -31,46 +75,20 @@ public sealed class AdminChangeConfirmation
     /// <param name="change">The safe proposed diff and state fingerprints.</param>
     internal JsonObject Preview(AdminActor actor, string operation, object arguments, JsonObject change)
     {
-        lock (this._pending)
+        this.PruneConsumed();
+        if (this._consumed.Count >= MaximumRetainedConsumptions)
         {
-            return this.CreatePreview(actor, operation, arguments, change);
-        }
-    }
-
-    /// <summary>Consumes a confirmation atomically; mismatches, expiry and replays fail closed.</summary>
-    /// <param name="actor">The authorized caller.</param>
-    /// <param name="operation">The invariant operation name.</param>
-    /// <param name="arguments">The exact validated operation arguments.</param>
-    /// <param name="change">The safe proposed diff and state fingerprints.</param>
-    /// <param name="token">The single-use confirmation token.</param>
-    internal void Consume(AdminActor actor, string operation, object arguments, JsonObject change, string? token)
-    {
-        if (token is null || !this._pending.TryRemove(token, out var confirmation)
-            || confirmation.ExpiresAt <= this._time.GetUtcNow()
-            || confirmation.Digest != Binding(actor, operation, arguments, change))
-        {
-            throw new AdminOperationException("The confirmation is invalid, expired, already used, or the state changed. Request a new preview.");
-        }
-    }
-
-    private static string Binding(AdminActor actor, string operation, object arguments, JsonObject change)
-        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { actor.Id, actor.Frontend, operation, arguments, change }))));
-
-    private JsonObject CreatePreview(AdminActor actor, string operation, object arguments, JsonObject change)
-    {
-        foreach (var entry in this._pending.Where(p => p.Value.ExpiresAt <= this._time.GetUtcNow()))
-        {
-            this._pending.TryRemove(entry.Key, out _);
+            throw new AdminOperationException("Too many confirmations were used recently. Wait for them to expire.", AdminOperationErrorKind.Unavailable);
         }
 
-        if (this._pending.Count >= 1024 || this._pending.Count(p => p.Value.ActorId == actor.Id && p.Value.Frontend == actor.Frontend) >= 64)
-        {
-            throw new AdminOperationException("Too many outstanding previews. Wait for them to expire.", AdminOperationErrorKind.Unavailable);
-        }
-
-        var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
         var expires = this._time.GetUtcNow().AddMinutes(5);
-        this._pending[token] = new Confirmation(Binding(actor, operation, arguments, change), expires, actor.Id, actor.Frontend);
+        var confirmation = new Confirmation(
+            Binding(actor, operation, arguments, change),
+            expires,
+            actor.Id,
+            actor.Frontend,
+            Convert.ToHexString(RandomNumberGenerator.GetBytes(16)));
+        var token = Convert.ToBase64String(this._protector.Protect(JsonSerializer.SerializeToUtf8Bytes(confirmation)));
         return new JsonObject
         {
             ["summary"] = "Preview only. Review the diff, then repeat exactly the same arguments with apply=true and the confirmationToken.",
@@ -83,5 +101,60 @@ public sealed class AdminChangeConfirmation
         };
     }
 
-    private sealed record Confirmation(string Digest, DateTimeOffset ExpiresAt, string ActorId, string Frontend);
+    /// <summary>Consumes a confirmation atomically; mismatches, expiry and replays fail closed.</summary>
+    /// <param name="actor">The authorized caller.</param>
+    /// <param name="operation">The invariant operation name.</param>
+    /// <param name="arguments">The exact validated operation arguments.</param>
+    /// <param name="change">The safe proposed diff and state fingerprints.</param>
+    /// <param name="token">The single-use confirmation token.</param>
+    internal void Consume(AdminActor actor, string operation, object arguments, JsonObject change, string? token)
+    {
+        if (this.Read(token) is not { } confirmation
+            || confirmation.ExpiresAt <= this._time.GetUtcNow()
+            || confirmation.Digest != Binding(actor, operation, arguments, change))
+        {
+            throw InvalidConfirmation();
+        }
+
+        this.PruneConsumed();
+        if (!this._consumed.TryAdd(confirmation.Nonce, confirmation.ExpiresAt))
+        {
+            throw InvalidConfirmation();
+        }
+    }
+
+    private static string Binding(AdminActor actor, string operation, object arguments, JsonObject change)
+        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { actor.Id, actor.Frontend, operation, arguments, change }))));
+
+    private static AdminOperationException InvalidConfirmation()
+        => new("The confirmation is invalid, expired, already used, or the state changed. Request a new preview.");
+
+    private void PruneConsumed()
+    {
+        var now = this._time.GetUtcNow();
+        foreach (var entry in this._consumed.Where(p => p.Value <= now))
+        {
+            this._consumed.TryRemove(entry.Key, out _);
+        }
+    }
+
+    private Confirmation? Read(string? token)
+    {
+        if (string.IsNullOrEmpty(token))
+        {
+            return null;
+        }
+
+        try
+        {
+            var payload = this._protector.Unprotect(Convert.FromBase64String(token));
+            return JsonSerializer.Deserialize<Confirmation>(payload);
+        }
+        catch (Exception exception) when (exception is FormatException or CryptographicException or JsonException or NotSupportedException)
+        {
+            return null;
+        }
+    }
+
+    private sealed record Confirmation(string Digest, DateTimeOffset ExpiresAt, string ActorId, string Frontend, string Nonce);
 }
