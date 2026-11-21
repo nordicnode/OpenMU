@@ -94,6 +94,26 @@ public sealed class CharacterWriteOperations(IPersistenceContextProvider persist
         ["x"] = character.PositionX, ["y"] = character.PositionY,
     };
 
+    /// <summary>
+    /// Rewrites the stat values of a recorded snapshot to the current field name, so a change recorded before the
+    /// snapshot was normalized can still be compared and reverted.
+    /// </summary>
+    /// <param name="snapshot">The recorded before state.</param>
+    /// <returns>The same object, with normalized stat fields.</returns>
+    private static JsonObject NormalizeSnapshot(JsonObject snapshot)
+    {
+        foreach (var stat in (snapshot["stats"] as JsonArray)?.OfType<JsonObject>() ?? [])
+        {
+            if (stat["Value"] is { } legacy && stat["value"] is null)
+            {
+                stat["value"] = legacy.DeepClone();
+                stat.Remove("Value");
+            }
+        }
+
+        return snapshot;
+    }
+
     private static void ValidateStats(JsonObject patch, Character character, GameConfiguration config)
     {
         foreach (var (field, value) in patch)
@@ -130,7 +150,12 @@ public sealed class CharacterWriteOperations(IPersistenceContextProvider persist
         {
             var stat = (snapshot["stats"] as JsonArray)?.FirstOrDefault(s => s?["id"]?.GetValue<Guid>() == definition.Id)
                 ?? throw new AdminOperationException("The recorded character state is incomplete. Revert refused.");
-            stat["value"] = value!.GetValue<int>();
+
+            // Entries recorded before the snapshot used the default PascalCase property name; normalize them so
+            // the reconstructed state can be compared with the current one.
+            var statObject = stat.AsObject();
+            statObject.Remove("Value");
+            statObject["value"] = value!.GetValue<int>();
         }
         else if (field == "mapNumber")
         {
@@ -146,7 +171,7 @@ public sealed class CharacterWriteOperations(IPersistenceContextProvider persist
 
     private static (JsonObject RevertPatch, JsonObject ExpectedState) BuildRevert(JsonObject auditChange, GameConfiguration config)
     {
-        var before = auditChange["before"]!.AsObject();
+        var before = NormalizeSnapshot(auditChange["before"]!.AsObject());
         var requested = auditChange["after"]!["requestedValues"]!.AsObject();
         var revert = new JsonObject();
         if (before["stats"] is JsonArray stats)
@@ -155,7 +180,7 @@ public sealed class CharacterWriteOperations(IPersistenceContextProvider persist
             {
                 if (stats.FirstOrDefault(s => s?["id"]?.GetValue<Guid>() == definition.Id) is { } stat)
                 {
-                    revert[field] = (int)(stat["value"] ?? stat["Value"])!.GetValue<float>();
+                    revert[field] = (int)stat["value"]!.GetValue<float>();
                 }
             }
         }
@@ -298,13 +323,16 @@ public sealed class CharacterWriteOperations(IPersistenceContextProvider persist
             }
 
             var operationName = string.IsNullOrEmpty(operation) ? itemId is null ? "characters_update" : "characters_add_item" : operation;
+
+            // A revert records the computed patch, not the previous change: the full before/after state is already
+            // part of the audit result and would only bloat the arguments.
             result = await AdminChangeExecution.RunAsync(
                 executor,
                 confirmations,
                 actor,
                 AdminRoles.Operator,
                 operationName,
-                new { characterName, patch = revertFrom is null ? (object)patch : revertFrom, itemId, level, vault },
+                new { characterName, patch = revertFrom is null ? (object)patch : changes, itemId, level, vault },
                 new JsonObject { ["kind"] = "character", ["before"] = before, ["after"] = after },
                 apply,
                 token,
