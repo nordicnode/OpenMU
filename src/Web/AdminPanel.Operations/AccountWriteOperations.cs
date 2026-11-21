@@ -99,7 +99,7 @@ public sealed class AccountWriteOperations(IPersistenceContextProvider persisten
                 var config = await configurations.GetOwnerAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
                 using var check = persistence.CreateNewPlayerContext(config);
                 var checkedAccount = await check.GetAccountByLoginNameAsync(loginName, cancellationToken).ConfigureAwait(false)
-                    ?? throw new AdminOperationException("Account not found.", AdminOperationErrorKind.InvalidInput);
+                    ?? throw NotFound(loginName);
                 await this.RequireOfflineAsync(checkedAccount.LoginName).ConfigureAwait(false);
                 if (IsPrivileged(checkedAccount.State) || IsPrivileged(state))
                 {
@@ -147,7 +147,7 @@ public sealed class AccountWriteOperations(IPersistenceContextProvider persisten
                 var config = await configurations.GetOwnerAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
                 using var check = persistence.CreateNewPlayerContext(config);
                 var checkedAccount = await check.GetAccountByLoginNameAsync(loginName, cancellationToken).ConfigureAwait(false)
-                    ?? throw new AdminOperationException("Account not found.", AdminOperationErrorKind.InvalidInput);
+                    ?? throw NotFound(loginName);
                 await this.RequireOfflineAsync(checkedAccount.LoginName).ConfigureAwait(false);
                 if (IsPrivileged(checkedAccount.State))
                 {
@@ -182,7 +182,18 @@ public sealed class AccountWriteOperations(IPersistenceContextProvider persisten
         }
     }
 
+    /// <summary>Tells the caller whether the account change itself succeeded when its reservation stayed behind.</summary>
+    /// <param name="operationFailure">The failure of the change, or <c>null</c> when it completed.</param>
+    /// <returns>The safe message for the uncertain outcome.</returns>
+    internal static string ReleaseFailureMessage(Exception? operationFailure)
+        => operationFailure is null
+            ? "The account change finished, but releasing its login reservation could not be confirmed. Check the current state and login coordination before retrying."
+            : "The account change failed, and releasing its login reservation could not be confirmed either. Inspect the account before retrying.";
+
     private static bool IsPrivileged(AccountState state) => state is not (AccountState.Normal or AccountState.Banned or AccountState.TemporarilyBanned);
+
+    private static AdminResourceNotFoundException NotFound(string loginName)
+        => new("Account not found. Use accounts_search to find its exact login name.", nameof(loginName));
 
     private static async ValueTask SaveAsync(IContext context, CancellationToken cancellationToken)
     {
@@ -195,8 +206,7 @@ public sealed class AccountWriteOperations(IPersistenceContextProvider persisten
     /// <summary>
     /// Changes an account under an exclusive login-server reservation, so a login racing the change cannot make
     /// it operate on stale online state. The account is loaded again after the reservation was acquired.
-    /// </summary>
-    /// <param name="loginName">The exact account login name.</param>
+    /// </summary>    /// <param name="loginName">The exact account login name.</param>
     /// <param name="config">The active game configuration.</param>
     /// <param name="change">The change, executed inside the reservation.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
@@ -232,7 +242,7 @@ public sealed class AccountWriteOperations(IPersistenceContextProvider persisten
         catch (Exception exception)
         {
             throw new AdminOperationException(
-                "The account change finished, but releasing its login reservation could not be confirmed. Check the current state and login coordination before retrying.",
+                ReleaseFailureMessage(operationFailure),
                 AdminOperationErrorKind.Uncertain,
                 operationFailure is null ? exception : new AggregateException(operationFailure, exception));
         }
