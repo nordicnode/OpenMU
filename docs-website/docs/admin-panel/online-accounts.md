@@ -57,12 +57,14 @@ administration channel; all game servers must run a version supporting the bot s
 | Health | The number of restarts which healed the bot, or for how long it is quarantined from another restart. An empty cell means the bot is healthy. |
 | Guild, Party | The guild and party of the bot, if any |
 | Started at | When the bot session started (UTC) |
-| Action | **Reset health** — forgets the failures, restarts and quarantine after the cause was fixed; only shown for in-process bots when there is something to forget |
+| Action | **Reset health** — forgets the failures, restarts and quarantine after the cause was fixed, on local and remote game servers alike; shown when there is something to forget |
 
-The `bots_reset_health` operation can also clear retained records for stopped bots by
-account name on in-process game servers. Health resets are not available for remote
-game servers; the reset button is hidden for those rows. The table and `bots_list`
-show active bots, not stopped health records.
+The `bots_reset_health` operation clears the retained records of an account on
+all game servers, including remote ones which are reached through their live
+administration channel. The answer names each bot it cleared with its server
+and lists every server it could not check; an account whose bots were not
+found anywhere is refused with the hint to `bots_list`. The table and
+`bots_list` show active bots, not stopped health records.
 
 A bot which waits at a meeting is not counted as stuck: it waits there on
 purpose until the entrance closes. The table moves the countdown every second

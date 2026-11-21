@@ -244,6 +244,9 @@ instructions to the agent.
 Tools are filtered by role during discovery and checked again when called.
 The host limits requests per API client and returns HTTP 429 when the configured
 minute allowance is exhausted, or HTTP 413 for oversized request bodies.
+A request which could not be attributed to an API client is limited by its
+remote address (or, failing that, its authenticated name), so one anonymous
+caller cannot spend another caller's allowance.
 The 429 response includes a `Retry-After` header in seconds; wait at least that
 long before sending another request with the same API key.
 Configuration and offline character changes use preview/apply as described
@@ -314,7 +317,9 @@ Operational error bodies retain `error` and include `kind`: `Conflict`,
 `Forbidden`, `InvalidInput`, `Unavailable`, or `Uncertain`. MCP tool errors
 retain their text and `isError: true`, and expose the same invariant value in
 `_meta["openmu/errorKind"]`. Validation errors use `InvalidInput`; configuration
-read conflicts use `Conflict`. Unexpected errors remain generic and do not
+read conflicts use `Conflict`. A save which the database rejected also reports
+`Conflict`; an unexpected failure, including one whose write may already have
+committed, reports `Uncertain`. Unexpected errors remain generic and do not
 expose host details. A missing kind is not evidence that retrying is safe.
 
 ## Configuration and offline character changes
@@ -331,9 +336,13 @@ character write uses two calls:
 
 Tokens last five minutes and can be used once. They are bound to the API key,
 front end, tool, arguments and previewed state. Another caller, modified
-arguments, a repeated apply or a changed object requires a new preview. A
-restart also invalidates outstanding previews. In deployments with several
-admin host replicas, route preview and apply to the same replica.
+arguments, a repeated apply or a changed object requires a new preview. A token
+is a self-contained value protected with the host's data protection key ring:
+when that key ring is persisted, a preview stays valid across a restart and is
+accepted by another admin host replica which shares the key ring. Replay
+protection is per process, and a replayed state-changing apply fails because the
+recomputed state no longer matches. Previewing keeps no server-side state, so
+there is no per-caller preview limit to exhaust.
 
 Apply reloads and validates persisted configuration in a serializable
 transaction. A conflict refuses the change; inspect current state and preview
@@ -344,8 +353,10 @@ are preserved, and the panel reloads after those edits are saved or discarded.
 If an open editor's context was replaced before any edits were pending, Save
 asks you to copy unsaved edits and use Refresh before saving again. Closing
 the stale page does not discard changes in the replacement context.
-Previews run without the write gate or a serializable transaction; each caller
-may hold at most 64 outstanding confirmations (1,024 total).
+Previews run without the write gate or a serializable transaction. Across admin
+host replicas the durable boundaries keep the invariants: configuration edits run
+in a serializable transaction, offline account and character edits hold a login
+server reservation, and live actions are rechecked by the owning game server.
 Some subsystems retain startup settings: restart affected game
 servers when required. The conservative preview reports a restart requirement;
 it does not restart servers automatically.
@@ -395,9 +406,12 @@ chances and conditions, not final per-item probabilities.
 
 Deletion refuses objects which own children or remain referenced by other
 configuration objects, and refuses binary or other fields outside the safe
-snapshot. Remove children and references in separate reviewed
-steps. Database constraints also protect references outside the configuration,
-such as existing characters or items. Plugin changes require an installed
+snapshot. The preview also checks persisted player and guild data - the
+characters, inventories, vaults and other rows which hold a foreign key to the
+object - so an apply cannot fail on a database constraint after it was
+confirmed. Remove children and references in separate reviewed
+steps. Database constraints still protect anything outside that check. Plugin
+changes require an installed
 configuration and exclude runtime source and assembly installation. Nested or
 sensitive custom settings remain in the panel's graphical editor. Those saves
 share authorization, preview validation and durable auditing, but omit custom
@@ -568,6 +582,14 @@ Run the PostgreSQL regression in a separate test process before each release;
 it is marked `[Explicit]` and does not run in the default CI suite. Point
 `OPENMU_TEST_MCP_POSTGRES` at an **empty, disposable PostgreSQL database**.
 The test creates the OpenMU tables, so never use a game or admin database.
+Write the connection string with `User Id=` and `Password=` entries which end
+with a semicolon, because the migrations read the database role from it, for
+example:
+
+```shell
+export OPENMU_TEST_MCP_POSTGRES="Host=localhost;Port=5432;User Id=postgres;Password=secret;Database=openmu_mcp_test;"
+```
+
 After building in Release, run:
 
 ```shell
