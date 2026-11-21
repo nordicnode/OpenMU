@@ -42,6 +42,7 @@ public sealed class AdminChangeConfirmation
     private readonly ConcurrentDictionary<string, DateTimeOffset> _consumed = new(StringComparer.Ordinal);
     private readonly IDataProtector _protector;
     private readonly TimeProvider _time;
+    private int _pruning;
     private long _nextPruneUtcTicks;
 
     /// <summary>
@@ -134,28 +135,45 @@ public sealed class AdminChangeConfirmation
     private void PruneConsumed()
     {
         var now = this._time.GetUtcNow();
-        var overLimit = this._consumed.Count > MaximumRetainedConsumptions;
+        var count = this._consumed.Count;
+        var overLimit = count > MaximumRetainedConsumptions;
         if (!overLimit && now.UtcTicks < Interlocked.Read(ref this._nextPruneUtcTicks))
         {
             return;
         }
 
-        Interlocked.Exchange(ref this._nextPruneUtcTicks, now.AddSeconds(PruneIntervalSeconds).UtcTicks);
-        foreach (var entry in this._consumed.Where(p => p.Value <= now).ToArray())
-        {
-            this._consumed.TryRemove(entry.Key, out _);
-        }
-
-        if (this._consumed.Count <= MaximumRetainedConsumptions)
+        // Only one thread scans; the others return and let its result stand instead of repeating the sort.
+        if (Interlocked.CompareExchange(ref this._pruning, 1, 0) != 0)
         {
             return;
         }
 
-        // Bound the memory by forgetting the nonces closest to their expiry first. A token which expired in the
-        // meantime is refused by Read anyway; only one which is still valid loses its replay protection early.
-        foreach (var entry in this._consumed.OrderBy(p => p.Value).Take(this._consumed.Count - MaximumRetainedConsumptions).ToArray())
+        try
         {
-            this._consumed.TryRemove(entry.Key, out _);
+            Interlocked.Exchange(ref this._nextPruneUtcTicks, now.AddSeconds(PruneIntervalSeconds).UtcTicks);
+            foreach (var entry in this._consumed.Where(p => p.Value <= now).ToArray())
+            {
+                this._consumed.TryRemove(entry.Key, out _);
+            }
+
+            var remaining = this._consumed.Count;
+            if (remaining <= MaximumRetainedConsumptions)
+            {
+                return;
+            }
+
+            // Bound the memory by forgetting the nonces closest to their expiry first, so an evicted nonce keeps
+            // the shortest possible replay window. Only a load which consumes this many confirmations within their
+            // five minute lifetime reaches this branch, and even then a replay still has to reproduce the recorded
+            // change exactly to pass the digest.
+            foreach (var entry in this._consumed.OrderBy(p => p.Value).Take(remaining - MaximumRetainedConsumptions).ToArray())
+            {
+                this._consumed.TryRemove(entry.Key, out _);
+            }
+        }
+        finally
+        {
+            Interlocked.Exchange(ref this._pruning, 0);
         }
     }
 

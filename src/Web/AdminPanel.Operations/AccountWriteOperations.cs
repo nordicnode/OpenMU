@@ -206,7 +206,8 @@ public sealed class AccountWriteOperations(IPersistenceContextProvider persisten
     /// <summary>
     /// Changes an account under an exclusive login-server reservation, so a login racing the change cannot make
     /// it operate on stale online state. The account is loaded again after the reservation was acquired.
-    /// </summary>    /// <param name="loginName">The exact account login name.</param>
+    /// </summary>
+    /// <param name="loginName">The exact account login name.</param>
     /// <param name="config">The active game configuration.</param>
     /// <param name="change">The change, executed inside the reservation.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
