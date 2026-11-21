@@ -78,9 +78,17 @@ public sealed class BotWriteOperations(IServerProvider servers, AdminOperationEx
 
                 if (cleared.Count == 0)
                 {
+                    // Nothing could be cleared because a server could not be asked is not "no such bot": the
+                    // caller must retry once the server is reachable instead of looking for another name.
+                    if (notChecked.Count > 0)
+                    {
+                        throw new AdminOperationException(
+                            $"No bot health record was found for the account '{account}', and these game servers could not be checked: {string.Join(", ", notChecked)}. Retry when they are reachable.",
+                            AdminOperationErrorKind.Unavailable);
+                    }
+
                     throw new AdminResourceNotFoundException(
-                        $"No bot health record was found for the account '{account}'. Use bots_list to find an active bot's exact login name."
-                        + (notChecked.Count > 0 ? $" Game servers not checked: {string.Join(", ", notChecked)}." : string.Empty),
+                        $"No bot health record was found for the account '{account}'. Use bots_list to find an active bot's exact login name.",
                         nameof(account));
                 }
 
