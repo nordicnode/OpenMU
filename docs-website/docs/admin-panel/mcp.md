@@ -245,8 +245,8 @@ Tools are filtered by role during discovery and checked again when called.
 The host limits requests per API client and returns HTTP 429 when the configured
 minute allowance is exhausted, or HTTP 413 for oversized request bodies.
 A request which could not be attributed to an API client is limited by its
-remote address (or, failing that, its authenticated name), so one anonymous
-caller cannot spend another caller's allowance.
+authenticated name (or, failing that, its remote address), so one caller cannot
+spend another caller's allowance.
 The 429 response includes a `Retry-After` header in seconds; wait at least that
 long before sending another request with the same API key.
 Configuration and offline character changes use preview/apply as described
@@ -340,9 +340,10 @@ arguments, a repeated apply or a changed object requires a new preview. A token
 is a self-contained value protected with the host's data protection key ring:
 when that key ring is persisted, a preview stays valid across a restart and is
 accepted by another admin host replica which shares the key ring. Replay
-protection is per process, and a replayed state-changing apply fails because the
-recomputed state no longer matches. Previewing keeps no server-side state, so
-there is no per-caller preview limit to exhaust.
+protection is per process, and a token also carries the change it recorded: a
+replayed apply only passes when recomputing that change yields the same values,
+which is exactly when repeating it is harmless. Previewing keeps no server-side
+state, so there is no per-caller preview limit to exhaust.
 
 Apply reloads and validates persisted configuration in a serializable
 transaction. A conflict refuses the change; inspect current state and preview

@@ -97,19 +97,22 @@ public class BotWriteOperationsTest
     }
 
     /// <summary>
-    /// An account whose bots could not be checked anywhere is not reported as having no bots - the caller has to
-    /// know that the answer is incomplete.
+    /// An account whose bots could not be checked anywhere is not reported as having no bots, and the caller is
+    /// told to retry instead of looking for another name.
     /// </summary>
     [Test]
-    public void ReportsIncompleteChecksInsteadOfAnUnknownAccount()
+    public void ReportsIncompleteChecksAsUnavailable()
     {
         var plain = new Mock<IGameServer>();
         plain.SetupGet(s => s.Id).Returns(302);
         var operation = CreateOperation(plain.Object);
 
-        var exception = Assert.ThrowsAsync<AdminResourceNotFoundException>(async () => await operation.ResetHealthAsync("flapper", CancellationToken.None).ConfigureAwait(false));
+        var exception = Assert.ThrowsAsync<AdminOperationException>(async () => await operation.ResetHealthAsync("flapper", CancellationToken.None).ConfigureAwait(false));
 
-        Assert.That(exception!.Message, Does.Contain("not checked: 302"));
+        Assert.That(exception!.Kind, Is.EqualTo(AdminOperationErrorKind.Unavailable));
+        Assert.That(exception.Message, Does.Contain("302"));
+        Assert.That(exception.Message, Does.Contain("could not be checked"));
+        Assert.That(exception.Message, Does.Not.Contain("bots_list"));
     }
 
     private static BotWriteOperations CreateOperation(params object[] servers)

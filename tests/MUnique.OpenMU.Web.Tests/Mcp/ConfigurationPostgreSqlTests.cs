@@ -95,6 +95,7 @@ public sealed class ConfigurationPostgreSqlTests
         var provider = new PersistenceContextProvider(NullLoggerFactory.Instance, null);
         Guid configurationId;
         Guid mapId;
+        Guid homeMapId;
         Guid characterClassId;
         using (var setup = provider.CreateNewContext())
         {
@@ -104,6 +105,7 @@ public sealed class ConfigurationPostgreSqlTests
             config.Maps.Add(map);
             var homeMap = setup.CreateNew<GameMapDefinition>();
             homeMap.Number = 8;
+            homeMap.BattleZone = setup.CreateNew<BattleZoneDefinition>();
             config.Maps.Add(homeMap);
             var characterClass = setup.CreateNew<CharacterClass>();
             characterClass.Number = 1;
@@ -112,6 +114,7 @@ public sealed class ConfigurationPostgreSqlTests
             config.CharacterClasses.Add(characterClass);
             configurationId = config.GetId();
             mapId = map.GetId();
+            homeMapId = homeMap.GetId();
             characterClassId = characterClass.GetId();
             await setup.SaveChangesAsync().ConfigureAwait(false);
         }
@@ -145,6 +148,12 @@ public sealed class ConfigurationPostgreSqlTests
         Assert.That(exception!.Message, Does.Contain("persisted player"));
         using var verify = provider.CreateNewContext();
         Assert.That(await verify.GetByIdAsync<GameMapDefinition>(mapId).ConfigureAwait(false), Is.Not.Null);
+
+        // A cascading foreign key points into the item's own aggregate: the store deletes those rows with it, so
+        // it is not a reference which blocks deleting the child. The battle zone of a map is such a member.
+        var home = (await verify.GetByIdAsync<GameMapDefinition>(homeMapId).ConfigureAwait(false))!;
+        Assert.That(home.BattleZone, Is.Not.Null);
+        Assert.That(await verify.IsReferencedByPersistedDataAsync(home.BattleZone!, default).ConfigureAwait(false), Is.False);
     }
 
     private static async ValueTask PrepareDatabaseAsync()

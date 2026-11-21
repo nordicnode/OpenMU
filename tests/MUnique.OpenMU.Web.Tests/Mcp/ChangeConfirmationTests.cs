@@ -65,6 +65,21 @@ public sealed class ChangeConfirmationTests
         Assert.Throws<AdminOperationException>(() => confirmations.Consume(actor, "config_update", new { id = 1 }, new JsonObject(), string.Empty));
     }
 
+    /// <summary>A token is bound to the recorded change, so a recomputed change which differs is refused.</summary>
+    [Test]
+    public void RefusesConfirmationsForAChangedState()
+    {
+        var confirmations = new AdminChangeConfirmation(TimeProvider.System);
+        var actor = new AdminActor("key", "admin", "mcp", [AdminRoles.Administrator]);
+        var change = new JsonObject { ["kind"] = "character", ["before"] = new JsonObject { ["money"] = 0, ["stats"] = new JsonArray() }, ["after"] = new JsonObject { ["money"] = 100 } };
+        var token = confirmations.Preview(actor, "characters_add_item", new { characterName = "Hero" }, change)["confirmationToken"]!.GetValue<string>();
+
+        // Recomputing the preview after the state changed yields another change; its digest no longer matches.
+        var laterChange = change.DeepClone().AsObject();
+        laterChange["before"]!["money"] = 100;
+        Assert.Throws<AdminOperationException>(() => confirmations.Consume(actor, "characters_add_item", new { characterName = "Hero" }, laterChange, token));
+    }
+
     /// <summary>Even simultaneous matching applies can consume a token only once.</summary>
     [Test]
     public async Task ConfirmationIsAtomicallySingleUseAsync()

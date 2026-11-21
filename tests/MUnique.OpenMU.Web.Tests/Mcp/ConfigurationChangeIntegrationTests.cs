@@ -389,6 +389,66 @@ public sealed class ConfigurationChangeIntegrationTests
         Assert.That(character.Inventory.Money, Is.Zero);
     }
 
+    /// <summary>
+    /// A character update recorded before the snapshot normalized its field names can still be reverted.
+    /// </summary>
+    [Test]
+    public async Task RevertsACharacterUpdateRecordedWithLegacyFieldNamesAsync()
+    {
+        var login = Mock.Get(this._host.App.Services.GetRequiredService<ILoginServer>());
+        login.Setup(l => l.TryReserveAccountAsync("tester", It.IsAny<int>())).ReturnsAsync(true);
+        using var context = this._persistence.CreateNewPlayerContext(this._config);
+        var account = await context.GetAccountByLoginNameAsync("tester").ConfigureAwait(false);
+        var character = account!.Characters.Single();
+        this._config.MaximumInventoryMoney = 100000;
+        this._config.MaximumLevel = 400;
+        character.Inventory = context.CreateNew<ItemStorage>();
+        character.Inventory.Money = 100;
+        var levelDefinition = context.CreateNew<AttributeDefinition>(Stats.Level.Id, "Level", string.Empty);
+        levelDefinition.MaximumValue = 400;
+        character.Attributes.Add(context.CreateNew<StatAttribute>(levelDefinition, 10f));
+        await context.SaveChangesAsync().ConfigureAwait(false);
+
+        var legacy = new AdminAuditEntry
+        {
+            PrincipalId = "test-admin-id",
+            PrincipalName = "test-admin",
+            Frontend = "mcp",
+            Operation = "characters_update",
+            Outcome = "Succeeded",
+            ArgumentsJson = new JsonObject
+            {
+                ["arguments"] = new JsonObject { ["characterName"] = "Hero", ["patch"] = "{\"money\":100}", ["itemId"] = null, ["level"] = 0, ["vault"] = false },
+            }.ToJsonString(),
+            ResultJson = new JsonObject
+            {
+                ["status"] = "applied",
+                ["change"] = new JsonObject
+                {
+                    ["kind"] = "character",
+                    ["before"] = new JsonObject
+                    {
+                        ["id"] = character.Id.ToString(),
+                        ["stats"] = new JsonArray(new JsonObject { ["id"] = Stats.Level.Id, ["Value"] = 10 }),
+                        ["money"] = 0,
+                        ["mapId"] = null,
+                        ["x"] = 0,
+                        ["y"] = 0,
+                        ["accountState"] = "Normal",
+                        ["characterStatus"] = "Normal",
+                    },
+                    ["after"] = new JsonObject { ["money"] = 100, ["requestedValues"] = new JsonObject { ["money"] = 100 } },
+                },
+            }.ToJsonString(),
+        };
+        await this._audit.AddAsync(legacy, default).ConfigureAwait(false);
+
+        var revert = new Dictionary<string, object?> { ["auditId"] = legacy.Id };
+        Confirm(revert, await this.CallAsync("audit_revert", revert).ConfigureAwait(false));
+        await this.CallAsync("audit_revert", revert).ConfigureAwait(false);
+        Assert.That(character.Inventory.Money, Is.Zero);
+    }
+
     /// <summary>Drop edits can add one item and deletion refuses another object's reference.</summary>
     [Test]
     public async Task DropReferencesAreValidatedAsync()

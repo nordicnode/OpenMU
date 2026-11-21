@@ -62,7 +62,9 @@ administration channel; all game servers must run a version supporting the bot s
 The `bots_reset_health` operation clears the retained records of an account on
 all game servers, including remote ones which are reached through their live
 administration channel. The answer names each bot it cleared with its server
-and lists every server it could not check; an account whose bots were not
+and lists every server it could not check; when nothing could be cleared because
+a server was unreachable, the caller gets an `Unavailable` error with the affected
+servers instead of a "no such bot" answer. An account whose bots were not
 found anywhere is refused with the hint to `bots_list`. The table and
 `bots_list` show active bots, not stopped health records.
 
