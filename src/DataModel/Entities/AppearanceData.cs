@@ -17,7 +17,9 @@ public class AppearanceData : IAppearanceData
     /// <remarks>
     /// This never happens in this implementation.
     /// </remarks>
+#pragma warning disable CS0067 // required by IAppearanceData; this implementation has no logic which changes the appearance
     public event EventHandler? AppearanceChanged;
+#pragma warning restore CS0067
 
     /// <summary>
     /// Gets or sets the character class.

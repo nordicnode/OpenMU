@@ -31,25 +31,3 @@ public sealed record LiveBotInfo(
     double SecondsInState, string? Summary, string? Detail, int Failures, string? LastFailure,
     int Restarts, DateTimeOffset? QuarantinedUntilUtc, LiveBotMeeting? Meeting,
     LiveBotMeetingOutcome? LastMeeting, IReadOnlyList<LiveBotLootDecision> LootDecisions);
-
-/// <summary>A bot's active meeting.</summary>
-/// <param name="State">The meeting state.</param>
-/// <param name="Place">The meeting location.</param>
-/// <param name="Event">The event name, if any.</param>
-/// <param name="EndsAtUtc">The end of the meeting.</param>
-public sealed record LiveBotMeeting(string State, string Place, string? Event, DateTime EndsAtUtc);
-
-/// <summary>The outcome of a bot's last meeting.</summary>
-/// <param name="State">The outcome state.</param>
-/// <param name="Place">The meeting location.</param>
-/// <param name="Event">The event name, if any.</param>
-/// <param name="Reason">The reason, if any.</param>
-public sealed record LiveBotMeetingOutcome(string State, string Place, string? Event, string? Reason);
-
-/// <summary>A recent bot loot decision.</summary>
-/// <param name="Item">The item description.</param>
-/// <param name="Action">The action code.</param>
-/// <param name="Reason">The reason code.</param>
-/// <param name="Detail">The optional detail.</param>
-/// <param name="AtUtc">The decision time.</param>
-public sealed record LiveBotLootDecision(string Item, string Action, string Reason, string? Detail, DateTimeOffset AtUtc);

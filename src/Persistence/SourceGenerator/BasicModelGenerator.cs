@@ -13,8 +13,10 @@ using MUnique.OpenMU.Annotations;
 /// <summary>
 /// A generator for the plain and simple objects for the persistence project.
 /// </summary>
+#pragma warning disable RS1036, RS1041 // this is a console tool which runs its generators itself, so it has to target the framework of the model assembly it reflects over
 [Generator]
 public class BasicModelGenerator : IIncrementalGenerator, IUnboundSourceGenerator
+#pragma warning restore RS1036, RS1041
 {
     /// <summary>
     /// Holds the Assembly-Name which is the target of this generator.

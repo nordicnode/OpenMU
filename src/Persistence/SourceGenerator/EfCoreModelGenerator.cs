@@ -14,8 +14,10 @@ using MUnique.OpenMU.DataModel.Composition;
 /// <summary>
 /// Source Generator which creates classes of the our entities specifically for the entity framework core.
 /// </summary>
+#pragma warning disable RS1036, RS1041 // this is a console tool which runs its generators itself, so it has to target the framework of the model assembly it reflects over
 [Generator]
 public class EfCoreModelGenerator : IIncrementalGenerator, IUnboundSourceGenerator
+#pragma warning restore RS1036, RS1041
 {
     /// <summary>
     /// Holds the Assembly-Name which is the target of this generator.

@@ -12,8 +12,8 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 
 /// <summary>
-/// A <see cref="IIncrementalGenerator"/> which implements <see cref="ICloneable{}"/>
-/// and for convenience also <see cref="IAssignable"/> and <see cref="IAssignable{}"/>.
+/// A <see cref="IIncrementalGenerator"/> which implements <c>ICloneable&lt;T&gt;</c>
+/// and for convenience also <c>IAssignable</c> and <c>IAssignable&lt;T&gt;</c>.
 /// </summary>
 [Generator]
 public class CloneableGenerator : IIncrementalGenerator
