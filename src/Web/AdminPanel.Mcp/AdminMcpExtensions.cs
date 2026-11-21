@@ -186,18 +186,19 @@ public static class AdminMcpExtensions
 
     /// <summary>
     /// Returns the rate-limit partition of a request: the API client when its key identified one, otherwise the
-    /// caller's address, and only then the authenticated principal.
+    /// authenticated principal, and only then the caller's address.
     /// </summary>
     /// <remarks>
     /// Grouping every request without a client identifier into a single bucket would let one anonymous caller
-    /// exhaust the budget of every other anonymous caller, so the address is the fallback.
+    /// exhaust the budget of every other anonymous caller, so the address is the fallback. An authenticated caller
+    /// keeps its own bucket even when many of them share one address behind a proxy.
     /// </remarks>
     /// <param name="context">The request context.</param>
     /// <returns>The partition key of the caller.</returns>
     internal static string GetRateLimitPartitionKey(HttpContext context)
         => context.User.FindFirst(ApiKeyAuthenticationDefaults.ClientIdClaimType)?.Value
-           ?? context.Connection.RemoteIpAddress?.ToString()
            ?? context.User.Identity?.Name
+           ?? context.Connection.RemoteIpAddress?.ToString()
            ?? "unknown";
 
     private static CallToolResult ErrorResult(string toolName, McpException exception, AdminOperationErrorKind kind) => new()

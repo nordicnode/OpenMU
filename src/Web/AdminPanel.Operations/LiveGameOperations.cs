@@ -35,6 +35,8 @@ public sealed class LiveGameOperations(IServerProvider servers, IPersistenceCont
     /// </summary>
     private static readonly ConcurrentDictionary<Guid, (byte[]? TerrainData, bool[,] WalkMap)> WalkMaps = new();
 
+    private static readonly object WalkMapLock = new();
+
     /// <summary>Reads a character's live state through its owning server.</summary>
     /// <param name="characterName">The exact character name.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
@@ -157,19 +159,24 @@ public sealed class LiveGameOperations(IServerProvider servers, IPersistenceCont
 
     private static bool[,] GetWalkMap(GameMapDefinition map)
     {
-        if (WalkMaps.TryGetValue(map.GetId(), out var cached) && ReferenceEquals(cached.TerrainData, map.TerrainData))
+        // The lock only guards the in-memory cache; building the terrain happens inside it, so two concurrent
+        // requests for the same map share one result instead of racing each other and thrashing the cache.
+        lock (WalkMapLock)
         {
-            return cached.WalkMap;
-        }
+            if (WalkMaps.TryGetValue(map.GetId(), out var cached) && ReferenceEquals(cached.TerrainData, map.TerrainData))
+            {
+                return cached.WalkMap;
+            }
 
-        if (WalkMaps.Count >= MaximumCachedWalkMaps)
-        {
-            WalkMaps.Clear();
-        }
+            if (WalkMaps.Count >= MaximumCachedWalkMaps)
+            {
+                WalkMaps.Clear();
+            }
 
-        var walkMap = new GameMapTerrain(map).WalkMap;
-        WalkMaps[map.GetId()] = (map.TerrainData, walkMap);
-        return walkMap;
+            var walkMap = new GameMapTerrain(map).WalkMap;
+            WalkMaps[map.GetId()] = (map.TerrainData, walkMap);
+            return walkMap;
+        }
     }
 
     private static async ValueTask ExecuteLiveAsync(Func<ValueTask<GameServerAdminResult>> action)
