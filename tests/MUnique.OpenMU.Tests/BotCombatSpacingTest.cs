@@ -178,20 +178,28 @@ public class BotCombatSpacingTest
 
     /// <summary>
     /// The teleport retreat follows the learned skill, not a hard-coded class number: the old
-    /// configurations teach it to the dark wizard itself.
+    /// configurations teach it to the dark wizard itself. A teleport the bot cannot pay for is no
+    /// escape, because the game refuses it and the bot would stand still in melee reach.
     /// </summary>
     [Test]
-    public async ValueTask OnlyTeleportsWhenTheSkillIsKnownAsync()
+    public async ValueTask OnlyTeleportsWhenTheSkillIsKnownAndAffordableAsync()
     {
         var bot = await PlayerTestHelper.CreateOfflineLevelingPlayerAsync(this._gameContext).ConfigureAwait(false);
         bot.SelectedCharacter!.CharacterClass!.Number = BotClassNumbers.DarkWizardNumber;
+        bot.Attributes![Stats.CurrentMana] = 0;
 
         Assert.That(BotCombatSpacing.IsRangedClass(bot), Is.True, "a dark wizard fights from a distance");
         Assert.That(BotCombatSpacing.CanTeleportAway(bot), Is.False, "without the skill there is nothing to blink with");
 
-        await bot.SkillList!.AddLearnedSkillAsync(new TestSkill { Number = (short)BotCombatSpacing.TeleportSkillNumber }).ConfigureAwait(false);
+        var teleport = new TestSkill { Number = (short)BotCombatSpacing.TeleportSkillNumber };
+        teleport.ConsumeRequirements.Add(new AttributeRequirement { Attribute = Stats.CurrentMana, MinimumValue = 30 });
+        await bot.SkillList!.AddLearnedSkillAsync(teleport).ConfigureAwait(false);
 
-        Assert.That(BotCombatSpacing.CanTeleportAway(bot), Is.True, "a dark wizard who learned teleport may use it");
+        Assert.That(BotCombatSpacing.CanTeleportAway(bot), Is.False, "no mana, no blink - the bot walks instead");
+
+        bot.Attributes[Stats.CurrentMana] = 100;
+
+        Assert.That(BotCombatSpacing.CanTeleportAway(bot), Is.True, "a dark wizard who learned teleport and can pay for it may use it");
     }
 
     /// <summary>
@@ -238,6 +246,7 @@ public class BotCombatSpacingTest
         {
             this.Requirements = new List<AttributeRequirement>();
             this.ConsumeRequirements = new List<AttributeRequirement>();
+            this.AttributeRelationships = new List<AttributeRelationship>();
             this.Range = 6;
             this.SkillType = SkillType.Other;
             this.DamageType = DamageType.Wizardry;

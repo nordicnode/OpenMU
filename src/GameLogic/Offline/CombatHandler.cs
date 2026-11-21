@@ -1427,7 +1427,9 @@ public sealed class CombatHandler
         var now = DateTime.UtcNow;
 
         // A blink breaks the enemy's combo lock; walking away from a melee rusher who sticks to the
-        // bot would not. It costs mana, so it is used for close threats only, not for every retreat.
+        // bot would not. It is used for close threats only, not for every retreat, and only when the
+        // bot can actually pay for it (see BotCombatSpacing.CanTeleportAway): a teleport the game
+        // refuses would cost both cooldowns and leave the bot standing in melee reach.
         var teleports = now >= this._nextTeleportUtc
                         && target.IsInRange(this._player.Position, 2)
                         && BotCombatSpacing.CanTeleportAway(this._player);

@@ -187,6 +187,34 @@ public class HealingHandlerTests
         Assert.That(manaPotion.Durability, Is.EqualTo(2), "the shared potion cooldown keeps the mana potion for the next tick");
     }
 
+    /// <summary>
+    /// The entry point of a regular offline player still recovers mana when the health bar is full -
+    /// its mana fallback moved into <c>PerformManaRecoveryAsync</c>, and the bot-only reordering must
+    /// not take it away from the human path.
+    /// </summary>
+    [Test]
+    public async ValueTask HealthRecoveryStillDrinksManaPotionsAsync()
+    {
+        var gameContext = GameContextTestHelper.CreateGameContext(
+        [
+            new PlugInConfiguration { TypeId = typeof(LargeManaPotionConsumeHandler).GUID, IsActive = true },
+        ]);
+        var player = await PlayerTestHelper.CreateOfflineLevelingPlayerAsync(gameContext).ConfigureAwait(false);
+        player.IsAlive = true;
+        await player.PlayerState.TryAdvanceToAsync(PlayerState.EnteredWorld).ConfigureAwait(false);
+        player.Attributes![Stats.CurrentHealth] = player.Attributes[Stats.MaximumHealth];
+        player.Attributes[Stats.CurrentMana] = 0;
+
+        var manaPotion = CreatePotion(ItemConstants.LargeManaPotion);
+        await player.Inventory!.AddItemAsync((byte)(InventoryConstants.FirstEquippableItemSlotIndex + 12), manaPotion).ConfigureAwait(false);
+
+        var handler = new HealingHandler(player, new BotMuHelperSettings());
+
+        await handler.PerformHealthRecoveryAsync().ConfigureAwait(false);
+
+        Assert.That(manaPotion.Durability, Is.EqualTo(1), "the mana potion is drunk by the regular recovery path");
+    }
+
     private static Persistence.BasicModel.Item CreatePotion(ItemIdentifier identifier)
     {
         return new Persistence.BasicModel.Item

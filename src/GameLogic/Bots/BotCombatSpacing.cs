@@ -50,16 +50,19 @@ internal static class BotCombatSpacing
             or BotClassNumbers.SummonerNumber;
 
     /// <summary>
-    /// Gets a value indicating whether the bot's class can blink away with the wizard teleport.
+    /// Gets a value indicating whether the bot can blink away with the wizard teleport right now.
     /// </summary>
     /// <param name="player">The bot.</param>
-    /// <returns><c>true</c> when the character knows the teleport skill.</returns>
+    /// <returns><c>true</c> when the character knows the teleport skill and can pay for it.</returns>
     /// <remarks>
     /// The skill list decides, not the class number: the soul master line is the usual owner, but the
-    /// old configurations give the skill to the dark wizard itself.
+    /// old configurations give the skill to the dark wizard itself. A teleport the bot cannot pay for
+    /// is no escape either - it would be refused and leave the bot standing in melee reach - so the
+    /// costs are part of the answer, and a bot which cannot afford it walks instead.
     /// </remarks>
     internal static bool CanTeleportAway(Player player)
-        => player.SkillList?.GetSkill(TeleportSkillNumber) is not null;
+        => player.SkillList?.GetSkill(TeleportSkillNumber) is { } entry
+           && player.HasEnoughResources(entry);
 
     /// <summary>
     /// Determines whether the bot should give ground: it outranges the target, the target is a real
@@ -132,8 +135,8 @@ internal static class BotCombatSpacing
         {
             (ux, uy),
 
-            // The escapes are perpendicular to the direct one and therefore keep its length, which is
-            // more than one tile for a diagonal threat - (1, 1) becomes (0, 2). Scaling them back to a
+            // The escapes are rotated by 90 degrees from the direct one, so they keep its length - which
+            // is more than one tile for a diagonal threat: (1, 1) becomes (0, 2). Scaling them back to a
             // length of one keeps every candidate `step` tiles away, instead of up to twice that.
             ScaleToUnit(ux - uy, uy + ux),
             ScaleToUnit(ux + uy, uy - ux),
