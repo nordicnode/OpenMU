@@ -8,6 +8,7 @@ using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Threading;
 using Microsoft.AspNetCore.DataProtection;
 using Nito.AsyncEx;
 
@@ -22,8 +23,10 @@ using Nito.AsyncEx;
 /// </para>
 /// <para>
 /// Replay protection is per process: a consumed nonce is remembered until it expires. A token replayed on another
-/// instance is still bound to the recorded state, so a second apply of a state-changing operation fails its digest
-/// or its state check; only a genuinely idempotent operation could repeat without a visible effect.
+/// instance is bound to the operation's arguments and to the change it recorded, so it is only accepted again when
+/// recomputing that change yields exactly the same values - otherwise the digest differs and the replay is refused.
+/// Operations whose recorded change stays identical are idempotent by construction: repeating them writes the same
+/// values again.
 /// </para>
 /// </remarks>
 public sealed class AdminChangeConfirmation
@@ -31,11 +34,15 @@ public sealed class AdminChangeConfirmation
     /// <summary>The upper bound of remembered nonces; a safety valve, not a usage limit.</summary>
     private const int MaximumRetainedConsumptions = 4096;
 
+    /// <summary>The minimum interval between two full passes over the remembered nonces.</summary>
+    private const int PruneIntervalSeconds = 60;
+
     private const string ProtectorPurpose = "MUnique.OpenMU.AdminPanel.ChangeConfirmations";
 
     private readonly ConcurrentDictionary<string, DateTimeOffset> _consumed = new(StringComparer.Ordinal);
     private readonly IDataProtector _protector;
     private readonly TimeProvider _time;
+    private long _nextPruneUtcTicks;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AdminChangeConfirmation"/> class with an ephemeral key.
@@ -76,11 +83,6 @@ public sealed class AdminChangeConfirmation
     internal JsonObject Preview(AdminActor actor, string operation, object arguments, JsonObject change)
     {
         this.PruneConsumed();
-        if (this._consumed.Count >= MaximumRetainedConsumptions)
-        {
-            throw new AdminOperationException("Too many confirmations were used recently. Wait for them to expire.", AdminOperationErrorKind.Unavailable);
-        }
-
         var expires = this._time.GetUtcNow().AddMinutes(5);
         var confirmation = new Confirmation(
             Binding(actor, operation, arguments, change),
@@ -132,7 +134,26 @@ public sealed class AdminChangeConfirmation
     private void PruneConsumed()
     {
         var now = this._time.GetUtcNow();
-        foreach (var entry in this._consumed.Where(p => p.Value <= now))
+        var overLimit = this._consumed.Count > MaximumRetainedConsumptions;
+        if (!overLimit && now.UtcTicks < Interlocked.Read(ref this._nextPruneUtcTicks))
+        {
+            return;
+        }
+
+        Interlocked.Exchange(ref this._nextPruneUtcTicks, now.AddSeconds(PruneIntervalSeconds).UtcTicks);
+        foreach (var entry in this._consumed.Where(p => p.Value <= now).ToArray())
+        {
+            this._consumed.TryRemove(entry.Key, out _);
+        }
+
+        if (this._consumed.Count <= MaximumRetainedConsumptions)
+        {
+            return;
+        }
+
+        // Bound the memory by forgetting the nonces closest to their expiry first. A token which expired in the
+        // meantime is refused by Read anyway; only one which is still valid loses its replay protection early.
+        foreach (var entry in this._consumed.OrderBy(p => p.Value).Take(this._consumed.Count - MaximumRetainedConsumptions).ToArray())
         {
             this._consumed.TryRemove(entry.Key, out _);
         }
