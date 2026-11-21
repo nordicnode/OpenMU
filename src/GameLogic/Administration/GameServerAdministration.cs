@@ -54,6 +54,54 @@ public sealed partial class GameServerAdministration(IGameContext context) : IGa
     }
 
     /// <inheritdoc />
+    public async ValueTask<IReadOnlyList<LiveBotHealthReset>> ResetBotHealthAsync(string account, CancellationToken cancellationToken)
+    {
+        var cleared = new List<LiveBotHealthReset>();
+        var bots = (await context.GetPlayersAsync().ConfigureAwait(false)).OfType<BotPlayer>().ToList();
+        var resetSlots = new HashSet<byte>();
+        if (context.FeaturePlugIns?.GetPlugIn<BotFeaturePlugIn>() is { } feature)
+        {
+            foreach (var record in feature.ResetHealth(context, account))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                resetSlots.Add(record.Slot);
+                var matchingBot = bots.FirstOrDefault(bot => string.Equals(bot.Account?.LoginName, account, StringComparison.OrdinalIgnoreCase)
+                    && bot.SelectedCharacter?.CharacterSlot == record.Slot);
+                cleared.Add(new LiveBotHealthReset(matchingBot?.SelectedCharacter?.Name, record.Slot, record.Restarts, record.Faults, record.QuarantinedSeconds));
+            }
+        }
+
+        foreach (var bot in bots)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!string.Equals(bot.Account?.LoginName, account, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (bot.SelectedCharacter?.CharacterSlot is { } slot && resetSlots.Contains(slot))
+            {
+                continue;
+            }
+
+            // Directly constructed bots need not belong to the feature's manager.
+            var activity = bot.Activity;
+            var quarantinedSeconds = activity?.QuarantinedUntilUtc is { } until
+                ? (int)Math.Max(0, (until - DateTimeOffset.UtcNow).TotalSeconds)
+                : 0;
+            cleared.Add(new LiveBotHealthReset(
+                bot.SelectedCharacter?.Name,
+                bot.SelectedCharacter?.CharacterSlot,
+                activity?.Restarts ?? 0,
+                activity?.Failures ?? 0,
+                quarantinedSeconds));
+            bot.ResetHealth();
+        }
+
+        return cleared;
+    }
+
+    /// <inheritdoc />
     public async ValueTask<LivePlayerPage> GetPlayersAsync(ushort? mapNumber, uint? guildId, int offset, int limit, CancellationToken cancellationToken)
     {
         if (offset < 0 || limit is < 1 or > 100)

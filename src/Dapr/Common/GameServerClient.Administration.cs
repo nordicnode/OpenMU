@@ -19,6 +19,10 @@ public sealed partial class GameServerClient : IGameServerAdministration
         => this.InvokeAdministrationAsync<IReadOnlyList<LiveBotInfo>>(nameof(this.GetBotSnapshotAsync), new(), cancellationToken);
 
     /// <inheritdoc />
+    public ValueTask<IReadOnlyList<LiveBotHealthReset>> ResetBotHealthAsync(string account, CancellationToken cancellationToken)
+        => this.InvokeAdministrationAsync<IReadOnlyList<LiveBotHealthReset>>(nameof(this.ResetBotHealthAsync), new() { Account = account }, cancellationToken);
+
+    /// <inheritdoc />
     public ValueTask<IReadOnlyList<LivePlayerInfo>> GetPlayerSnapshotAsync(CancellationToken cancellationToken)
         => this.InvokeAdministrationAsync<IReadOnlyList<LivePlayerInfo>>(nameof(this.GetPlayerSnapshotAsync), new(), cancellationToken);
 

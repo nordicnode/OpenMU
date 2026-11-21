@@ -26,6 +26,13 @@ public sealed class GameServerAdministrationController(IGameServer server, Admin
     public ValueTask<IReadOnlyList<LiveBotInfo>> GetBotSnapshotAsync(GameServerAdministrationRequest request, CancellationToken cancellationToken)
         => this.Resolve(request).GetBotSnapshotAsync(cancellationToken);
 
+    /// <summary>Clears the health records of every bot of an account with duplicate-delivery protection.</summary>
+    /// <param name="request">The request arguments.</param>
+    /// <returns>What was cleared, per bot of the account.</returns>
+    [HttpPost(nameof(IGameServerAdministration.ResetBotHealthAsync))]
+    public ValueTask<IReadOnlyList<LiveBotHealthReset>> ResetBotHealthAsync(GameServerAdministrationRequest request)
+        => deliveries.RunAsync(nameof(this.ResetBotHealthAsync), request, () => this.Resolve(request).ResetBotHealthAsync(request.Account, CancellationToken.None));
+
     /// <summary>Reads one scalar snapshot for a complete player-list query.</summary>
     /// <param name="request">The addressed server.</param>
     /// <param name="cancellationToken">The cancellation token.</param>

@@ -29,7 +29,8 @@ using MUnique.OpenMU.GameLogic.Bots;
 /// <c>null</c> while the bot never had one.</param>
 /// <param name="LootDecisions">The most recent loot decisions of the bot, newest first - why it kept,
 /// equipped, sold or stored an item - or <c>null</c> while it has none.</param>
-/// <param name="CanResetHealth">Whether the local health reset operation can reach this bot.</param>
+/// <param name="CanResetHealth">Whether the health reset operation can reach this bot, which it can on local
+/// and remote game servers alike.</param>
 public record BotAccount(
     string LoginName,
     int ServerId,

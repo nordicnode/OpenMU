@@ -15,6 +15,12 @@ public interface IGameServerAdministration : IGameServerPluginOperations
     /// <returns>A snapshot bounded by the server's live bot population.</returns>
     ValueTask<IReadOnlyList<LiveBotInfo>> GetBotSnapshotAsync(CancellationToken cancellationToken);
 
+    /// <summary>Forgets the failures, restarts and quarantine of every bot of the account on this server.</summary>
+    /// <param name="account">The exact account login name.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>What was cleared, per bot of the account; empty when the server knows no such bot.</returns>
+    ValueTask<IReadOnlyList<LiveBotHealthReset>> ResetBotHealthAsync(string account, CancellationToken cancellationToken);
+
     /// <summary>Reads one best-effort scalar snapshot without waiting for player persistence.</summary>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The connected characters, bounded by the server's player population.</returns>
